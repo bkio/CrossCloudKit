@@ -426,11 +426,17 @@ aws-credentials
 **/mongo.conf
 mongodb.log
 
+# Visual Studio launch settings with sensitive data
+**/Properties/launchSettings.json
+launchSettings.json
+
 # Google Cloud credentials and configs  
 .gcloud/
 **/google-cloud-key.json
 **/service-account-key.json
 **/*-service-account.json
+**/*-service-account-*.json
+**/crosscloudkit-*.json
 
 # Environment variables files
 .env

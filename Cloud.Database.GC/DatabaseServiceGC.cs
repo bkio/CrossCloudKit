@@ -26,51 +26,79 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     public bool IsInitialized => bInitializationSucceed;
 
     /// <summary>
-    /// DatabaseServiceGC: Constructor for Managed Service by Google
+    /// DatabaseServiceGC: Constructor using service account JSON file path
     /// </summary>
     /// <param name="projectId">GC Project ID</param>
+    /// <param name="serviceAccountKeyFilePath">Path to the service account JSON key file</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceGC(
         string projectId,
+        string serviceAccountKeyFilePath,
         Action<string>? errorMessageAction = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountKeyFilePath);
         
         try
         {
-            string? applicationCredentials = Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
-            string? applicationCredentialsPlain = Environment.GetEnvironmentVariable("GOOGLE_PLAIN_CREDENTIALS");
-            string? applicationCredentialsBase64 = Environment.GetEnvironmentVariable("GOOGLE_BASE64_CREDENTIALS");
+            using var stream = new FileStream(serviceAccountKeyFilePath, FileMode.Open, FileAccess.Read);
+            Credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(DatastoreClient.DefaultScopes)
+                        .UnderlyingCredential as ServiceAccountCredential;
 
-            if (applicationCredentials == null && applicationCredentialsPlain == null && applicationCredentialsBase64 == null)
+            if (Credential != null)
             {
-                errorMessageAction?.Invoke("DatabaseServiceGC->Constructor: GOOGLE_APPLICATION_CREDENTIALS (or GOOGLE_PLAIN_CREDENTIALS or GOOGLE_BASE64_CREDENTIALS) environment variable is not defined.");
-                bInitializationSucceed = false;
-                return;
-            }
-
-            if (applicationCredentials == null)
-            {
-                if (applicationCredentialsPlain != null && !TryHexDecode(applicationCredentialsPlain, out applicationCredentialsPlain, errorMessageAction))
+                DSClient = new DatastoreClientBuilder
                 {
-                    throw new Exception("Hex decode operation for application credentials plain has failed.");
-                }
-                else if (applicationCredentialsBase64 != null && !TryBase64Decode(applicationCredentialsBase64, out applicationCredentialsPlain, errorMessageAction))
-                {
-                    throw new Exception("Base64 decode operation for application credentials plain has failed.");
-                }
-
-                if (applicationCredentialsPlain != null)
-                {
-                    Credential = GoogleCredential.FromJson(applicationCredentialsPlain)
-                                 .CreateScoped(DatastoreClient.DefaultScopes)
-                                 .UnderlyingCredential as ServiceAccountCredential;
-                }
+                    Credential = GoogleCredential.FromServiceAccountCredential(Credential)
+                }.Build();
             }
             else
             {
-                using var stream = new FileStream(applicationCredentials, FileMode.Open, FileAccess.Read);
-                Credential = GoogleCredential.FromStream(stream)
+                DSClient = DatastoreClient.Create();
+            }
+
+            DSDB = DatastoreDb.Create(projectId, "", DSClient);
+            bInitializationSucceed = DSDB != null;
+        }
+        catch (Exception e)
+        {
+            errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
+            bInitializationSucceed = false;
+        }
+    }
+
+    /// <summary>
+    /// DatabaseServiceGC: Constructor using service account JSON content
+    /// </summary>
+    /// <param name="projectId">GC Project ID</param>
+    /// <param name="serviceAccountJsonContent">JSON content of the service account key</param>
+    /// <param name="isBase64Encoded">Whether the JSON content is base64 encoded</param>
+    /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
+    public DatabaseServiceGC(
+        string projectId,
+        string serviceAccountJsonContent,
+        bool isBase64Encoded,
+        Action<string>? errorMessageAction = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountJsonContent);
+        
+        try
+        {
+            string? jsonContent = serviceAccountJsonContent;
+            
+            if (isBase64Encoded)
+            {
+                if (!TryBase64Decode(serviceAccountJsonContent, out jsonContent, errorMessageAction))
+                {
+                    throw new Exception("Base64 decode operation for service account JSON has failed.");
+                }
+            }
+
+            if (jsonContent != null)
+            {
+                Credential = GoogleCredential.FromJson(jsonContent)
                             .CreateScoped(DatastoreClient.DefaultScopes)
                             .UnderlyingCredential as ServiceAccountCredential;
             }
@@ -87,6 +115,88 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                 DSClient = DatastoreClient.Create();
             }
 
+            DSDB = DatastoreDb.Create(projectId, "", DSClient);
+            bInitializationSucceed = DSDB != null;
+        }
+        catch (Exception e)
+        {
+            errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
+            bInitializationSucceed = false;
+        }
+    }
+
+    /// <summary>
+    /// DatabaseServiceGC: Constructor using hex-encoded service account JSON content
+    /// </summary>
+    /// <param name="projectId">GC Project ID</param>
+    /// <param name="serviceAccountJsonHexContent">Hex-encoded JSON content of the service account key</param>
+    /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
+    public DatabaseServiceGC(
+        string projectId,
+        ReadOnlySpan<char> serviceAccountJsonHexContent,
+        Action<string>? errorMessageAction = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        
+        try
+        {
+            var hexString = serviceAccountJsonHexContent.ToString();
+            if (!TryHexDecode(hexString, out var jsonContent, errorMessageAction))
+            {
+                throw new Exception("Hex decode operation for service account JSON has failed.");
+            }
+
+            if (jsonContent != null)
+            {
+                Credential = GoogleCredential.FromJson(jsonContent)
+                            .CreateScoped(DatastoreClient.DefaultScopes)
+                            .UnderlyingCredential as ServiceAccountCredential;
+            }
+
+            if (Credential != null)
+            {
+                DSClient = new DatastoreClientBuilder
+                {
+                    Credential = GoogleCredential.FromServiceAccountCredential(Credential)
+                }.Build();
+            }
+            else
+            {
+                DSClient = DatastoreClient.Create();
+            }
+
+            DSDB = DatastoreDb.Create(projectId, "", DSClient);
+            bInitializationSucceed = DSDB != null;
+        }
+        catch (Exception e)
+        {
+            errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
+            bInitializationSucceed = false;
+        }
+    }
+
+    /// <summary>
+    /// DatabaseServiceGC: Constructor for default credentials (uses Application Default Credentials)
+    /// </summary>
+    /// <param name="projectId">GC Project ID</param>
+    /// <param name="useDefaultCredentials">Must be true to use this constructor</param>
+    /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
+    public DatabaseServiceGC(
+        string projectId,
+        bool useDefaultCredentials,
+        Action<string>? errorMessageAction = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        
+        if (!useDefaultCredentials)
+        {
+            throw new ArgumentException("This constructor is for default credentials only. Set useDefaultCredentials to true or use a different constructor.", nameof(useDefaultCredentials));
+        }
+        
+        try
+        {
+            // Use Application Default Credentials (ADC)
+            DSClient = DatastoreClient.Create();
             DSDB = DatastoreDb.Create(projectId, "", DSClient);
             bInitializationSucceed = DSDB != null;
         }

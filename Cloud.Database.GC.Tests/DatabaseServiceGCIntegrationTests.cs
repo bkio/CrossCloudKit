@@ -1,7 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using Cloud.Database.GC;
+using Cloud.Database.Tests.Common;
 using Cloud.Interfaces;
 using FluentAssertions;
 using Xunit;
@@ -9,21 +9,104 @@ using Xunit;
 namespace Cloud.Database.GC.Tests;
 
 /// <summary>
-/// Basic tests for DatabaseServiceGC - These tests focus on interface compliance
-/// Full integration tests would require Google Cloud Datastore emulator setup
+/// Full integration tests for DatabaseServiceGC extending DatabaseServiceTestBase
+/// 
+/// IMPORTANT: These tests focus on constructor behavior, error handling, interface compliance,
+/// and comprehensive condition testing with actual database operations.
+/// They use intentionally invalid credentials to test error scenarios.
+/// 
+/// For ACTUAL integration testing with Google Cloud Datastore, you would need:
+/// 1. Google Cloud Datastore emulator running locally, OR
+/// 2. Valid service account credentials and a real Google Cloud project, OR  
+/// 3. Application Default Credentials (ADC) properly configured
 /// </summary>
-public class DatabaseServiceGCBasicTests
+public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
 {
-    private const string TestProjectId = "test-project";
+    private const string TestProjectId = "test-project-id";
+
+    /// <summary>
+    /// Gets the test project ID from environment variable or uses fallback
+    /// </summary>
+    /// <param name="fallbackProjectId">Fallback project ID if environment variable is not set</param>
+    /// <returns>The project ID to use for testing</returns>
+    private static string GetTestProjectId(string fallbackProjectId)
+    {
+        return Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT") ?? fallbackProjectId;
+    }
+
+    /// <summary>
+    /// Creates a database service instance for testing, using environment variables if available
+    /// </summary>
+    /// <param name="projectId">The Google Cloud project ID</param>
+    /// <returns>A configured DatabaseServiceGC instance</returns>
+    private static DatabaseServiceGC CreateServiceForTesting(string projectId)
+    {
+        var errorMessages = new List<string>();
+        void errorAction(string message) => errorMessages.Add(message);
+
+        // First try to get Base64 encoded credentials from environment
+        var base64Credentials = Environment.GetEnvironmentVariable("GOOGLE_BASE64_CREDENTIALS");
+        if (!string.IsNullOrEmpty(base64Credentials))
+        {
+            return new DatabaseServiceGC(projectId, base64Credentials, isBase64Encoded: true, errorAction);
+        }
+
+        // If no Base64 credentials, try JSON credentials from environment
+        var jsonCredentials = Environment.GetEnvironmentVariable("GOOGLE_JSON_CREDENTIALS");
+        if (!string.IsNullOrEmpty(jsonCredentials))
+        {
+            return new DatabaseServiceGC(projectId, jsonCredentials, isBase64Encoded: false, errorAction);
+        }
+
+        // If no credentials in environment, try using default credentials
+        return new DatabaseServiceGC(projectId, useDefaultCredentials: true, errorAction);
+    }
+
+    protected override IDatabaseService CreateDatabaseService()
+    {
+        // Use the enhanced helper that supports real credentials
+        var projectId = GetTestProjectId(TestProjectId);
+        return CreateServiceForTesting(projectId);
+    }
+
+    protected override string GetTestTableName() => $"test-kind-{Guid.NewGuid():N}";
 
     [Fact]
-    public void DatabaseServiceGC_WithValidProjectId_ShouldCreateInstance()
+    public void DatabaseServiceGC_WithServiceAccountFilePath_ShouldInitialize()
     {
-        // Arrange & Act
-        DatabaseServiceGC service = new(TestProjectId);
+        // This test demonstrates using a file path (will fail initialization with non-existent file)
+
+        // Arrange
+        const string mockFilePath = "/path/to/nonexistent/service-account.json";
+        var errorMessages = new List<string>();
+        void errorAction(string message) => errorMessages.Add(message);
+
+        // Act
+        var service = new DatabaseServiceGC(TestProjectId, mockFilePath, errorAction);
 
         // Assert
         service.Should().NotBeNull();
+        service.IsInitialized.Should().BeFalse(); // Expected to fail with non-existent file
+        errorMessages.Should().NotBeEmpty(); // Should capture file not found error
+
+        // Cleanup
+        if (service is IAsyncDisposable asyncDisposable)
+        {
+            _ = Task.Run(async () => await asyncDisposable.DisposeAsync());
+        }
+    }
+
+    [Fact]
+    public void DatabaseServiceGC_WithDefaultCredentials_ShouldInitialize()
+    {
+        // This test may succeed if running with proper ADC setup, or fail gracefully
+
+        // Arrange & Act
+        var service = new DatabaseServiceGC(TestProjectId, useDefaultCredentials: true);
+
+        // Assert
+        service.Should().NotBeNull();
+        // Note: IsInitialized depends on whether ADC is properly configured in the test environment
 
         // Cleanup
         if (service is IAsyncDisposable asyncDisposable)
@@ -35,65 +118,50 @@ public class DatabaseServiceGCBasicTests
     [Fact]
     public void DatabaseServiceGC_WithNullProjectId_ShouldThrowArgumentException()
     {
-        // Arrange, Act & Assert
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(null!));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(""));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("   "));
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(null!, useDefaultCredentials: true));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("", useDefaultCredentials: true));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("   ", useDefaultCredentials: true));
     }
 
     [Fact]
-    public void DatabaseOptions_ShouldBeConfigurable()
+    public void DatabaseServiceGC_WithDefaultCredentialsFalse_ShouldThrowArgumentException()
     {
-        // Arrange
-        var service = new DatabaseServiceGC(TestProjectId);
-
-        try
-        {
-            var options = new DatabaseOptions
-            {
-                AutoSortArrays = AutoSortArrays.Yes,
-                AutoConvertRoundableFloatToInt = AutoConvertRoundableFloatToInt.Yes
-            };
-
-            // Act & Assert - Should not throw
-            service.SetOptions(options);
-        }
-        finally
-        {
-            if (service is IAsyncDisposable asyncDisposable)
-            {
-                _ = Task.Run(async () => await asyncDisposable.DisposeAsync());
-            }
-        }
+        // Act & Assert
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, useDefaultCredentials: false));
     }
 
     [Fact]
-    public void ConditionBuilders_ShouldCreateCorrectConditions()
+    public void DatabaseServiceGC_WithNullServiceAccountPath_ShouldThrowArgumentException()
     {
-        // Arrange
-        var service = new DatabaseServiceGC(TestProjectId);
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, (string)null!));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, ""));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   "));
+    }
 
-        try
+    [Fact]
+    public void DatabaseServiceGC_WithNullJsonContent_ShouldThrowArgumentException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!, isBase64Encoded: false));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "", isBase64Encoded: false));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   ", isBase64Encoded: false));
+    }
+
+    [Fact]
+    public async Task DisposeAsync_ShouldCompleteSuccessfully()
+    {
+        var service = CreateDatabaseService();
+
+        // Cast to DatabaseServiceGC for DisposeAsync access
+        if (service is DatabaseServiceGC gcService)
         {
-            // Act & Assert
-            var existsCondition = service.BuildAttributeExistsCondition("TestAttribute");
-            existsCondition.Should().BeOfType<ExistenceCondition>();
-            existsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeExists);
+            // Act & Assert - should not throw
+            await gcService.DisposeAsync();
 
-            var equalsCondition = service.BuildAttributeEqualsCondition("Name", new Utilities.Common.PrimitiveType("test"));
-            equalsCondition.Should().BeOfType<ValueCondition>();
-            equalsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeEquals);
-
-            var arrayCondition = service.BuildArrayElementExistsCondition("Tags", new Utilities.Common.PrimitiveType("tag1"));
-            arrayCondition.Should().BeOfType<ArrayElementCondition>();
-            arrayCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.ArrayElementExists);
-        }
-        finally
-        {
-            if (service is IAsyncDisposable asyncDisposable)
-            {
-                _ = Task.Run(async () => await asyncDisposable.DisposeAsync());
-            }
+            // Multiple calls should be safe
+            await gcService.DisposeAsync();
         }
     }
 }

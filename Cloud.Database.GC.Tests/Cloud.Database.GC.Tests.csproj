@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cloud.Database.GC\Cloud.Database.GC.csproj" />
+    <ProjectReference Include="..\Cloud.Database.Tests.Common\Cloud.Database.Tests.Common.csproj" />
     <ProjectReference Include="..\Cloud.Interfaces\Cloud.Interfaces.csproj" />
     <ProjectReference Include="..\Utilities.Common\Utilities.Common.csproj" />
   </ItemGroup>

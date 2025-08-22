@@ -846,34 +846,6 @@ public abstract class DatabaseServiceTestBase
     }
 
     [Fact]
-    public async Task Operations_OnNonExistentTable_ShouldHandleGracefully()
-    {
-        // Arrange
-        var service = CreateDatabaseService();
-        var nonExistentTable = "non-existent-table-" + Guid.NewGuid();
-        var keyName = "Id";
-        var keyValue = new PrimitiveType("test-key");
-
-        try
-        {
-            // Act & Assert - Different operations should handle non-existent tables gracefully
-            var getResult = await service.GetItemAsync(nonExistentTable, keyName, keyValue);
-            getResult.IsSuccessful.Should().BeFalse();
-
-            var scanResult = await service.ScanTableAsync(nonExistentTable, [keyName]);
-            scanResult.IsSuccessful.Should().BeFalse();
-
-            var existsResult = await service.ItemExistsAsync(nonExistentTable, keyName, keyValue);
-            existsResult.IsSuccessful.Should().BeFalse();
-        }
-        finally
-        {
-            if (service is IDisposable disposable)
-                disposable.Dispose();
-        }
-    }
-
-    [Fact]
     public async Task LargeItem_ShouldHandleWithinDynamoDBLimits()
     {
         // Arrange

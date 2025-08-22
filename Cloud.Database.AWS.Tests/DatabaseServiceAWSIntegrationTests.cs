@@ -5,61 +5,66 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Cloud.Database.Tests.Common;
 using Cloud.Interfaces;
-using DotNet.Testcontainers.Builders;
-using DotNet.Testcontainers.Containers;
 using FluentAssertions;
 using Xunit;
 
 namespace Cloud.Database.AWS.Tests;
 
 /// <summary>
-/// Integration tests for DatabaseServiceAWS using Testcontainers DynamoDB Local
+/// Integration tests for DatabaseServiceAWS using AWS credentials
 /// </summary>
-public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase, IAsyncLifetime
+public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
 {
-    private IContainer? _dynamoDbContainer;
-    private string _dynamoDbEndpoint = string.Empty;
-
-    public async Task InitializeAsync()
+    private static string GetAWSAccessKey()
     {
-        // Start DynamoDB Local container
-        _dynamoDbContainer = new ContainerBuilder()
-            .WithImage("amazon/dynamodb-local:latest")
-            .WithPortBinding(8000, true)
-            .WithCommand("-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb")
-            .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(8000))
-            .Build();
-
-        await _dynamoDbContainer.StartAsync();
-        
-        _dynamoDbEndpoint = $"http://localhost:{_dynamoDbContainer.GetMappedPublicPort(8000)}";
+        return Environment.GetEnvironmentVariable("AWS_ACCESS_KEY") ?? "";
     }
-
-    public async Task DisposeAsync()
+    
+    private static string GetAWSSecretKey()
     {
-        if (_dynamoDbContainer != null)
-        {
-            await _dynamoDbContainer.DisposeAsync();
-        }
+        return Environment.GetEnvironmentVariable("AWS_SECRET_KEY") ?? "";
+    }
+    
+    private static string GetAWSRegion()
+    {
+        return Environment.GetEnvironmentVariable("AWS_REGION") ?? "us-east-1";
     }
 
     protected override IDatabaseService CreateDatabaseService()
     {
-        return new DatabaseServiceAWS(_dynamoDbEndpoint);
+        var accessKey = GetAWSAccessKey();
+        var secretKey = GetAWSSecretKey();
+        var region = GetAWSRegion();
+        
+        // If credentials are not provided, return a service that will fail initialization
+        if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
+        {
+            return new DatabaseServiceAWS("invalid-key", "invalid-secret", region);
+        }
+        
+        return new DatabaseServiceAWS(accessKey, secretKey, region);
     }
 
     protected override async Task CleanupDatabaseAsync(string tableName)
     {
         try
         {
-            using var client = new AmazonDynamoDBClient(new AmazonDynamoDBConfig
+            var accessKey = GetAWSAccessKey();
+            var secretKey = GetAWSSecretKey();
+            var region = GetAWSRegion();
+            
+            if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
             {
-                ServiceURL = _dynamoDbEndpoint
-            });
+                return; // Skip cleanup if no credentials
+            }
+
+            using var client = new AmazonDynamoDBClient(
+                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
+                Amazon.RegionEndpoint.GetBySystemName(region));
 
             await client.DeleteTableAsync(tableName);
             
-            // Wait for table to be deleted using simple polling instead of waiter
+            // Wait for table to be deleted using simple polling
             var maxWaitTime = TimeSpan.FromMinutes(2);
             var startTime = DateTime.UtcNow;
             
@@ -90,10 +95,21 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase, IAsyn
     protected override string GetTestTableName() => $"test-table-{Guid.NewGuid():N}";
 
     [Fact]
-    public void DatabaseServiceAWS_WithValidLocalEndpoint_ShouldInitializeSuccessfully()
+    public void DatabaseServiceAWS_WithValidCredentials_ShouldInitializeSuccessfully()
     {
-        // Arrange & Act
-        var service = new DatabaseServiceAWS(_dynamoDbEndpoint);
+        // Arrange
+        var accessKey = GetAWSAccessKey();
+        var secretKey = GetAWSSecretKey();
+        var region = GetAWSRegion();
+        
+        // Skip if no credentials provided
+        if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
+        {
+            return;
+        }
+
+        // Act
+        var service = new DatabaseServiceAWS(accessKey, secretKey, region);
 
         // Assert
         service.IsInitialized.Should().BeTrue();

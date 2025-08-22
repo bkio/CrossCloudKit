@@ -468,3 +468,5 @@ Thumbs.db
 # Log files
 *.log
 logs/
+
+test.runsettings

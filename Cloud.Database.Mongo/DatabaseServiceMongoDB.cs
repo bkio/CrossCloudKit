@@ -1110,8 +1110,8 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
             // Remove database id as it is not part of what we store
             document.Remove("_id");
 
-            // Set strict mode to convert numbers to valid JSON
-            var jsonString = document.ToJson(new JsonWriterSettings { OutputMode = JsonOutputMode.CanonicalExtendedJson });
+            // Use relaxed mode to convert numbers to natural JSON format instead of extended format
+            var jsonString = document.ToJson(new JsonWriterSettings { OutputMode = JsonOutputMode.RelaxedExtendedJson });
             return JObject.Parse(jsonString);
         }
         catch

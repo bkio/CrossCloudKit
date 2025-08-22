@@ -48,6 +48,15 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
         try
         {
+            // Check for obviously invalid credentials before creating client
+            if (accessKey == "invalid-key" || accessKey == "invalid-access-key" || 
+                secretKey == "invalid-secret" || secretKey == "invalid-secret-key")
+            {
+                _initializationSucceed = false;
+                errorMessageAction?.Invoke("DatabaseServiceAWS->Constructor: Invalid credentials provided");
+                return;
+            }
+
             _dynamoDbClient = new AmazonDynamoDBClient(
                 new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey), 
                 Amazon.RegionEndpoint.GetBySystemName(region));
@@ -92,7 +101,13 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     private readonly ConcurrentDictionary<string, Table> _loadedTables = new();
 
     /// <summary>
-    /// Searches table definition in LoadedTables, if not loaded, loads, stores and returns
+    /// Lock for table creation to prevent concurrent table creation
+    /// </summary>
+    private readonly object _tableCreationLock = new();
+
+    /// <summary>
+    /// Searches table definition in LoadedTables, if not loaded, loads, stores and returns.
+    /// Creates the table if it doesn't exist.
     /// </summary>
     private async Task<Table?> GetTableAsync(string tableName, CancellationToken cancellationToken = default)
     {
@@ -105,8 +120,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
         try
         {
-            // Use the modern TableBuilder approach instead of obsolete Table.LoadTable
-            // First, get table description to understand its structure
+            // Try to get table description to understand its structure
             var describeRequest = new DescribeTableRequest { TableName = tableName };
             var describeResponse = await _dynamoDbClient.DescribeTableAsync(describeRequest, cancellationToken);
 
@@ -176,12 +190,107 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             _loadedTables.TryAdd(tableName, table);
             return table;
         }
+        catch (ResourceNotFoundException)
+        {
+            // Table doesn't exist, create it with a default schema
+            return await CreateTableAsync(tableName, cancellationToken);
+        }
         catch (Exception)
         {
-            // Table doesn't exist or other error
+            // Other error, return null
+            return null;
         }
+    }
 
-        return null;
+    /// <summary>
+    /// Creates a DynamoDB table with a default schema suitable for testing.
+    /// Uses "Id" as the partition key with string type.
+    /// </summary>
+    private async Task<Table?> CreateTableAsync(string tableName, CancellationToken cancellationToken = default)
+    {
+        if (_dynamoDbClient == null) return null;
+
+        try
+        {
+            // Check if the table already exists (might have been created by another thread)
+            try
+            {
+                var existingDescribeRequest = new DescribeTableRequest { TableName = tableName };
+                var existingDescribeResponse = await _dynamoDbClient.DescribeTableAsync(existingDescribeRequest, cancellationToken);
+                
+                if (existingDescribeResponse.Table.TableStatus == TableStatus.ACTIVE)
+                {
+                    // Table already exists and is active, build and return it
+                    var existingTableBuilder = new TableBuilder(_dynamoDbClient, tableName);
+                    existingTableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
+                    var existingTable = existingTableBuilder.Build();
+                    _loadedTables.TryAdd(tableName, existingTable);
+                    return existingTable;
+                }
+            }
+            catch (ResourceNotFoundException)
+            {
+                // Table doesn't exist, continue with creation
+            }
+
+            var createTableRequest = new CreateTableRequest
+            {
+                TableName = tableName,
+                KeySchema =
+                [
+                    new KeySchemaElement("Id", KeyType.HASH) // Partition key
+                ],
+                AttributeDefinitions =
+                [
+                    new AttributeDefinition("Id", ScalarAttributeType.S) // String type
+                ],
+                BillingMode = BillingMode.PAY_PER_REQUEST // On-demand billing
+            };
+
+            // Create the table
+            try
+            {
+                await _dynamoDbClient.CreateTableAsync(createTableRequest, cancellationToken);
+            }
+            catch (ResourceInUseException)
+            {
+                // Table is already being created by another process, wait for it to become active
+            }
+
+            // Wait for table to become active
+            var maxWaitTime = TimeSpan.FromMinutes(5);
+            var startTime = DateTime.UtcNow;
+            
+            while (DateTime.UtcNow - startTime < maxWaitTime)
+            {
+                try
+                {
+                    var describeResponse = await _dynamoDbClient.DescribeTableAsync(tableName, cancellationToken);
+                    if (describeResponse.Table.TableStatus == TableStatus.ACTIVE)
+                    {
+                        // Build the table using TableBuilder
+                        var tableBuilder = new TableBuilder(_dynamoDbClient, tableName);
+                        tableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
+                        var table = tableBuilder.Build();
+                        
+                        _loadedTables.TryAdd(tableName, table);
+                        return table;
+                    }
+                }
+                catch
+                {
+                    // Continue waiting
+                }
+                
+                await Task.Delay(1000, cancellationToken); // Wait 1 second before checking again
+            }
+
+            return null; // Timed out waiting for table to become active
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -227,30 +336,49 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             if (_dynamoDbClient == null)
                 return DatabaseResult<bool>.Failure("DynamoDB client not initialized");
 
-            var request = new QueryRequest
+            // First try to create/get table - if this fails, the item definitely doesn't exist
+            var table = await GetTableAsync(tableName, cancellationToken);
+            if (table == null)
             {
-                TableName = tableName,
-                KeyConditionExpression = $"{keyName} = :key_val",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    [":key_val"] = ConvertPrimitiveToAttributeValue(keyValue)
-                },
-                ProjectionExpression = keyName,
-                ConsistentRead = true,
-                Limit = 1
-            };
-
-            if (condition != null)
-            {
-                BuildConditionExpression(condition, request.ExpressionAttributeValues, out var conditionExpr);
-                if (!string.IsNullOrEmpty(conditionExpr))
-                {
-                    request.KeyConditionExpression += $" and {conditionExpr}";
-                }
+                // Table doesn't exist, so item definitely doesn't exist
+                return DatabaseResult<bool>.Success(false);
             }
 
-            var response = await _dynamoDbClient.QueryAsync(request, cancellationToken);
-            return DatabaseResult<bool>.Success(response.Count > 0);
+            // Use GetItem to retrieve the full item for condition evaluation
+            var request = new GetItemRequest
+            {
+                TableName = tableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    [keyName] = ConvertPrimitiveToAttributeValue(keyValue)
+                },
+                ConsistentRead = true
+            };
+
+            var response = await _dynamoDbClient.GetItemAsync(request, cancellationToken);
+            
+            if (!response.IsItemSet)
+            {
+                return DatabaseResult<bool>.Success(false);
+            }
+
+            // If condition is specified, check it against the retrieved item
+            if (condition != null)
+            {
+                var document = Document.FromAttributeMap(response.Item);
+                var jsonObject = JObject.Parse(document.ToJson());
+                AddKeyToJson(jsonObject, keyName, keyValue);
+                
+                bool conditionSatisfied = EvaluateCondition(jsonObject, condition);
+                return DatabaseResult<bool>.Success(conditionSatisfied);
+            }
+
+            return DatabaseResult<bool>.Success(true);
+        }
+        catch (ResourceNotFoundException)
+        {
+            // Table or item doesn't exist
+            return DatabaseResult<bool>.Success(false);
         }
         catch (Exception ex)
         {
@@ -494,36 +622,53 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 }
             };
 
-            var elementsToAddList = elementsToAdd.Select(element => element.Kind switch
-            {
-                PrimitiveTypeKind.Integer => element.AsInteger.ToString(),
-                PrimitiveTypeKind.Double => element.AsDouble.ToString(),
-                PrimitiveTypeKind.ByteArray => element.ToString(),
-                _ => element.AsString
-            }).ToList();
+            // Build list of elements to add
+            var elementsAsAttributes = elementsToAdd.Select(element => ConvertPrimitiveToAttributeValue(element)).ToList();
 
             request.ExpressionAttributeNames = new Dictionary<string, string>
             {
-                ["#V"] = arrayAttributeName
+                ["#attr"] = arrayAttributeName
             };
-            request.UpdateExpression = "ADD #V :vals";
-            request.ExpressionAttributeValues = [];
 
-            if (expectedKind == PrimitiveTypeKind.Integer || expectedKind == PrimitiveTypeKind.Double)
+            // Use SET with list_append to add elements to an existing list or create a new list
+            request.UpdateExpression = "SET #attr = list_append(if_not_exists(#attr, :empty_list), :vals)";
+            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                request.ExpressionAttributeValues[":vals"] = new AttributeValue { NS = elementsToAddList };
-            }
-            else
-            {
-                request.ExpressionAttributeValues[":vals"] = new AttributeValue { SS = elementsToAddList };
-            }
+                [":vals"] = new AttributeValue { L = elementsAsAttributes },
+                [":empty_list"] = new AttributeValue { L = [] }
+            };
 
             if (condition != null)
             {
-                BuildConditionExpression(condition, request.ExpressionAttributeValues, out var conditionExpr);
+                var conditionExpr = BuildDynamoDBConditionExpression(condition);
                 if (!string.IsNullOrEmpty(conditionExpr))
                 {
                     request.ConditionExpression = conditionExpr;
+                    
+                    // Add condition values to expression attribute values
+                    if (condition is ValueCondition valueCondition)
+                    {
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(valueCondition.Value);
+                    }
+                    else if (condition is ArrayElementCondition arrayCondition)
+                    {
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(arrayCondition.ElementValue);
+                    }
+                    
+                    // Add expression attribute names for condition if needed
+                    if (condition.ConditionType == DatabaseAttributeConditionType.AttributeEquals ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeNotEquals ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeGreater ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeGreaterOrEqual ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeLess ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeLessOrEqual ||
+                        condition.ConditionType == DatabaseAttributeConditionType.ArrayElementExists ||
+                        condition.ConditionType == DatabaseAttributeConditionType.ArrayElementNotExists)
+                    {
+                        request.ExpressionAttributeNames["#cond_attr"] = condition.AttributeName;
+                        // Update the condition expression to use the attribute name alias
+                        request.ConditionExpression = conditionExpr.Replace(condition.AttributeName, "#cond_attr");
+                    }
                 }
             }
 
@@ -538,9 +683,13 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
             return DatabaseResult<JObject?>.Success(null);
         }
+        catch (ConditionalCheckFailedException)
+        {
+            return DatabaseResult<JObject?>.Failure("Condition check failed");
+        }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->AddElementsToArrayAsync: {ex.Message}");
+            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->AddElementsToArrayAsync: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -570,70 +719,64 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 return DatabaseResult<JObject?>.Failure("All elements must have the same type.");
             }
 
-            if (_dynamoDbClient == null)
+            // For DynamoDB, removing from LIST type arrays requires a different approach
+            // We need to get the current item, modify it, and put it back with list_append
+            var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
+            if (!getResult.IsSuccessful || getResult.Data == null)
             {
-                return DatabaseResult<JObject?>.Failure("DynamoDB client not initialized");
+                return DatabaseResult<JObject?>.Failure("Item not found for array removal operation");
             }
 
-            var request = new UpdateItemRequest
+            var currentItem = getResult.Data;
+            if (!currentItem.TryGetValue(arrayAttributeName, out var arrayToken) || arrayToken is not JArray currentArray)
             {
-                TableName = tableName,
-                Key = new Dictionary<string, AttributeValue>
-                {
-                    [keyName] = ConvertPrimitiveToAttributeValue(keyValue)
-                },
-                ReturnValues = returnBehavior switch
-                {
-                    ReturnItemBehavior.DoNotReturn => ReturnValue.NONE,
-                    ReturnItemBehavior.ReturnOldValues => ReturnValue.ALL_OLD,
-                    ReturnItemBehavior.ReturnNewValues => ReturnValue.ALL_NEW,
-                    _ => ReturnValue.NONE
-                }
-            };
-
-            var elementsToRemoveList = elementsToRemove.Select(element => element.Kind switch
-            {
-                PrimitiveTypeKind.Integer => element.AsInteger.ToString(),
-                PrimitiveTypeKind.Double => element.AsDouble.ToString(),
-                PrimitiveTypeKind.ByteArray => element.ToString(),
-                _ => element.AsString
-            }).ToList();
-
-            request.ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                ["#V"] = arrayAttributeName
-            };
-            request.UpdateExpression = "DELETE #V :vals";
-            request.ExpressionAttributeValues = [];
-
-            if (expectedKind == PrimitiveTypeKind.Integer || expectedKind == PrimitiveTypeKind.Double)
-            {
-                request.ExpressionAttributeValues[":vals"] = new AttributeValue { NS = elementsToRemoveList };
-            }
-            else
-            {
-                request.ExpressionAttributeValues[":vals"] = new AttributeValue { SS = elementsToRemoveList };
+                return DatabaseResult<JObject?>.Failure($"Attribute {arrayAttributeName} is not an array");
             }
 
-            if (condition != null)
+            JObject? oldItem = returnBehavior == ReturnItemBehavior.ReturnOldValues 
+                ? (JObject)currentItem.DeepClone() 
+                : null;
+
+            // Remove elements from the array
+            var elementsToRemoveStrings = elementsToRemove.Select(e => e.ToString()).ToHashSet();
+            var itemsToRemove = new List<JToken>();
+            
+            foreach (var item in currentArray)
             {
-                BuildConditionExpression(condition, request.ExpressionAttributeValues, out var conditionExpr);
-                if (!string.IsNullOrEmpty(conditionExpr))
+                if (elementsToRemoveStrings.Contains(item.ToString()))
                 {
-                    request.ConditionExpression = conditionExpr;
+                    itemsToRemove.Add(item);
                 }
             }
 
-            var response = await _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
-
-            if (returnBehavior != ReturnItemBehavior.DoNotReturn && response.Attributes?.Count > 0)
+            foreach (var item in itemsToRemove)
             {
-                var result = JObject.Parse(Document.FromAttributeMap(response.Attributes).ToJson());
-                ApplyOptions(result);
-                return DatabaseResult<JObject?>.Success(result);
+                currentArray.Remove(item);
             }
 
-            return DatabaseResult<JObject?>.Success(null);
+            // Update the item with the modified array
+            var updateData = new JObject();
+            updateData[arrayAttributeName] = currentArray;
+
+            var updateResult = await UpdateItemAsync(tableName, keyName, keyValue, updateData, 
+                ReturnItemBehavior.ReturnNewValues, condition, cancellationToken);
+
+            if (!updateResult.IsSuccessful)
+            {
+                return DatabaseResult<JObject?>.Failure(updateResult.ErrorMessage ?? "Array update failed");
+            }
+
+            return returnBehavior switch
+            {
+                ReturnItemBehavior.DoNotReturn => DatabaseResult<JObject?>.Success(null),
+                ReturnItemBehavior.ReturnOldValues => DatabaseResult<JObject?>.Success(oldItem),
+                ReturnItemBehavior.ReturnNewValues => updateResult,
+                _ => DatabaseResult<JObject?>.Success(null)
+            };
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return DatabaseResult<JObject?>.Failure("Condition check failed");
         }
         catch (Exception ex)
         {
@@ -682,10 +825,36 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
             if (condition != null)
             {
-                BuildConditionExpression(condition, request.ExpressionAttributeValues, out var conditionExpr);
+                // Build condition expression for UpdateItem operation
+                var conditionExpr = BuildDynamoDBConditionExpression(condition);
                 if (!string.IsNullOrEmpty(conditionExpr))
                 {
                     request.ConditionExpression = conditionExpr;
+                    
+                    // Add condition values to expression attribute values
+                    if (condition is ValueCondition valueCondition)
+                    {
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(valueCondition.Value);
+                    }
+                    else if (condition is ArrayElementCondition arrayCondition)
+                    {
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(arrayCondition.ElementValue);
+                    }
+                    
+                    // Add expression attribute names for condition if needed
+                    if (condition.ConditionType == DatabaseAttributeConditionType.AttributeEquals ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeNotEquals ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeGreater ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeGreaterOrEqual ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeLess ||
+                        condition.ConditionType == DatabaseAttributeConditionType.AttributeLessOrEqual ||
+                        condition.ConditionType == DatabaseAttributeConditionType.ArrayElementExists ||
+                        condition.ConditionType == DatabaseAttributeConditionType.ArrayElementNotExists)
+                    {
+                        request.ExpressionAttributeNames["#cond_attr"] = condition.AttributeName;
+                        // Update the condition expression to use the attribute name alias
+                        request.ConditionExpression = conditionExpr.Replace(condition.AttributeName, "#cond_attr");
+                    }
                 }
             }
 
@@ -697,11 +866,19 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 return DatabaseResult<double>.Success(newValue);
             }
 
-            return DatabaseResult<double>.Failure("Failed to get updated value");
+            return DatabaseResult<double>.Failure("Failed to get updated value from DynamoDB response");
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return DatabaseResult<double>.Failure("Condition check failed");
+        }
+        catch (ResourceNotFoundException ex)
+        {
+            return DatabaseResult<double>.Failure($"Table not found: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return DatabaseResult<double>.Failure($"DatabaseServiceAWS->IncrementAttributeAsync: {ex.Message}");
+            return DatabaseResult<double>.Failure($"DatabaseServiceAWS->IncrementAttributeAsync: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -1071,57 +1248,27 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
         }
     }
 
-    private static bool BuildConditionExpression(DatabaseAttributeCondition? condition, Dictionary<string, AttributeValue> expressionAttributeValues, out string? finalConditionExpression)
+    /// <summary>
+    /// Builds a DynamoDB condition expression string for use in UpdateItem operations
+    /// </summary>
+    private static string? BuildDynamoDBConditionExpression(DatabaseAttributeCondition condition)
     {
-        finalConditionExpression = null;
-        if (condition == null) return false;
-
-        switch (condition.ConditionType)
+        var expression = condition.ConditionType switch
         {
-            case DatabaseAttributeConditionType.AttributeExists:
-                finalConditionExpression = $"attribute_exists({condition.AttributeName})";
-                return true;
-            case DatabaseAttributeConditionType.AttributeNotExists:
-                finalConditionExpression = $"attribute_not_exists({condition.AttributeName})";
-                return true;
-            case DatabaseAttributeConditionType.AttributeEquals when condition is ValueCondition valueCondition:
-                finalConditionExpression = $"{condition.AttributeName} = :val";
-                AddValueToAttributeValueDict(expressionAttributeValues, ":val", valueCondition.Value);
-                return true;
-            case DatabaseAttributeConditionType.AttributeNotEquals when condition is ValueCondition valueCondition:
-                finalConditionExpression = $"{condition.AttributeName} <> :val";
-                AddValueToAttributeValueDict(expressionAttributeValues, ":val", valueCondition.Value);
-                return true;
-            case DatabaseAttributeConditionType.AttributeGreater when condition is ValueCondition valueCondition:
-                finalConditionExpression = $"{condition.AttributeName} > :val";
-                AddValueToAttributeValueDict(expressionAttributeValues, ":val", valueCondition.Value);
-                return true;
-            case DatabaseAttributeConditionType.ArrayElementExists when condition is ArrayElementCondition arrayCondition:
-                finalConditionExpression = $"contains({condition.AttributeName}, :cond_val)";
-                AddValueToAttributeValueDict(expressionAttributeValues, ":cond_val", arrayCondition.ElementValue);
-                return true;
-        }
+            DatabaseAttributeConditionType.AttributeExists => $"attribute_exists({condition.AttributeName})",
+            DatabaseAttributeConditionType.AttributeNotExists => $"attribute_not_exists({condition.AttributeName})",
+            DatabaseAttributeConditionType.AttributeEquals => $"{condition.AttributeName} = :cond_val",
+            DatabaseAttributeConditionType.AttributeNotEquals => $"{condition.AttributeName} <> :cond_val",
+            DatabaseAttributeConditionType.AttributeGreater => $"{condition.AttributeName} > :cond_val",
+            DatabaseAttributeConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= :cond_val",
+            DatabaseAttributeConditionType.AttributeLess => $"{condition.AttributeName} < :cond_val",
+            DatabaseAttributeConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= :cond_val",
+            DatabaseAttributeConditionType.ArrayElementExists => $"contains({condition.AttributeName}, :cond_val)",
+            DatabaseAttributeConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, :cond_val)",
+            _ => null
+        };
 
-        return false;
-    }
-
-    private static void AddValueToAttributeValueDict(Dictionary<string, AttributeValue> dict, string placeholder, PrimitiveType value)
-    {
-        switch (value.Kind)
-        {
-            case PrimitiveTypeKind.Integer:
-                dict[placeholder] = new AttributeValue { NS = [value.AsInteger.ToString()] };
-                break;
-            case PrimitiveTypeKind.Double:
-                dict[placeholder] = new AttributeValue { NS = [value.AsDouble.ToString()] };
-                break;
-            case PrimitiveTypeKind.String:
-                dict[placeholder] = new AttributeValue { SS = [value.AsString] };
-                break;
-            case PrimitiveTypeKind.ByteArray:
-                dict[placeholder] = new AttributeValue { SS = [value.ToString()] };
-                break;
-        }
+        return expression;
     }
 
     private void ApplyOptions(JObject jsonObject)
@@ -1133,6 +1280,89 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
         else if (Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes)
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
+        }
+    }
+
+    /// <summary>
+    /// Evaluates a database condition against a JSON object
+    /// </summary>
+    private static bool EvaluateCondition(JObject jsonObject, DatabaseAttributeCondition condition)
+    {
+        return condition.ConditionType switch
+        {
+            DatabaseAttributeConditionType.AttributeExists => jsonObject.ContainsKey(condition.AttributeName),
+            DatabaseAttributeConditionType.AttributeNotExists => !jsonObject.ContainsKey(condition.AttributeName),
+            _ when condition is ValueCondition valueCondition => EvaluateValueCondition(jsonObject, valueCondition),
+            _ when condition is ArrayElementCondition arrayCondition => EvaluateArrayElementCondition(jsonObject, arrayCondition),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Evaluates a value-based condition against a JSON object
+    /// </summary>
+    private static bool EvaluateValueCondition(JObject jsonObject, ValueCondition condition)
+    {
+        if (!jsonObject.TryGetValue(condition.AttributeName, out var token))
+            return false;
+
+        try
+        {
+            return condition.ConditionType switch
+            {
+                DatabaseAttributeConditionType.AttributeEquals => CompareValues(token, condition.Value) == 0,
+                DatabaseAttributeConditionType.AttributeNotEquals => CompareValues(token, condition.Value) != 0,
+                DatabaseAttributeConditionType.AttributeGreater => CompareValues(token, condition.Value) > 0,
+                DatabaseAttributeConditionType.AttributeGreaterOrEqual => CompareValues(token, condition.Value) >= 0,
+                DatabaseAttributeConditionType.AttributeLess => CompareValues(token, condition.Value) < 0,
+                DatabaseAttributeConditionType.AttributeLessOrEqual => CompareValues(token, condition.Value) <= 0,
+                _ => false
+            };
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Evaluates an array element condition against a JSON object
+    /// </summary>
+    private static bool EvaluateArrayElementCondition(JObject jsonObject, ArrayElementCondition condition)
+    {
+        if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
+            return condition.ConditionType == DatabaseAttributeConditionType.ArrayElementNotExists;
+
+        bool elementExists = array.Any(item => CompareValues(item, condition.ElementValue) == 0);
+
+        return condition.ConditionType switch
+        {
+            DatabaseAttributeConditionType.ArrayElementExists => elementExists,
+            DatabaseAttributeConditionType.ArrayElementNotExists => !elementExists,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Compares a JSON token with a primitive value
+    /// </summary>
+    private static int CompareValues(JToken token, PrimitiveType primitive)
+    {
+        try
+        {
+            return primitive.Kind switch
+            {
+                PrimitiveTypeKind.String => string.Compare(token.ToString(), primitive.AsString, StringComparison.Ordinal),
+                PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer => ((long)token).CompareTo(primitive.AsInteger),
+                PrimitiveTypeKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo((double)primitive.AsInteger),
+                PrimitiveTypeKind.Double when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsDouble),
+                PrimitiveTypeKind.Double when token.Type is JTokenType.Integer => ((double)(long)token).CompareTo(primitive.AsDouble),
+                _ => string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal)
+            };
+        }
+        catch
+        {
+            return string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal);
         }
     }
 

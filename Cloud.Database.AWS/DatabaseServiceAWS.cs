@@ -204,7 +204,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
     /// <summary>
     /// Creates a DynamoDB table with a default schema suitable for testing.
-    /// Uses "Id" as the partition key with string type.
+    /// Uses "Id" as the partition key with string type by default, but can be overridden.
     /// </summary>
     private async Task<Table?> CreateTableAsync(string tableName, CancellationToken cancellationToken = default)
     {
@@ -222,7 +222,29 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 {
                     // Table already exists and is active, build and return it
                     var existingTableBuilder = new TableBuilder(_dynamoDbClient, tableName);
-                    existingTableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
+                    
+                    // Determine the existing key type from the table description
+                    var hashKey = existingDescribeResponse.Table.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.HASH);
+                    if (hashKey != null)
+                    {
+                        var hashKeyAttribute = existingDescribeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == hashKey.AttributeName);
+                        if (hashKeyAttribute != null)
+                        {
+                            var keyType = ConvertScalarAttributeTypeToDynamoDBEntryType(hashKeyAttribute.AttributeType);
+                            existingTableBuilder.AddHashKey(hashKey.AttributeName, keyType);
+                        }
+                        else
+                        {
+                            // Fallback to string if we can't determine the type
+                            existingTableBuilder.AddHashKey(hashKey.AttributeName, DynamoDBEntryType.String);
+                        }
+                    }
+                    else
+                    {
+                        // Fallback for "Id" key
+                        existingTableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
+                    }
+                    
                     var existingTable = existingTableBuilder.Build();
                     _loadedTables.TryAdd(tableName, existingTable);
                     return existingTable;
@@ -233,6 +255,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 // Table doesn't exist, continue with creation
             }
 
+            // Create table with flexible key type (default to string for compatibility)
             var createTableRequest = new CreateTableRequest
             {
                 TableName = tableName,
@@ -242,7 +265,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 ],
                 AttributeDefinitions =
                 [
-                    new AttributeDefinition("Id", ScalarAttributeType.S) // String type
+                    new AttributeDefinition("Id", ScalarAttributeType.S) // String type - most flexible
                 ],
                 BillingMode = BillingMode.PAY_PER_REQUEST // On-demand billing
             };
@@ -309,12 +332,28 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
     private static AttributeValue ConvertPrimitiveToAttributeValue(PrimitiveType value)
     {
+        // For DynamoDB keys, we should use strings for maximum compatibility
+        // since string keys can represent any primitive type as a string
         return value.Kind switch
         {
-            PrimitiveTypeKind.Integer => new AttributeValue { N = value.AsInteger.ToString() },
-            PrimitiveTypeKind.Double => new AttributeValue { N = value.AsDouble.ToString() },
             PrimitiveTypeKind.String => new AttributeValue { S = value.AsString },
-            PrimitiveTypeKind.ByteArray => new AttributeValue { S = value.ToString() },
+            PrimitiveTypeKind.Integer => new AttributeValue { S = value.AsInteger.ToString() },
+            PrimitiveTypeKind.Double => new AttributeValue { S = value.AsDouble.ToString("R") }, // Round-trip format
+            PrimitiveTypeKind.ByteArray => new AttributeValue { S = Convert.ToBase64String(value.AsByteArray) },
+            _ => new AttributeValue { S = value.ToString() }
+        };
+    }
+
+    private static AttributeValue ConvertPrimitiveToConditionAttributeValue(PrimitiveType value)
+    {
+        // For condition values, we should use proper DynamoDB types
+        // to ensure correct comparisons work
+        return value.Kind switch
+        {
+            PrimitiveTypeKind.String => new AttributeValue { S = value.AsString },
+            PrimitiveTypeKind.Integer => new AttributeValue { N = value.AsInteger.ToString() },
+            PrimitiveTypeKind.Double => new AttributeValue { N = value.AsDouble.ToString("R") }, // Round-trip format
+            PrimitiveTypeKind.ByteArray => new AttributeValue { S = Convert.ToBase64String(value.AsByteArray) },
             _ => new AttributeValue { S = value.ToString() }
         };
     }
@@ -601,6 +640,13 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 return DatabaseResult<JObject?>.Failure("All elements must have the same type.");
             }
 
+            // Ensure table exists first
+            var table = await GetTableAsync(tableName, cancellationToken);
+            if (table == null)
+            {
+                return DatabaseResult<JObject?>.Failure("Failed to get or create table");
+            }
+
             if (_dynamoDbClient == null)
             {
                 return DatabaseResult<JObject?>.Failure("DynamoDB client not initialized");
@@ -648,11 +694,11 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                     // Add condition values to expression attribute values
                     if (condition is ValueCondition valueCondition)
                     {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(valueCondition.Value);
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(valueCondition.Value);
                     }
                     else if (condition is ArrayElementCondition arrayCondition)
                     {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(arrayCondition.ElementValue);
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
                     }
                     
                     // Add expression attribute names for condition if needed
@@ -755,8 +801,10 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             }
 
             // Update the item with the modified array
-            var updateData = new JObject();
-            updateData[arrayAttributeName] = currentArray;
+            var updateData = new JObject
+            {
+                [arrayAttributeName] = currentArray
+            };
 
             var updateResult = await UpdateItemAsync(tableName, keyName, keyValue, updateData, 
                 ReturnItemBehavior.ReturnNewValues, condition, cancellationToken);
@@ -798,6 +846,13 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     {
         try
         {
+            // Ensure table exists first
+            var table = await GetTableAsync(tableName, cancellationToken);
+            if (table == null)
+            {
+                return DatabaseResult<double>.Failure("Failed to get or create table");
+            }
+
             if (_dynamoDbClient == null)
             {
                 return DatabaseResult<double>.Failure("DynamoDB client not initialized");
@@ -834,11 +889,11 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                     // Add condition values to expression attribute values
                     if (condition is ValueCondition valueCondition)
                     {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(valueCondition.Value);
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(valueCondition.Value);
                     }
                     else if (condition is ArrayElementCondition arrayCondition)
                     {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToAttributeValue(arrayCondition.ElementValue);
+                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
                     }
                     
                     // Add expression attribute names for condition if needed
@@ -1187,41 +1242,51 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
         switch (condition.ConditionType)
         {
             case DatabaseAttributeConditionType.AttributeExists:
-                expression.ExpressionStatement = $"attribute_exists({condition.AttributeName})";
+                expression.ExpressionStatement = $"attribute_exists(#attr)";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 break;
             case DatabaseAttributeConditionType.AttributeNotExists:
-                expression.ExpressionStatement = $"attribute_not_exists({condition.AttributeName})";
+                expression.ExpressionStatement = $"attribute_not_exists(#attr)";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 break;
             case DatabaseAttributeConditionType.AttributeEquals when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} = :val";
+                expression.ExpressionStatement = $"#attr = :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.AttributeNotEquals when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} <> :val";
+                expression.ExpressionStatement = $"#attr <> :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.AttributeGreater when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} > :val";
+                expression.ExpressionStatement = $"#attr > :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.AttributeGreaterOrEqual when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} >= :val";
+                expression.ExpressionStatement = $"#attr >= :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.AttributeLess when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} < :val";
+                expression.ExpressionStatement = $"#attr < :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.AttributeLessOrEqual when condition is ValueCondition valueCondition:
-                expression.ExpressionStatement = $"{condition.AttributeName} <= :val";
+                expression.ExpressionStatement = $"#attr <= :val";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":val", valueCondition.Value);
                 break;
             case DatabaseAttributeConditionType.ArrayElementExists when condition is ArrayElementCondition arrayCondition:
-                expression.ExpressionStatement = $"contains({condition.AttributeName}, :cond_val)";
+                expression.ExpressionStatement = $"contains(#attr, :cond_val)";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":cond_val", arrayCondition.ElementValue);
                 break;
             case DatabaseAttributeConditionType.ArrayElementNotExists when condition is ArrayElementCondition arrayCondition:
-                expression.ExpressionStatement = $"NOT contains({condition.AttributeName}, :cond_val)";
+                expression.ExpressionStatement = $"NOT contains(#attr, :cond_val)";
+                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
                 AddValueToExpression(expression, ":cond_val", arrayCondition.ElementValue);
                 break;
         }
@@ -1392,6 +1457,18 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
         new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
+
+    /// <summary>
+    /// Override AddKeyToJson to ensure DynamoDB key compatibility
+    /// </summary>
+    protected static new void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        
+        // For DynamoDB compatibility, always store keys as strings since DynamoDB tables
+        // are created with string key schemas for maximum flexibility
+        destination[keyName] = keyValue.ToString();
+    }
 
     public void Dispose()
     {

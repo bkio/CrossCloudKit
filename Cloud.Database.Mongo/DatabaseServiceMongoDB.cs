@@ -229,7 +229,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
     {
         PrimitiveTypeKind.Double => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsDouble),
         PrimitiveTypeKind.Integer => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsInteger),
-        PrimitiveTypeKind.ByteArray => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsByteArray),
+        PrimitiveTypeKind.ByteArray => Builders<BsonDocument>.Filter.Eq(keyName, Convert.ToBase64String(keyValue.AsByteArray)), // Convert to Base64 to match JSON storage
         PrimitiveTypeKind.String => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsString),
         _ => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.ToString())
     };
@@ -1137,6 +1137,32 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
         }
+    }
+
+    #endregion
+
+    #region Override AddKeyToJson for MongoDB-specific key handling
+
+    /// <summary>
+    /// Override AddKeyToJson to handle MongoDB-specific key formats
+    /// For MongoDB, we need to ensure the key format in JSON matches how it was stored in BSON
+    /// </summary>
+    protected static new void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        // For MongoDB, we need to be consistent with how BSON stores and retrieves primitive types
+        // Use the same conversion logic as BsonValueToPrimitiveType to ensure consistency
+        destination[keyName] = keyValue.Kind switch
+        {
+            PrimitiveTypeKind.String => (JToken)keyValue.AsString,
+            PrimitiveTypeKind.Integer => (JToken)keyValue.AsInteger,
+            PrimitiveTypeKind.Double => (JToken)keyValue.AsDouble,
+            PrimitiveTypeKind.ByteArray => (JToken)Convert.ToBase64String(keyValue.AsByteArray),// For byte arrays, we need to match how MongoDB BSON handles them
+                                                                                                // MongoDB stores byte arrays as binary data, which JSON.NET can't represent directly
+                                                                                                // So we convert to Base64 string for JSON representation
+            _ => (JToken)keyValue.ToString(),
+        };
     }
 
     #endregion

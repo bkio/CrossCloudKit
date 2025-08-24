@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+// ReSharper disable UnusedAutoPropertyAccessor.Global
 namespace Utilities.Common;
 
 /// <summary>
@@ -194,16 +195,14 @@ public static class FileSystemUtilities
             }
 
             // Delete the directory itself if requested
-            if (deleteDirectory)
+            if (!deleteDirectory) return;
+            try
             {
-                try
-                {
-                    directoryInfo.Delete();
-                }
-                catch
-                {
-                    // Directory might not be empty or in use
-                }
+                directoryInfo.Delete();
+            }
+            catch
+            {
+                // Directory might not be empty or in use
             }
         }
         catch

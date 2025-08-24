@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Text;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 
@@ -14,7 +15,7 @@ public enum StringOrStreamKind
     /// The content is stored as a string.
     /// </summary>
     String,
-    
+
     /// <summary>
     /// The content is stored as a stream.
     /// </summary>
@@ -61,7 +62,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     public StringOrStream(string content, Encoding? encoding = null)
     {
         ArgumentNullException.ThrowIfNull(content);
-        
+
         Kind = StringOrStreamKind.String;
         _stringValue = content;
         _encoding = encoding ?? Encoding.UTF8;
@@ -79,7 +80,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
-        
+
         Kind = StringOrStreamKind.Stream;
         _streamValue = stream;
         _streamLength = length;
@@ -100,7 +101,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(cleanupAction);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
-        
+
         Kind = StringOrStreamKind.Stream;
         _streamValue = stream;
         _streamLength = length;
@@ -266,11 +267,10 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <typeparam name="T">The return type</typeparam>
     /// <param name="onString">Function to execute if content is a string</param>
     /// <param name="onStream">Function to execute if content is a stream</param>
-    /// <param name="cancellationToken">A cancellation token to observe</param>
     /// <returns>The result of the executed function</returns>
     /// <exception cref="ObjectDisposedException">Thrown when the instance has been disposed</exception>
     public async Task<T> MatchAsync<T>(
-        Func<string, Task<T>> onString, 
+        Func<string, Task<T>> onString,
         Func<Stream, long, Task<T>> onStream)
     {
         ArgumentNullException.ThrowIfNull(onString);
@@ -334,7 +334,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         switch (Kind)
         {
             case StringOrStreamKind.String:
-                using (var sourceStream = CreateStreamFromString)
+                await using (var sourceStream = CreateStreamFromString)
                 {
                     await sourceStream.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
                 }
@@ -436,16 +436,4 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
 
     // Implicit conversion operators for convenience
     public static implicit operator StringOrStream(string content) => new(content);
-
-    // Static factory methods for common scenarios
-    public static StringOrStream FromString(string content, Encoding? encoding = null) => new(content, encoding);
-    
-    public static StringOrStream FromStream(Stream stream, long length, Encoding? encoding = null) => 
-        new(stream, length, encoding);
-    
-    public static StringOrStream FromStream(Stream stream, long length, Action cleanupAction, Encoding? encoding = null) => 
-        new(stream, length, cleanupAction, encoding);
-    
-    public static StringOrStream FromStream(Stream stream, long length, Func<ValueTask> cleanupAction, Encoding? encoding = null) => 
-        new(stream, length, cleanupAction, encoding);
 }

@@ -4,6 +4,7 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 

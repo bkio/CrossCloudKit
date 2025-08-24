@@ -8,11 +8,12 @@ using Utilities.Common;
 using Newtonsoft.Json.Linq;
 using Amazon.DynamoDBv2.DocumentModel;
 using System.Collections.Concurrent;
+using System.Globalization;
 using Expression = Amazon.DynamoDBv2.DocumentModel.Expression;
 
 namespace Cloud.Database.AWS;
 
-public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDisposable
+public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDisposable
 {
     /// <summary>
     /// AWS DynamoDB Client that is responsible to serve to this object
@@ -27,6 +28,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     /// <summary>
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
+    // ReSharper disable once ConvertToAutoProperty
     public bool IsInitialized => _initializationSucceed;
 
     /// <summary>
@@ -49,7 +51,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
         try
         {
             // Check for obviously invalid credentials before creating client
-            if (accessKey == "invalid-key" || accessKey == "invalid-access-key" || 
+            if (accessKey == "invalid-key" || accessKey == "invalid-access-key" ||
                 secretKey == "invalid-secret" || secretKey == "invalid-secret-key")
             {
                 _initializationSucceed = false;
@@ -58,7 +60,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             }
 
             _dynamoDbClient = new AmazonDynamoDBClient(
-                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey), 
+                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
                 Amazon.RegionEndpoint.GetBySystemName(region));
             _initializationSucceed = true;
         }
@@ -101,11 +103,6 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     private readonly ConcurrentDictionary<string, Table> _loadedTables = new();
 
     /// <summary>
-    /// Lock for table creation to prevent concurrent table creation
-    /// </summary>
-    private readonly object _tableCreationLock = new();
-
-    /// <summary>
     /// Searches table definition in LoadedTables, if not loaded, loads, stores and returns.
     /// Creates the table if it doesn't exist.
     /// </summary>
@@ -134,7 +131,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 var hashKeyAttribute = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == hashKey.AttributeName);
                 if (hashKeyAttribute != null)
                 {
-                    var hashKeyType = ConvertScalarAttributeTypeToDynamoDBEntryType(hashKeyAttribute.AttributeType);
+                    var hashKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(hashKeyAttribute.AttributeType);
                     tableBuilder.AddHashKey(hashKey.AttributeName, hashKeyType);
                 }
             }
@@ -146,7 +143,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 var rangeKeyAttribute = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == rangeKey.AttributeName);
                 if (rangeKeyAttribute != null)
                 {
-                    var rangeKeyType = ConvertScalarAttributeTypeToDynamoDBEntryType(rangeKeyAttribute.AttributeType);
+                    var rangeKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(rangeKeyAttribute.AttributeType);
                     tableBuilder.AddRangeKey(rangeKey.AttributeName, rangeKeyType);
                 }
             }
@@ -164,14 +161,14 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                         var gsiHashKeyAttr = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == gsiHashKey.AttributeName);
                         if (gsiHashKeyAttr != null)
                         {
-                            var gsiHashKeyType = ConvertScalarAttributeTypeToDynamoDBEntryType(gsiHashKeyAttr.AttributeType);
+                            var gsiHashKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(gsiHashKeyAttr.AttributeType);
 
                             if (gsiRangeKey != null)
                             {
                                 var gsiRangeKeyAttr = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == gsiRangeKey.AttributeName);
                                 if (gsiRangeKeyAttr != null)
                                 {
-                                    var gsiRangeKeyType = ConvertScalarAttributeTypeToDynamoDBEntryType(gsiRangeKeyAttr.AttributeType);
+                                    var gsiRangeKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(gsiRangeKeyAttr.AttributeType);
                                     tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName!, gsiHashKey.AttributeName, gsiHashKeyType, gsiRangeKey.AttributeName, gsiRangeKeyType);
                                 }
                             }
@@ -186,7 +183,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
             // Build the table using the modern TableBuilder pattern
             var table = tableBuilder.Build();
-            
+
             _loadedTables.TryAdd(tableName, table);
             return table;
         }
@@ -217,12 +214,12 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             {
                 var existingDescribeRequest = new DescribeTableRequest { TableName = tableName };
                 var existingDescribeResponse = await _dynamoDbClient.DescribeTableAsync(existingDescribeRequest, cancellationToken);
-                
+
                 if (existingDescribeResponse.Table.TableStatus == TableStatus.ACTIVE)
                 {
                     // Table already exists and is active, build and return it
                     var existingTableBuilder = new TableBuilder(_dynamoDbClient, tableName);
-                    
+
                     // Determine the existing key type from the table description
                     var hashKey = existingDescribeResponse.Table.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.HASH);
                     if (hashKey != null)
@@ -230,7 +227,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                         var hashKeyAttribute = existingDescribeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == hashKey.AttributeName);
                         if (hashKeyAttribute != null)
                         {
-                            var keyType = ConvertScalarAttributeTypeToDynamoDBEntryType(hashKeyAttribute.AttributeType);
+                            var keyType = ConvertScalarAttributeTypeToDynamoDbEntryType(hashKeyAttribute.AttributeType);
                             existingTableBuilder.AddHashKey(hashKey.AttributeName, keyType);
                         }
                         else
@@ -244,7 +241,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                         // Fallback for "Id" key
                         existingTableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
                     }
-                    
+
                     var existingTable = existingTableBuilder.Build();
                     _loadedTables.TryAdd(tableName, existingTable);
                     return existingTable;
@@ -283,7 +280,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             // Wait for table to become active
             var maxWaitTime = TimeSpan.FromMinutes(5);
             var startTime = DateTime.UtcNow;
-            
+
             while (DateTime.UtcNow - startTime < maxWaitTime)
             {
                 try
@@ -295,7 +292,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                         var tableBuilder = new TableBuilder(_dynamoDbClient, tableName);
                         tableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
                         var table = tableBuilder.Build();
-                        
+
                         _loadedTables.TryAdd(tableName, table);
                         return table;
                     }
@@ -304,7 +301,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 {
                     // Continue waiting
                 }
-                
+
                 await Task.Delay(1000, cancellationToken); // Wait 1 second before checking again
             }
 
@@ -319,7 +316,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     /// <summary>
     /// Converts DynamoDB ScalarAttributeType to DynamoDBEntryType for TableBuilder
     /// </summary>
-    private static DynamoDBEntryType ConvertScalarAttributeTypeToDynamoDBEntryType(ScalarAttributeType attributeType)
+    private static DynamoDBEntryType ConvertScalarAttributeTypeToDynamoDbEntryType(ScalarAttributeType attributeType)
     {
         return attributeType.Value switch
         {
@@ -395,7 +392,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             };
 
             var response = await _dynamoDbClient.GetItemAsync(request, cancellationToken);
-            
+
             if (!response.IsItemSet)
             {
                 return DatabaseResult<bool>.Success(false);
@@ -407,7 +404,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 var document = Document.FromAttributeMap(response.Item);
                 var jsonObject = JObject.Parse(document.ToJson());
                 AddKeyToJson(jsonObject, keyName, keyValue);
-                
+
                 bool conditionSatisfied = EvaluateCondition(jsonObject, condition);
                 return DatabaseResult<bool>.Success(conditionSatisfied);
             }
@@ -593,7 +590,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             }
 
             var document = await table.DeleteItemAsync(keyValue.ToString(), config, cancellationToken);
-            
+
             if (returnBehavior == ReturnItemBehavior.DoNotReturn)
             {
                 return DatabaseResult<JObject?>.Success(null);
@@ -669,7 +666,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             };
 
             // Build list of elements to add
-            var elementsAsAttributes = elementsToAdd.Select(element => ConvertPrimitiveToAttributeValue(element)).ToList();
+            var elementsAsAttributes = elementsToAdd.Select(ConvertPrimitiveToAttributeValue).ToList();
 
             request.ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -686,11 +683,11 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
             if (condition != null)
             {
-                var conditionExpr = BuildDynamoDBConditionExpression(condition);
+                var conditionExpr = BuildDynamoDbConditionExpression(condition);
                 if (!string.IsNullOrEmpty(conditionExpr))
                 {
                     request.ConditionExpression = conditionExpr;
-                    
+
                     // Add condition values to expression attribute values
                     if (condition is ValueCondition valueCondition)
                     {
@@ -700,7 +697,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                     {
                         request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
                     }
-                    
+
                     // Add expression attribute names for condition if needed
                     if (condition.ConditionType == DatabaseAttributeConditionType.AttributeEquals ||
                         condition.ConditionType == DatabaseAttributeConditionType.AttributeNotEquals ||
@@ -779,14 +776,14 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 return DatabaseResult<JObject?>.Failure($"Attribute {arrayAttributeName} is not an array");
             }
 
-            JObject? oldItem = returnBehavior == ReturnItemBehavior.ReturnOldValues 
-                ? (JObject)currentItem.DeepClone() 
+            JObject? oldItem = returnBehavior == ReturnItemBehavior.ReturnOldValues
+                ? (JObject)currentItem.DeepClone()
                 : null;
 
             // Remove elements from the array
             var elementsToRemoveStrings = elementsToRemove.Select(e => e.ToString()).ToHashSet();
             var itemsToRemove = new List<JToken>();
-            
+
             foreach (var item in currentArray)
             {
                 if (elementsToRemoveStrings.Contains(item.ToString()))
@@ -806,7 +803,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 [arrayAttributeName] = currentArray
             };
 
-            var updateResult = await UpdateItemAsync(tableName, keyName, keyValue, updateData, 
+            var updateResult = await UpdateItemAsync(tableName, keyName, keyValue, updateData,
                 ReturnItemBehavior.ReturnNewValues, condition, cancellationToken);
 
             if (!updateResult.IsSuccessful)
@@ -868,7 +865,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 ReturnValues = ReturnValue.UPDATED_NEW,
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    [":incr"] = new AttributeValue { N = incrementValue.ToString() },
+                    [":incr"] = new AttributeValue { N = incrementValue.ToString(CultureInfo.InvariantCulture) },
                     [":start"] = new AttributeValue { N = "0" }
                 },
                 ExpressionAttributeNames = new Dictionary<string, string>
@@ -881,11 +878,11 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             if (condition != null)
             {
                 // Build condition expression for UpdateItem operation
-                var conditionExpr = BuildDynamoDBConditionExpression(condition);
+                var conditionExpr = BuildDynamoDbConditionExpression(condition);
                 if (!string.IsNullOrEmpty(conditionExpr))
                 {
                     request.ConditionExpression = conditionExpr;
-                    
+
                     // Add condition values to expression attribute values
                     if (condition is ValueCondition valueCondition)
                     {
@@ -895,7 +892,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                     {
                         request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
                     }
-                    
+
                     // Add expression attribute names for condition if needed
                     if (condition.ConditionType == DatabaseAttributeConditionType.AttributeEquals ||
                         condition.ConditionType == DatabaseAttributeConditionType.AttributeNotEquals ||
@@ -915,7 +912,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
 
             var response = await _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
 
-            if (response.Attributes?.TryGetValue(numericAttributeName, out var value) == true && 
+            if (response.Attributes?.TryGetValue(numericAttributeName, out var value) == true &&
                 double.TryParse(value.N, out var newValue))
             {
                 return DatabaseResult<double>.Success(newValue);
@@ -984,7 +981,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             foreach (var document in documents)
             {
                 var jsonObject = JObject.Parse(document.ToJson());
-                
+
                 // Find the appropriate key
                 foreach (var keyName in keyNames)
                 {
@@ -1106,7 +1103,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             }
 
             var itemAsDocument = Document.FromJson(item.ToString());
-            
+
             if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
             {
                 var config = new PutItemOperationConfig
@@ -1129,7 +1126,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 }
 
                 var document = await table.PutItemAsync(itemAsDocument, config, cancellationToken);
-                
+
                 if (returnBehavior == ReturnItemBehavior.DoNotReturn)
                 {
                     return DatabaseResult<JObject?>.Success(null);
@@ -1161,7 +1158,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
                 }
 
                 var document = await table.UpdateItemAsync(itemAsDocument, config, cancellationToken);
-                
+
                 if (returnBehavior == ReturnItemBehavior.DoNotReturn)
                 {
                     return DatabaseResult<JObject?>.Success(null);
@@ -1316,7 +1313,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     /// <summary>
     /// Builds a DynamoDB condition expression string for use in UpdateItem operations
     /// </summary>
-    private static string? BuildDynamoDBConditionExpression(DatabaseAttributeCondition condition)
+    private static string? BuildDynamoDbConditionExpression(DatabaseAttributeCondition condition)
     {
         var expression = condition.ConditionType switch
         {
@@ -1419,7 +1416,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
             {
                 PrimitiveTypeKind.String => string.Compare(token.ToString(), primitive.AsString, StringComparison.Ordinal),
                 PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer => ((long)token).CompareTo(primitive.AsInteger),
-                PrimitiveTypeKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo((double)primitive.AsInteger),
+                PrimitiveTypeKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsInteger),
                 PrimitiveTypeKind.Double when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsDouble),
                 PrimitiveTypeKind.Double when token.Type is JTokenType.Integer => ((double)(long)token).CompareTo(primitive.AsDouble),
                 _ => string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal)
@@ -1461,10 +1458,10 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     /// <summary>
     /// Override AddKeyToJson to ensure DynamoDB key compatibility
     /// </summary>
-    protected static new void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
+    private new static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        
+
         // For DynamoDB compatibility, always store keys as strings since DynamoDB tables
         // are created with string key schemas for maximum flexibility
         destination[keyName] = keyValue.ToString();
@@ -1473,6 +1470,7 @@ public class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDispos
     public void Dispose()
     {
         _dynamoDbClient?.Dispose();
+        // ReSharper disable once GCSuppressFinalizeForTypeWithoutDestructor
         GC.SuppressFinalize(this);
     }
 }

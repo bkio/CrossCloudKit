@@ -27,13 +27,13 @@ public abstract class DatabaseServiceTestBase
                 // Query and delete all entities of this kind
                 // Note: This is a simplified cleanup - in production you might want batch deletion
                 var scanResult = await service.ScanTableAsync(tableName, ["Id"]);
-                if (scanResult.IsSuccessful && scanResult.Data != null)
+                if (scanResult is { IsSuccessful: true, Data: not null })
                 {
                     foreach (var item in scanResult.Data)
                     {
                         if (item.TryGetValue("Id", out var idToken))
                         {
-                            var keyValue = new Utilities.Common.PrimitiveType(idToken.ToString()!);
+                            var keyValue = new PrimitiveType(idToken.ToString());
                             await service.DeleteItemAsync(tableName, "Id", keyValue);
                         }
                     }
@@ -47,12 +47,12 @@ public abstract class DatabaseServiceTestBase
     }
     protected virtual string GetTestTableName() => $"test-table-{Guid.NewGuid():N}";
 
-    protected static PrimitiveType CreateStringKey(string value = "test-key") => new(value);
-    protected static PrimitiveType CreateIntegerKey(long value = 123) => new(value);
-    protected static PrimitiveType CreateDoubleKey(double value = 123.456) => new(value);
-    protected static PrimitiveType CreateByteArrayKey(byte[]? value = null) => new(value ?? [1, 2, 3, 4, 5]);
+    private static PrimitiveType CreateStringKey(string value = "test-key") => new(value);
+    private static PrimitiveType CreateIntegerKey(long value = 123) => new(value);
+    private static PrimitiveType CreateDoubleKey(double value = 123.456) => new(value);
+    private static PrimitiveType CreateByteArrayKey(byte[]? value = null) => new(value ?? [1, 2, 3, 4, 5]);
 
-    protected static JObject CreateTestItem(string name = "TestItem", int value = 42)
+    private static JObject CreateTestItem(string name = "TestItem", int value = 42)
     {
         return new JObject
         {
@@ -63,7 +63,7 @@ public abstract class DatabaseServiceTestBase
         };
     }
 
-    protected static JObject CreateUpdateData(string newName = "UpdatedItem", int newValue = 84)
+    private static JObject CreateUpdateData(string newName = "UpdatedItem", int newValue = 84)
     {
         return new JObject
         {
@@ -251,7 +251,7 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Create test item with specific values for condition testing
-            var item = CreateTestItem("ConditionTest", 42);
+            var item = CreateTestItem("ConditionTest");
             item["Status"] = "active";
             item["Score"] = 85.5;
             await service.PutItemAsync(tableName, keyName, keyValue, item);
@@ -698,7 +698,7 @@ public abstract class DatabaseServiceTestBase
             retrievedData["Profile"]?["Addresses"]?.Should().BeOfType<JArray>();
             var addresses = (JArray)retrievedData["Profile"]!["Addresses"]!;
             addresses.Should().HaveCount(2);
-            addresses[0]?["Coordinates"]?["Latitude"]?.ToObject<double>().Should().BeApproximately(40.7128, 0.0001);
+            addresses[0]["Coordinates"]?["Latitude"]?.ToObject<double>().Should().BeApproximately(40.7128, 0.0001);
         }
         finally
         {
@@ -893,10 +893,10 @@ public abstract class DatabaseServiceTestBase
         // Arrange
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
-        var keyName = "Id";
-        var keyValue = new Utilities.Common.PrimitiveType("507f1f77bcf86cd799439011"); // Valid ObjectId format
+        const string keyName = "Id";
+        var keyValue = new PrimitiveType("507f1f77bcf86cd799439011"); // Valid ObjectId format
 
-        var item = new Newtonsoft.Json.Linq.JObject
+        var item = new JObject
         {
             ["Name"] = "MongoItem",
             ["Value"] = 42,
@@ -1062,7 +1062,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = CreateDoubleKey(123.456);
+        var keyValue = CreateDoubleKey();
 
         try
         {
@@ -1197,22 +1197,20 @@ public abstract class DatabaseServiceTestBase
         {
             // Test Put with overwrite disabled - should succeed first time
             var item1 = CreateTestItem("ConditionalPutTest", 100);
-            var putResult1 = await service.PutItemAsync(tableName, keyName, keyValue, item1, 
-                ReturnItemBehavior.DoNotReturn, overwriteIfExists: false);
+            var putResult1 = await service.PutItemAsync(tableName, keyName, keyValue, item1);
             putResult1.IsSuccessful.Should().BeTrue("First put should succeed");
 
             // Test Put with overwrite disabled - should fail second time
             var item2 = CreateTestItem("ConditionalPutTest2", 200);
-            var putResult2 = await service.PutItemAsync(tableName, keyName, keyValue, item2, 
-                ReturnItemBehavior.DoNotReturn, overwriteIfExists: false);
+            var putResult2 = await service.PutItemAsync(tableName, keyName, keyValue, item2);
             putResult2.IsSuccessful.Should().BeFalse("Second put should fail without overwrite");
 
             // Test Put with overwrite enabled - should succeed
-            var putResult3 = await service.PutItemAsync(tableName, keyName, keyValue, item2, 
+            var putResult3 = await service.PutItemAsync(tableName, keyName, keyValue, item2,
                 ReturnItemBehavior.ReturnOldValues, overwriteIfExists: true);
             putResult3.IsSuccessful.Should().BeTrue("Put with overwrite should succeed");
-            
-            putResult3.Data?["Name"]?.ToString().Should().Be("ConditionalPutTest", 
+
+            putResult3.Data?["Name"]?.ToString().Should().Be("ConditionalPutTest",
                     "Should return old item values");
         }
         finally
@@ -1244,28 +1242,28 @@ public abstract class DatabaseServiceTestBase
 
             // Test Update with ReturnOldValues
             var updateData = CreateUpdateData("UpdatedName", 200);
-            var updateResult = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData, 
+            var updateResult = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData,
                 ReturnItemBehavior.ReturnOldValues);
             updateResult.IsSuccessful.Should().BeTrue();
             updateResult.Data.Should().NotBeNull();
-            updateResult.Data!["Name"]?.ToString().Should().Be("ReturnBehaviorTest", 
+            updateResult.Data!["Name"]?.ToString().Should().Be("ReturnBehaviorTest",
                 "Should return old values");
 
             // Test Update with ReturnNewValues
             var updateData2 = CreateUpdateData("UpdatedAgain", 300);
-            var updateResult2 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData2, 
+            var updateResult2 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData2,
                 ReturnItemBehavior.ReturnNewValues);
             updateResult2.IsSuccessful.Should().BeTrue();
             updateResult2.Data.Should().NotBeNull();
-            updateResult2.Data!["Name"]?.ToString().Should().Be("UpdatedAgain", 
+            updateResult2.Data!["Name"]?.ToString().Should().Be("UpdatedAgain",
                 "Should return new values");
 
             // Test Delete with ReturnOldValues
-            var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue, 
+            var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue,
                 ReturnItemBehavior.ReturnOldValues);
             deleteResult.IsSuccessful.Should().BeTrue();
             deleteResult.Data.Should().NotBeNull();
-            deleteResult.Data!["Name"]?.ToString().Should().Be("UpdatedAgain", 
+            deleteResult.Data!["Name"]?.ToString().Should().Be("UpdatedAgain",
                 "Should return deleted item values");
         }
         finally
@@ -1309,7 +1307,7 @@ public abstract class DatabaseServiceTestBase
             stringAddResult.IsSuccessful.Should().BeTrue();
 
             // Test with integer arrays
-            await service.UpdateItemAsync(tableName, keyName, keyValue, 
+            await service.UpdateItemAsync(tableName, keyName, keyValue,
                 new JObject { ["IntegerTags"] = new JArray() });
 
             var integerElementsToAdd = new[]
@@ -1322,7 +1320,7 @@ public abstract class DatabaseServiceTestBase
             integerAddResult.IsSuccessful.Should().BeTrue();
 
             // Test with double arrays
-            await service.UpdateItemAsync(tableName, keyName, keyValue, 
+            await service.UpdateItemAsync(tableName, keyName, keyValue,
                 new JObject { ["DoubleTags"] = new JArray() });
 
             var doubleElementsToAdd = new[]
@@ -1337,7 +1335,7 @@ public abstract class DatabaseServiceTestBase
             // Verify all arrays
             var getResult = await service.GetItemAsync(tableName, keyName, keyValue);
             getResult.IsSuccessful.Should().BeTrue();
-            
+
             var stringTags = getResult.Data!["StringTags"] as JArray;
             stringTags!.Count.Should().Be(2);
             stringTags.Should().Contain(t => t.ToString() == "string1");
@@ -1384,11 +1382,11 @@ public abstract class DatabaseServiceTestBase
             // Test remove with condition that should succeed
             var allowCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
             var elementsToRemove = new[] { new PrimitiveType("tag2"), new PrimitiveType("tag3") };
-            
+
             var removeResult = await service.RemoveElementsFromArrayAsync(
-                tableName, keyName, keyValue, "Tags", elementsToRemove, 
+                tableName, keyName, keyValue, "Tags", elementsToRemove,
                 ReturnItemBehavior.ReturnNewValues, allowCondition);
-            
+
             removeResult.IsSuccessful.Should().BeTrue("Should remove elements when condition is satisfied");
             var tags = removeResult.Data!["Tags"] as JArray;
             tags!.Count.Should().Be(2);
@@ -1400,11 +1398,11 @@ public abstract class DatabaseServiceTestBase
             // Test remove with condition that should fail
             var preventCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("inactive"));
             var moreElementsToRemove = new[] { new PrimitiveType("tag1") };
-            
+
             var removeResult2 = await service.RemoveElementsFromArrayAsync(
-                tableName, keyName, keyValue, "Tags", moreElementsToRemove, 
+                tableName, keyName, keyValue, "Tags", moreElementsToRemove,
                 ReturnItemBehavior.DoNotReturn, preventCondition);
-            
+
             removeResult2.IsSuccessful.Should().BeFalse("Should not remove elements when condition fails");
 
             // Verify no additional removal happened
@@ -1561,7 +1559,7 @@ public abstract class DatabaseServiceTestBase
                 ["EmptyString"] = "",
                 ["ZeroValue"] = 0
             };
-            
+
             var putResult = await service.PutItemAsync(tableName, keyName, keyValue, emptyArrayItem);
             putResult.IsSuccessful.Should().BeTrue();
 
@@ -1575,7 +1573,7 @@ public abstract class DatabaseServiceTestBase
             var emptyStringCondition = service.BuildAttributeEqualsCondition("EmptyString", new PrimitiveType(""));
             var emptyStringExists = await service.ItemExistsAsync(tableName, keyName, keyValue, emptyStringCondition);
             emptyStringExists.IsSuccessful.Should().BeTrue();
-            
+
             // Note: DynamoDB has specific behavior with empty strings - they may be stored as null or not stored at all
             // This is a known limitation of DynamoDB vs other databases
             // For this edge case, we'll verify the behavior is consistent rather than expecting a specific result
@@ -1650,7 +1648,7 @@ public abstract class DatabaseServiceTestBase
 
             // Test array element conditions in operations
             var hasAppleCondition = service.BuildArrayElementExistsCondition("StringTags", new PrimitiveType("apple"));
-            var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue, 
+            var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue,
                 ReturnItemBehavior.ReturnOldValues, hasAppleCondition);
             deleteResult.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'apple'");
             deleteResult.Data.Should().NotBeNull("Should return old values");

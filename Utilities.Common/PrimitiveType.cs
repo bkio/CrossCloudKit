@@ -1,7 +1,9 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Globalization;
 using System.Text.Json.Serialization;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 
@@ -206,7 +208,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         {
             PrimitiveTypeKind.String => (string)_value,
             PrimitiveTypeKind.Integer => ((long)_value).ToString(),
-            PrimitiveTypeKind.Double => ((double)_value).ToString(),
+            PrimitiveTypeKind.Double => ((double)_value).ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.ByteArray => Convert.ToBase64String((byte[])_value),
             _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
         };
@@ -223,7 +225,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         {
             PrimitiveTypeKind.String => string.Equals((string)_value, (string)other._value, StringComparison.Ordinal),
             PrimitiveTypeKind.Integer => (long)_value == (long)other._value,
-            PrimitiveTypeKind.Double => (double)_value == (double)other._value,
+            PrimitiveTypeKind.Double => Math.Abs((double)_value - (double)other._value) < 0.0000001,
             PrimitiveTypeKind.ByteArray => ((byte[])_value).AsSpan().SequenceEqual(((byte[])other._value).AsSpan()),
             _ => false
         };

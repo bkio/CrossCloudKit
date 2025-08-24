@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+// ReSharper disable MemberCanBePrivate.Global
 namespace Utilities.Common;
 
 
@@ -27,9 +28,8 @@ public static class EnvironmentUtilities
 
         var result = new Dictionary<string, string>(keyOptionsList.Count);
 
-        foreach (var keyOptions in keyOptionsList)
+        foreach (var keyOptionsList2 in keyOptionsList.Select(keyOptions => keyOptions.ToList()))
         {
-            var keyOptionsList2 = keyOptions.ToList();
             if (keyOptionsList2.Count == 0)
             {
                 throw new ArgumentException("Empty environment variable key options provided", nameof(variableKeyOptions));

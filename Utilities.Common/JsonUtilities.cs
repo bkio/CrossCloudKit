@@ -2,7 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 using Newtonsoft.Json.Linq;
-using System.Text.Json;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 
@@ -11,8 +11,6 @@ namespace Utilities.Common;
 /// </summary>
 public static class JsonUtilities
 {
-    #region Newtonsoft.Json (JObject/JArray) Utilities
-
     /// <summary>
     /// Converts round float values to integers throughout a JObject recursively.
     /// </summary>
@@ -81,7 +79,7 @@ public static class JsonUtilities
         if (jsonObject == null) return;
 
         var properties = jsonObject.Properties().ToList();
-        
+
         // Remove all properties first
         foreach (var property in properties)
         {
@@ -99,7 +97,7 @@ public static class JsonUtilities
         foreach (var property in properties.OrderBy(p => p.Name, StringComparer.Ordinal))
         {
             jsonObject.Add(property);
-            
+
             // Recursively sort nested objects and arrays
             if (property.Value is JObject nestedObject)
             {
@@ -122,7 +120,7 @@ public static class JsonUtilities
         if (jsonArray == null || jsonArray.Count == 0) return;
 
         var items = jsonArray.ToList();
-        
+
         // Process and remove all items
         for (int i = 0; i < items.Count; i++)
         {
@@ -138,13 +136,13 @@ public static class JsonUtilities
         }
 
         // Sort items by their string representation for consistent ordering
-        var sortedItems = items.OrderBy(item => GetSortableString(item)).ToList();
+        var sortedItems = items.OrderBy(GetSortableString).ToList();
 
         // Add sorted items back
         foreach (var item in sortedItems)
         {
             jsonArray.Add(item);
-            
+
             // Recursively sort nested objects and arrays
             if (item is JObject nestedObject)
             {
@@ -166,22 +164,19 @@ public static class JsonUtilities
     private static bool TryConvertFloatToInt(JToken token, out JToken intValue)
     {
         intValue = token;
-        
+
         if (token.Type != JTokenType.Float)
             return false;
 
         var doubleValue = token.Value<double>();
-        
-        // Check if it's a whole number within the safe range for long
-        if (Math.Abs(doubleValue - Math.Round(doubleValue)) < double.Epsilon &&
-            doubleValue >= long.MinValue && 
-            doubleValue <= long.MaxValue)
-        {
-            intValue = new JValue((long)Math.Round(doubleValue));
-            return true;
-        }
 
-        return false;
+        // Check if it's a whole number within the safe range for long
+        if (!(Math.Abs(doubleValue - Math.Round(doubleValue)) < double.Epsilon) ||
+            !(doubleValue >= long.MinValue) ||
+            !(doubleValue <= long.MaxValue)) return false;
+        intValue = new JValue((long)Math.Round(doubleValue));
+        return true;
+
     }
 
     /// <summary>
@@ -204,6 +199,4 @@ public static class JsonUtilities
             _ => $"9_{token}"
         };
     }
-
-    #endregion
 }

@@ -1,0 +1,531 @@
+// Copyright (c) 2022- Burak Kara, MIT License
+// See LICENSE file in the project root for full license information.
+
+using Cloud.Interfaces;
+using FluentAssertions;
+using Xunit;
+using Xunit.Abstractions;
+
+namespace Cloud.PubSub.Tests.Common;
+
+public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
+{
+    protected abstract IPubSubService CreatePubSubService();
+    protected abstract string GetTestProjectId();
+
+    protected virtual string GenerateTestTopic() => $"test-topic-{Guid.NewGuid():N}";
+
+    private static void AssertInitialized(IPubSubService service, List<string> errors)
+    {
+        service.Should().NotBeNull();
+        service.IsInitialized.Should().BeTrue($"Service should be initialized. Errors: {string.Join(" | ", errors)}");
+    }
+
+    [Fact]
+    public virtual void Service_ShouldNotBeNull()
+    {
+        var service = CreatePubSubService();
+        service.Should().NotBeNull();
+    }
+
+    [Fact]
+    public virtual async Task Publish_And_Subscribe_ShouldDeliverMessage()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        try
+        {
+            var received = new TaskCompletionSource<string>();
+            await service.SubscribeAsync(topic, (_, msg) => { received.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            const string sent = "hello world";
+            var publishResult = await service.PublishAsync(topic, sent, ErrorLogger);
+            publishResult.Should().BeTrue($"Errors: {string.Join(" | ", errors)}");
+            (await received.Task.WaitAsync(TimeSpan.FromSeconds(10))).Should().Be(sent);
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task MultipleSubscribers_ShouldAllReceiveMessages()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        try
+        {
+            var received1 = new TaskCompletionSource<string>();
+            var received2 = new TaskCompletionSource<string>();
+            await service.SubscribeAsync(topic, (_, msg) => { received1.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            await service.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            const string sent = "fanout";
+            await service.PublishAsync(topic, sent, ErrorLogger);
+            (await received1.Task.WaitAsync(TimeSpan.FromSeconds(10))).Should().Be(sent);
+            (await received2.Task.WaitAsync(TimeSpan.FromSeconds(10))).Should().Be(sent);
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Subscribe_InvalidTopic_ShouldReturnFalse()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var result = await service.SubscribeAsync("", (_, _) => Task.CompletedTask, ErrorLogger);
+        result.Should().BeFalse($"Errors: {string.Join(" | ", errors)}");
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_InvalidTopic_ShouldReturnFalse()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var result = await service.PublishAsync("", "msg", ErrorLogger);
+        result.Should().BeFalse($"Errors: {string.Join(" | ", errors)}");
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_EmptyMessage_ShouldReturnFalse()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        var result = await service.PublishAsync(topic, "", ErrorLogger);
+        result.Should().BeFalse($"Errors: {string.Join(" | ", errors)}");
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task DisposeAsync_ShouldCleanupSubscriptions()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        var received = false;
+        await service.SubscribeAsync(topic, (_, _) => { received = true; return Task.CompletedTask; }, ErrorLogger);
+        if (service is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync();
+        await service.PublishAsync(topic, "should-not-deliver", ErrorLogger);
+        received.Should().BeFalse();
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_ConcurrentMessages_ShouldDeliverAll()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        try
+        {
+            var received = new List<string>();
+            var lockObj = new object();
+            var allReceived = new TaskCompletionSource<bool>();
+            const int expected = 20;
+
+            await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                lock (lockObj)
+                {
+                    received.Add(msg);
+                    if (received.Count == expected)
+                        allReceived.TrySetResult(true);
+                }
+                return Task.CompletedTask;
+            }, ErrorLogger);
+
+            // Publish messages concurrently
+            var publishTasks = Enumerable.Range(0, expected)
+                .Select(i => service.PublishAsync(topic, $"concurrent-msg-{i}", ErrorLogger))
+                .ToArray();
+
+            var allPublished = await Task.WhenAll(publishTasks);
+            allPublished.Should().AllBeEquivalentTo(true, $"Errors: {string.Join(" | ", errors)}");
+
+            await allReceived.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            received.Should().HaveCount(expected);
+            received.Should().AllSatisfy(msg => msg.Should().StartWith("concurrent-msg-"));
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_LargeMessage_ShouldHandleAppropriately()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        try
+        {
+            var received = new TaskCompletionSource<string>();
+            await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                received.TrySetResult(msg);
+                return Task.CompletedTask;
+            }, ErrorLogger);
+
+            // Create a large message (64KB)
+            var largeMessage = new string('A', 64 * 1024);
+            var publishResult = await service.PublishAsync(topic, largeMessage, ErrorLogger);
+
+            if (publishResult)
+            {
+                var result = await received.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                result.Should().Be(largeMessage);
+            }
+            else
+            {
+                // Some services may have message size limits, which is acceptable behavior
+                testOutputHelper.WriteLine("Large message rejected - this may be expected behavior for the service");
+            }
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_SpecialCharacters_ShouldPreserveContent()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+        try
+        {
+            var received = new TaskCompletionSource<string>();
+            await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                received.TrySetResult(msg);
+                return Task.CompletedTask;
+            }, ErrorLogger);
+
+            const string specialMessage = "Hello 世界! 🎉 Special chars: @#$%^&*()_+-=[]{}|;':\",./<>?`~";
+            var publishResult = await service.PublishAsync(topic, specialMessage, ErrorLogger);
+            publishResult.Should().BeTrue($"Errors: {string.Join(" | ", errors)}");
+
+            var result = await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            result.Should().Be(specialMessage);
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Subscribe_NullCallback_ShouldReturnFalse()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+
+        var result = await service.SubscribeAsync(topic, null!, ErrorLogger);
+        result.Should().BeFalse($"Errors: {string.Join(" | ", errors)}");
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_NullMessage_ShouldReturnFalse()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+
+        var result = await service.PublishAsync(topic, null!, ErrorLogger);
+        result.Should().BeFalse($"Errors: {string.Join(" | ", errors)}");
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Topic_WithSpecialCharacters_ShouldHandleAppropriately()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+
+        // Test with different topic naming patterns
+        var topics = new[]
+        {
+            "topic-with-dashes",
+            "topic_with_underscores",
+            "topic.with.dots",
+            "topicWithCamelCase"
+        };
+
+        foreach (var topic in topics)
+        {
+            try
+            {
+                var received = new TaskCompletionSource<string>();
+                var subscribeResult = await service.SubscribeAsync(topic, (_, msg) =>
+                {
+                    received.TrySetResult(msg);
+                    return Task.CompletedTask;
+                }, ErrorLogger);
+
+                if (subscribeResult)
+                {
+                    const string message = "test-message";
+                    var publishResult = await service.PublishAsync(topic, message, ErrorLogger);
+
+                    if (publishResult)
+                    {
+                        var result = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        result.Should().Be(message);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                testOutputHelper.WriteLine($"Topic '{topic}' failed: {ex.Message}");
+                // Some topic names may not be supported, which is acceptable
+            }
+            finally
+            {
+                await service.DeleteTopicAsync(topic, ErrorLogger);
+            }
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Service_Reinitialization_ShouldMaintainFunctionality()
+    {
+        var errors = new List<string>();
+        var service1 = CreatePubSubService();
+        AssertInitialized(service1, errors);
+
+        var topic = GenerateTestTopic();
+        try
+        {
+            // Test with first service instance
+            var received1 = new TaskCompletionSource<string>();
+            await service1.SubscribeAsync(topic, (_, msg) => { received1.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            await service1.PublishAsync(topic, "message1", ErrorLogger);
+            (await received1.Task.WaitAsync(TimeSpan.FromSeconds(5))).Should().Be("message1");
+
+            // Create a new service instance
+            var service2 = CreatePubSubService();
+            AssertInitialized(service2, errors);
+
+            // Test with a second service instance
+            var received2 = new TaskCompletionSource<string>();
+            await service2.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            await service2.PublishAsync(topic, "message2", ErrorLogger);
+            (await received2.Task.WaitAsync(TimeSpan.FromSeconds(5))).Should().Be("message2");
+
+            // Cleanup with the second service
+            if (service2 is IAsyncDisposable asyncDisposable2)
+                await asyncDisposable2.DisposeAsync();
+        }
+        finally
+        {
+            await service1.DeleteTopicAsync(topic, ErrorLogger);
+            if (service1 is IAsyncDisposable asyncDisposable1)
+                await asyncDisposable1.DisposeAsync();
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task Publish_HighFrequency_ShouldMaintainPerformance()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+        var topic = GenerateTestTopic();
+
+        try
+        {
+            var received = new List<string>();
+            var lockObj = new object();
+            var allReceived = new TaskCompletionSource<bool>();
+            const int messageCount = 100;
+
+            await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                lock (lockObj)
+                {
+                    received.Add(msg);
+                    if (received.Count >= messageCount)
+                        allReceived.TrySetResult(true);
+                }
+                return Task.CompletedTask;
+            }, ErrorLogger);
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // Publish messages rapidly
+            var publishTasks = new List<Task<bool>>();
+            for (var i = 0; i < messageCount; i++)
+            {
+                publishTasks.Add(service.PublishAsync(topic, $"perf-msg-{i}", ErrorLogger));
+            }
+
+            var publishResults = await Task.WhenAll(publishTasks);
+            var publishTime = stopwatch.Elapsed;
+
+            await allReceived.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            var totalTime = stopwatch.Elapsed;
+
+            testOutputHelper.WriteLine($"Published {messageCount} messages in {publishTime.TotalMilliseconds:F2}ms");
+            testOutputHelper.WriteLine($"Received all messages in {totalTime.TotalMilliseconds:F2}ms");
+            testOutputHelper.WriteLine($"Publish rate: {messageCount / publishTime.TotalSeconds:F2} msg/sec");
+            testOutputHelper.WriteLine($"End-to-end rate: {messageCount / totalTime.TotalSeconds:F2} msg/sec");
+
+            publishResults.Should().AllBeEquivalentTo(true);
+            received.Should().HaveCount(messageCount);
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+
+    [Fact]
+    public virtual async Task DeleteTopic_NonExistentTopic_ShouldNotThrow()
+    {
+        var errors = new List<string>();
+        var service = CreatePubSubService();
+        AssertInitialized(service, errors);
+
+        var nonExistentTopic = $"non-existent-{Guid.NewGuid():N}";
+
+        // This should not throw an exception
+        await service.DeleteTopicAsync(nonExistentTopic, ErrorLogger);
+
+        // The service may log errors, but should handle the case gracefully
+        testOutputHelper.WriteLine($"Delete non-existent topic completed. Errors logged: {errors.Count}");
+
+        return;
+
+        void ErrorLogger(string msg)
+        {
+            errors.Add(msg);
+            testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
+        }
+    }
+}

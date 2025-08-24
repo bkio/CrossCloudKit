@@ -1,6 +1,9 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+// ReSharper disable UnusedType.Global
+// ReSharper disable MemberCanBePrivate.Global
+// ReSharper disable ClassNeverInstantiated.Global
 namespace Utilities.Common;
 
 /// <summary>
@@ -49,15 +52,12 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     /// <returns>The current value</returns>
     public T GetValue()
     {
-        if (_threadSafetyMode == ThreadSafetyMode.MultipleProducers)
+        if (_threadSafetyMode != ThreadSafetyMode.MultipleProducers) return _value;
+        lock (_lockObject)
         {
-            lock (_lockObject)
-            {
-                return _value;
-            }
+            return _value;
         }
-            
-        return _value;
+
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     }
 
     /// <summary>
-    /// Atomically compares the current value with the expected value and, 
+    /// Atomically compares the current value with the expected value and,
     /// if they are equal, replaces the current value with the new value
     /// </summary>
     /// <param name="expectedValue">The value that is expected to be equal to the current value</param>
@@ -92,23 +92,15 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
         {
             lock (_lockObject)
             {
-                if (EqualityComparer<T>.Default.Equals(_value, expectedValue))
-                {
-                    _value = newValue;
-                    return true;
-                }
-                return false;
-            }
-        }
-        else
-        {
-            if (EqualityComparer<T>.Default.Equals(_value, expectedValue))
-            {
+                if (!EqualityComparer<T>.Default.Equals(_value, expectedValue)) return false;
                 _value = newValue;
                 return true;
             }
-            return false;
         }
+
+        if (!EqualityComparer<T>.Default.Equals(_value, expectedValue)) return false;
+        _value = newValue;
+        return true;
     }
 
     /// <summary>
@@ -122,14 +114,14 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
         {
             lock (_lockObject)
             {
-                T originalValue = _value;
+                var originalValue = _value;
                 _value = newValue;
                 return originalValue;
             }
         }
         else
         {
-            T originalValue = _value;
+            var originalValue = _value;
             _value = newValue;
             return originalValue;
         }

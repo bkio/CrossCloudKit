@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Windows;
 
@@ -65,16 +66,16 @@ public sealed record MemoryInfo
     public static string FormatByteSize(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
-        
-        if (bytes == 0) 
+
+        if (bytes == 0)
             return $"0 {units[0]}";
 
         var absoluteBytes = Math.Abs(bytes);
         var unitIndex = (int)Math.Floor(Math.Log(absoluteBytes, 1024));
-        
+
         // Ensure we don't exceed our units array
         unitIndex = Math.Min(unitIndex, units.Length - 1);
-        
+
         var value = Math.Round(absoluteBytes / Math.Pow(1024, unitIndex), 2);
         return $"{Math.Sign(bytes) * value:F2} {units[unitIndex]}";
     }
@@ -154,7 +155,7 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await Task.Run(() => GetMemoryInfoInternal(), cancellationToken).ConfigureAwait(false);
+            return await Task.Run(GetMemoryInfoInternal, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -186,10 +187,9 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
     {
         try
         {
-            var perfInfo = new PerformanceInformation();
             var structSize = Marshal.SizeOf<PerformanceInformation>();
-            
-            if (!GetPerformanceInfo(out perfInfo, structSize))
+
+            if (!GetPerformanceInfo(out var perfInfo, structSize))
             {
                 var error = Marshal.GetLastWin32Error();
                 throw new InvalidOperationException($"GetPerformanceInfo failed with error code: {error}");
@@ -218,7 +218,7 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
         {
             _lastException = ex;
             LogError($"Error retrieving performance information: {ex.Message}");
-            
+
             // Return last known good data if available, otherwise throw
             return _lastMemoryInfo ?? throw new InvalidOperationException("Unable to retrieve performance information and no cached data available", ex);
         }
@@ -280,13 +280,13 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
     {
         if (!_disposed)
         {
-            _cancellationTokenSource.Cancel();
-            
+            await _cancellationTokenSource.CancelAsync();
+
             if (_updateTimer is not null)
             {
                 await _updateTimer.DisposeAsync().ConfigureAwait(false);
             }
-            
+
             _semaphore.Dispose();
             _cancellationTokenSource.Dispose();
             _disposed = true;
@@ -328,12 +328,12 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
 [SupportedOSPlatform("windows")]
 public static class PerformanceInfo
 {
-    private static readonly Lazy<PerformanceMonitor> _defaultMonitor = new(() => new PerformanceMonitor());
+    private static readonly Lazy<PerformanceMonitor> DefaultMonitor = new(() => new PerformanceMonitor());
 
     /// <summary>
     /// Gets the default performance monitor instance.
     /// </summary>
-    public static PerformanceMonitor Default => _defaultMonitor.Value;
+    private static PerformanceMonitor Default => DefaultMonitor.Value;
 
     /// <summary>
     /// Gets current memory information using the default monitor.
@@ -346,7 +346,7 @@ public static class PerformanceInfo
         {
             Default.ErrorHandler = errorHandler;
         }
-        
+
         return Default.GetMemoryInfo();
     }
 
@@ -362,7 +362,7 @@ public static class PerformanceInfo
         {
             Default.ErrorHandler = errorHandler;
         }
-        
+
         return await Default.GetMemoryInfoAsync(cancellationToken).ConfigureAwait(false);
     }
 

@@ -110,9 +110,7 @@ public class ArrayElementCondition : DatabaseAttributeCondition
 
 public abstract class DatabaseServiceBase
 {
-    protected DatabaseServiceBase() { }
-
-    protected static JToken FromPrimitiveTypeToJToken(PrimitiveType primitive)
+    private static JToken FromPrimitiveTypeToJToken(PrimitiveType primitive)
     {
         return primitive.Kind switch
         {
@@ -134,7 +132,7 @@ public abstract class DatabaseServiceBase
         Options = newOptions ?? throw new ArgumentNullException(nameof(newOptions));
     }
 
-    protected DatabaseOptions Options { get; set; } = new();
+    protected DatabaseOptions Options { get; private set; } = new();
 }
 
 /// <summary>

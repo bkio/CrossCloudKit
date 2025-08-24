@@ -1,10 +1,9 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using System;
-using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 
@@ -23,7 +22,7 @@ public static class CryptographyUtilities
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+        await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
         return await CalculateStreamSha256Async(fileStream, cancellationToken).ConfigureAwait(false);
     }
 
@@ -85,7 +84,7 @@ public static class CryptographyUtilities
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+        await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
         return await CalculateStreamMd5Async(fileStream, cancellationToken).ConfigureAwait(false);
     }
 

@@ -10,14 +10,14 @@ namespace Cloud.Database.GC.Tests;
 
 /// <summary>
 /// Full integration tests for DatabaseServiceGC extending DatabaseServiceTestBase
-/// 
+///
 /// IMPORTANT: These tests focus on constructor behavior, error handling, interface compliance,
 /// and comprehensive condition testing with actual database operations.
 /// They use intentionally invalid credentials to test error scenarios.
-/// 
+///
 /// For ACTUAL integration testing with Google Cloud Datastore, you would need:
 /// 1. Google Cloud Datastore emulator running locally, OR
-/// 2. Valid service account credentials and a real Google Cloud project, OR  
+/// 2. Valid service account credentials and a real Google Cloud project, OR
 /// 3. Application Default Credentials (ADC) properly configured
 /// </summary>
 public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
@@ -41,25 +41,22 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     /// <returns>A configured DatabaseServiceGC instance</returns>
     private static DatabaseServiceGC CreateServiceForTesting(string projectId)
     {
-        var errorMessages = new List<string>();
-        void errorAction(string message) => errorMessages.Add(message);
-
         // First try to get Base64 encoded credentials from environment
         var base64Credentials = Environment.GetEnvironmentVariable("GOOGLE_BASE64_CREDENTIALS");
         if (!string.IsNullOrEmpty(base64Credentials))
         {
-            return new DatabaseServiceGC(projectId, base64Credentials, isBase64Encoded: true, errorAction);
+            return new DatabaseServiceGC(projectId, base64Credentials, isBase64Encoded: true, Console.WriteLine);
         }
 
         // If no Base64 credentials, try JSON credentials from environment
         var jsonCredentials = Environment.GetEnvironmentVariable("GOOGLE_JSON_CREDENTIALS");
         if (!string.IsNullOrEmpty(jsonCredentials))
         {
-            return new DatabaseServiceGC(projectId, jsonCredentials, isBase64Encoded: false, errorAction);
+            return new DatabaseServiceGC(projectId, jsonCredentials, isBase64Encoded: false, Console.WriteLine);
         }
 
         // If no credentials in environment, try using default credentials
-        return new DatabaseServiceGC(projectId, useDefaultCredentials: true, errorAction);
+        return new DatabaseServiceGC(projectId, useDefaultCredentials: true, Console.WriteLine);
     }
 
     protected override IDatabaseService CreateDatabaseService()
@@ -79,10 +76,10 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         // Arrange
         const string mockFilePath = "/path/to/nonexistent/service-account.json";
         var errorMessages = new List<string>();
-        void errorAction(string message) => errorMessages.Add(message);
+        void ErrorAction(string message) => errorMessages.Add(message);
 
         // Act
-        var service = new DatabaseServiceGC(TestProjectId, mockFilePath, errorAction);
+        var service = new DatabaseServiceGC(TestProjectId, mockFilePath, ErrorAction);
 
         // Assert
         service.Should().NotBeNull();
@@ -135,7 +132,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     public void DatabaseServiceGC_WithNullServiceAccountPath_ShouldThrowArgumentException()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, (string)null!));
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!));
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, ""));
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   "));
     }

@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Globalization;
 using Cloud.Interfaces;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Datastore.V1;
@@ -9,21 +10,21 @@ using Utilities.Common;
 
 namespace Cloud.Database.GC;
 
-public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDisposable
+public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDisposable
 {
     /// <summary>
     /// Holds initialization success
     /// </summary>
-    private readonly bool bInitializationSucceed;
+    private readonly bool _bInitializationSucceed;
 
-    private readonly DatastoreClient? DSClient;
-    private readonly DatastoreDb? DSDB;
-    private readonly ServiceAccountCredential? Credential;
+    private readonly DatastoreDb? _dsdb;
+    private readonly ServiceAccountCredential? _credential;
 
     /// <summary>
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
-    public bool IsInitialized => bInitializationSucceed;
+    // ReSharper disable once ConvertToAutoProperty
+    public bool IsInitialized => _bInitializationSucceed;
 
     /// <summary>
     /// DatabaseServiceGC: Constructor using service account JSON file path
@@ -38,33 +39,34 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountKeyFilePath);
-        
+
         try
         {
             using var stream = new FileStream(serviceAccountKeyFilePath, FileMode.Open, FileAccess.Read);
-            Credential = GoogleCredential.FromStream(stream)
+            _credential = GoogleCredential.FromStream(stream)
                         .CreateScoped(DatastoreClient.DefaultScopes)
                         .UnderlyingCredential as ServiceAccountCredential;
 
-            if (Credential != null)
+            DatastoreClient? dsClient;
+            if (_credential != null)
             {
-                DSClient = new DatastoreClientBuilder
+                dsClient = new DatastoreClientBuilder
                 {
-                    Credential = GoogleCredential.FromServiceAccountCredential(Credential)
+                    Credential = GoogleCredential.FromServiceAccountCredential(_credential)
                 }.Build();
             }
             else
             {
-                DSClient = DatastoreClient.Create();
+                dsClient = DatastoreClient.Create();
             }
 
-            DSDB = DatastoreDb.Create(projectId, "", DSClient);
-            bInitializationSucceed = DSDB != null;
+            _dsdb = DatastoreDb.Create(projectId, "", dsClient);
+            _bInitializationSucceed = _dsdb != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
@@ -83,11 +85,11 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountJsonContent);
-        
+
         try
         {
             string? jsonContent = serviceAccountJsonContent;
-            
+
             if (isBase64Encoded)
             {
                 if (!TryBase64Decode(serviceAccountJsonContent, out jsonContent, errorMessageAction))
@@ -98,30 +100,31 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
 
             if (jsonContent != null)
             {
-                Credential = GoogleCredential.FromJson(jsonContent)
+                _credential = GoogleCredential.FromJson(jsonContent)
                             .CreateScoped(DatastoreClient.DefaultScopes)
                             .UnderlyingCredential as ServiceAccountCredential;
             }
 
-            if (Credential != null)
+            DatastoreClient? dsClient;
+            if (_credential != null)
             {
-                DSClient = new DatastoreClientBuilder
+                dsClient = new DatastoreClientBuilder
                 {
-                    Credential = GoogleCredential.FromServiceAccountCredential(Credential)
+                    Credential = GoogleCredential.FromServiceAccountCredential(_credential)
                 }.Build();
             }
             else
             {
-                DSClient = DatastoreClient.Create();
+                dsClient = DatastoreClient.Create();
             }
 
-            DSDB = DatastoreDb.Create(projectId, "", DSClient);
-            bInitializationSucceed = DSDB != null;
+            _dsdb = DatastoreDb.Create(projectId, "", dsClient);
+            _bInitializationSucceed = _dsdb != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
@@ -137,7 +140,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         Action<string>? errorMessageAction = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
-        
+
         try
         {
             var hexString = serviceAccountJsonHexContent.ToString();
@@ -148,30 +151,31 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
 
             if (jsonContent != null)
             {
-                Credential = GoogleCredential.FromJson(jsonContent)
+                _credential = GoogleCredential.FromJson(jsonContent)
                             .CreateScoped(DatastoreClient.DefaultScopes)
                             .UnderlyingCredential as ServiceAccountCredential;
             }
 
-            if (Credential != null)
+            DatastoreClient? dsClient;
+            if (_credential != null)
             {
-                DSClient = new DatastoreClientBuilder
+                dsClient = new DatastoreClientBuilder
                 {
-                    Credential = GoogleCredential.FromServiceAccountCredential(Credential)
+                    Credential = GoogleCredential.FromServiceAccountCredential(_credential)
                 }.Build();
             }
             else
             {
-                DSClient = DatastoreClient.Create();
+                dsClient = DatastoreClient.Create();
             }
 
-            DSDB = DatastoreDb.Create(projectId, "", DSClient);
-            bInitializationSucceed = DSDB != null;
+            _dsdb = DatastoreDb.Create(projectId, "", dsClient);
+            _bInitializationSucceed = _dsdb != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
@@ -187,31 +191,31 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         Action<string>? errorMessageAction = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
-        
+
         if (!useDefaultCredentials)
         {
             throw new ArgumentException("This constructor is for default credentials only. Set useDefaultCredentials to true or use a different constructor.", nameof(useDefaultCredentials));
         }
-        
+
         try
         {
             // Use Application Default Credentials (ADC)
-            DSClient = DatastoreClient.Create();
-            DSDB = DatastoreDb.Create(projectId, "", DSClient);
-            bInitializationSucceed = DSDB != null;
+            var dsClient = DatastoreClient.Create();
+            _dsdb = DatastoreDb.Create(projectId, "", dsClient);
+            _bInitializationSucceed = _dsdb != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceGC->Constructor: {e.Message}, Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
     /// <summary>
     /// Map that holds loaded kind definition instances
     /// </summary>
-    private readonly Dictionary<string, KeyFactory> LoadedKindKeyFactories = [];
-    private readonly Lock LoadedKindKeyFactories_DictionaryLock = new();
+    private readonly Dictionary<string, KeyFactory> _loadedKindKeyFactories = [];
+    private readonly Lock _loadedKindKeyFactoriesDictionaryLock = new();
 
     /// <summary>
     /// Searches kind key factories in LoadedKindKeyFactories, if not loaded, loads, stores and returns
@@ -221,22 +225,22 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         out KeyFactory? resultKeyFactory,
         Action<string>? errorMessageAction = null)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             resultKeyFactory = null;
             errorMessageAction?.Invoke("DatabaseServiceGC->LoadStoreAndGetKindKeyFactory: DSDB is null.");
             return false;
         }
-        lock (LoadedKindKeyFactories_DictionaryLock)
+        lock (_loadedKindKeyFactoriesDictionaryLock)
         {
-            if (!LoadedKindKeyFactories.TryGetValue(kind, out resultKeyFactory))
+            if (!_loadedKindKeyFactories.TryGetValue(kind, out resultKeyFactory))
             {
                 try
                 {
-                    resultKeyFactory = DSDB.CreateKeyFactory(kind);
+                    resultKeyFactory = _dsdb.CreateKeyFactory(kind);
                     if (resultKeyFactory != null)
                     {
-                        LoadedKindKeyFactories[kind] = resultKeyFactory;
+                        _loadedKindKeyFactories[kind] = resultKeyFactory;
                         return true;
                     }
                     else
@@ -267,7 +271,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     private Entity? FromJsonToEntity(KeyFactory factory, string keyName, PrimitiveType keyValue, JObject? jsonObject)
     {
         if (jsonObject == null) return null;
-        
+
         var result = FromJsonToEntity(jsonObject);
         result.Key = factory.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
         return result;
@@ -282,14 +286,14 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             var value = current.Value;
             if (value != null)
             {
-                result.Properties[name] = GetDSValueFromJToken(value);
+                result.Properties[name] = GetDsValueFromJToken(value);
                 ChangeExcludeFromIndexes(result.Properties[name]);
             }
         }
         return result;
     }
 
-    private Value GetDSValueFromJToken(JToken value)
+    private Value GetDsValueFromJToken(JToken value)
     {
         return value.Type switch
         {
@@ -308,7 +312,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         var asArrayValue = new ArrayValue();
         foreach (var current in asArray)
         {
-            var curVal = GetDSValueFromJToken(current);
+            var curVal = GetDsValueFromJToken(current);
             ChangeExcludeFromIndexes(curVal);
             asArrayValue.Values.Add(curVal);
         }
@@ -318,7 +322,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     private static JObject? FromEntityToJson(Entity? entity)
     {
         if (entity?.Properties == null) return null;
-        
+
         var result = new JObject();
         foreach (var current in entity.Properties)
         {
@@ -359,7 +363,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
     {
         return primitive.Kind switch
         {
-            PrimitiveTypeKind.Double => primitive.AsDouble == token.Value<double>(),
+            PrimitiveTypeKind.Double => Math.Abs(primitive.AsDouble - token.Value<double>()) < 0.0000001,
             PrimitiveTypeKind.Integer => primitive.AsInteger == token.Value<long>(),
             PrimitiveTypeKind.ByteArray
                 => Convert.ToBase64String(primitive.AsByteArray) == token.Value<string>(),
@@ -369,8 +373,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
 
     private static string GetFinalKeyFromNameValue(string keyName, PrimitiveType keyValue)
         => $"{keyName}:{keyValue}";
-
-    #region Modern Async API
 
     /// <summary>
     /// Checks if an item exists and optionally satisfies a condition.
@@ -382,19 +384,19 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         DatabaseAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<bool>.Failure("DatabaseServiceGC->ItemExistsAsync: DSDB is null.");
         }
         try
         {
-            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
                 return DatabaseResult<bool>.Failure("Failed to load table key factory");
             }
 
             var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
-            var entity = await DSDB.LookupAsync(key);
+            var entity = await _dsdb.LookupAsync(key);
 
             if (entity == null)
             {
@@ -431,19 +433,19 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->GetItemAsync: DSDB is null.");
         }
         try
         {
-            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
                 return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
             }
 
             var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
-            var entity = await DSDB.LookupAsync(key);
+            var entity = await _dsdb.LookupAsync(key);
 
             if (entity == null)
             {
@@ -475,7 +477,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->GetItemsAsync: DSDB is null.");
         }
@@ -486,15 +488,15 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                 return DatabaseResult<IReadOnlyList<JObject>>.Success([]);
             }
 
-            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+            if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
                 return DatabaseResult<IReadOnlyList<JObject>>.Failure("Failed to load table key factory");
             }
 
-            var datastoreKeys = keyValues.Select(value => 
+            var datastoreKeys = keyValues.Select(value =>
                 factory!.CreateKey(GetFinalKeyFromNameValue(keyName, value))).ToArray();
 
-            var queryResult = await DSDB.LookupAsync(datastoreKeys);
+            var queryResult = await _dsdb.LookupAsync(datastoreKeys);
             var results = new List<JObject>();
 
             for (int i = 0; i < queryResult.Count; i++)
@@ -532,7 +534,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, keyName, keyValue, item, 
+        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, keyName, keyValue, item,
             returnBehavior, null, overwriteIfExists, cancellationToken);
     }
 
@@ -566,7 +568,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         const int maxRetryNumber = 5;
         int retryCount = 0;
 
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->DeleteItemAsync: DSDB is null.");
         }
@@ -575,12 +577,12 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         {
             try
             {
-                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
                     return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
-                using var transaction = await DSDB.BeginTransactionAsync();
+                using var transaction = await _dsdb.BeginTransactionAsync();
                 var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
@@ -617,7 +619,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             catch (Exception e) when (CheckForRetriability(e))
             {
                 await Task.Delay(5000, cancellationToken);
-                continue;
             }
             catch (Exception e)
             {
@@ -636,14 +637,14 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         string[] keyNames,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.");
         }
         try
         {
             var query = new Query(tableName);
-            var queryResults = await DSDB.RunQueryAsync(query);
+            var queryResults = await _dsdb.RunQueryAsync(query);
 
             var results = new List<JObject>();
             foreach (var entity in queryResults.Entities)
@@ -664,7 +665,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                             }
                         }
                     }
-                    
+
                     ApplyOptions(asJson);
                     results.Add(asJson);
                 }
@@ -688,7 +689,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.");
         }
@@ -712,7 +713,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                 }
             }
 
-            var queryResults = await DSDB.RunQueryAsync(query);
+            var queryResults = await _dsdb.RunQueryAsync(query);
             var results = new List<JObject>();
 
             foreach (var entity in queryResults.Entities)
@@ -733,7 +734,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                             }
                         }
                     }
-                    
+
                     ApplyOptions(asJson);
                     results.Add(asJson);
                 }
@@ -765,17 +766,17 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         DatabaseAttributeCondition filterCondition,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableWithFilterAsync: DSDB is null.");
         }
         try
         {
             var query = new Query(tableName);
-            
+
             // Build filter from condition - For Google Cloud Datastore, complex filtering may require indexes
             // This is a simplified implementation
-            var queryResults = await DSDB.RunQueryAsync(query);
+            var queryResults = await _dsdb.RunQueryAsync(query);
             var results = new List<JObject>();
 
             foreach (var entity in queryResults.Entities)
@@ -796,7 +797,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                             }
                         }
                     }
-                    
+
                     // Apply client-side filtering
                     if (ConditionCheck(asJson, filterCondition))
                     {
@@ -826,7 +827,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.");
         }
@@ -850,13 +851,13 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                 }
             }
 
-            var queryResults = await DSDB.RunQueryAsync(query);
+            var queryResults = await _dsdb.RunQueryAsync(query);
             var results = new List<JObject>();
 
             foreach (var entity in queryResults.Entities)
             {
                 if (results.Count >= pageSize) break;
-                
+
                 var asJson = FromEntityToJson(entity);
                 if (asJson != null)
                 {
@@ -873,7 +874,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                             }
                         }
                     }
-                    
+
                     // Apply client-side filtering
                     if (ConditionCheck(asJson, filterCondition))
                     {
@@ -912,7 +913,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         DatabaseAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->AddElementsToArrayAsync: DSDB is null.");
         }
@@ -929,17 +930,17 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                     return DatabaseResult<JObject?>.Failure("ElementsToAdd must contain values.");
                 }
 
-                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
                     return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
-                using var transaction = await DSDB.BeginTransactionAsync();
+                using var transaction = await _dsdb.BeginTransactionAsync();
                 var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
                 var entity = await transaction.LookupAsync(key);
-                
+
                 if (entity != null)
                 {
                     var entityJson = FromEntityToJson(entity);
@@ -1014,7 +1015,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                     }
 
                     newJson[arrayAttributeName] = newArray;
-                    
+
                     var newEntity = FromJsonToEntity(factory, keyName, keyValue, newJson);
                     if (newEntity != null)
                     {
@@ -1036,7 +1037,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             catch (Exception e) when (CheckForRetriability(e))
             {
                 await Task.Delay(5000, cancellationToken);
-                continue;
             }
             catch (Exception e)
             {
@@ -1060,7 +1060,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         DatabaseAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->RemoveElementsFromArrayAsync: DSDB is null.");
         }
@@ -1077,17 +1077,17 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                     return DatabaseResult<JObject?>.Failure("ElementsToRemove must contain values.");
                 }
 
-                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
                     return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
-                using var transaction = await DSDB.BeginTransactionAsync();
+                using var transaction = await _dsdb.BeginTransactionAsync();
                 var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
                 var entity = await transaction.LookupAsync(key);
-                
+
                 if (entity != null)
                 {
                     var entityJson = FromEntityToJson(entity);
@@ -1114,7 +1114,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
                             {
                                 PrimitiveTypeKind.String => element.AsString,
                                 PrimitiveTypeKind.Integer => element.AsInteger.ToString(),
-                                PrimitiveTypeKind.Double => element.AsDouble.ToString(),
+                                PrimitiveTypeKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
                                 PrimitiveTypeKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
                                 _ => element.ToString()
                             }).ToHashSet();
@@ -1158,7 +1158,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             catch (Exception e) when (CheckForRetriability(e))
             {
                 await Task.Delay(5000, cancellationToken);
-                continue;
             }
             catch (Exception e)
             {
@@ -1181,7 +1180,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         DatabaseAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<double>.Failure("DatabaseServiceGC->IncrementAttributeAsync: DSDB is null.");
         }
@@ -1193,17 +1192,17 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         {
             try
             {
-                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
                     return DatabaseResult<double>.Failure("Failed to load table key factory");
                 }
 
-                using var transaction = await DSDB.BeginTransactionAsync();
+                using var transaction = await _dsdb.BeginTransactionAsync();
                 var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 var entity = await transaction.LookupAsync(key);
                 double newValue = incrementValue; // Default if entity doesn't exist
-                
+
                 if (entity != null)
                 {
                     var entityJson = FromEntityToJson(entity);
@@ -1266,7 +1265,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             catch (Exception e) when (CheckForRetriability(e))
             {
                 await Task.Delay(5000, cancellationToken);
-                continue;
             }
             catch (Exception e)
             {
@@ -1276,10 +1274,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
 
         return DatabaseResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
-
-    #endregion
-
-    #region Private Helper Methods
 
     private enum PutOrUpdateItemType
     {
@@ -1298,7 +1292,7 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         bool shouldOverrideIfExist = false,
         CancellationToken cancellationToken = default)
     {
-        if (DSDB == null)
+        if (_dsdb == null)
         {
             return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->PutOrUpdateItemAsync: DSDB is null.");
         }
@@ -1313,17 +1307,17 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         {
             try
             {
-                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory, null))
+                if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
                     return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
-                using var transaction = await DSDB.BeginTransactionAsync();
+                using var transaction = await _dsdb.BeginTransactionAsync();
                 var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
-                
+
                 JObject? returnedPreOperationObject = null;
                 var entity = await transaction.LookupAsync(key);
-                
+
                 if (entity != null)
                 {
                     returnedPreOperationObject = FromEntityToJson(entity);
@@ -1388,7 +1382,6 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
             catch (Exception e) when (CheckForRetriability(e))
             {
                 await Task.Delay(5000, cancellationToken);
-                continue;
             }
             catch (Exception e)
             {
@@ -1506,12 +1499,12 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         {
             return primitive.Kind switch
             {
-                PrimitiveTypeKind.Double when token.Type is JTokenType.Float or JTokenType.Integer => 
+                PrimitiveTypeKind.Double when token.Type is JTokenType.Float or JTokenType.Integer =>
                     ((double)token).CompareTo(primitive.AsDouble),
-                PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer or JTokenType.Float => 
+                PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer or JTokenType.Float =>
                     ((long)token).CompareTo(primitive.AsInteger),
                 PrimitiveTypeKind.String when token.Type != JTokenType.Null =>
-                    ((string)token!).CompareTo(primitive.AsString),
+                    string.Compare(((string)token!), primitive.AsString, StringComparison.InvariantCulture),
                 _ => 0
             };
         }
@@ -1521,37 +1514,32 @@ public class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, IAsyncDi
         }
     }
 
-    #endregion
-
-    #region Condition Builders
-
-    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) => 
+    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
         new ExistenceCondition(DatabaseAttributeConditionType.AttributeExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) => 
+    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
         new ExistenceCondition(DatabaseAttributeConditionType.AttributeNotExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeGreater, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeLess, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) => 
+    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) => 
+    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
-
-    #endregion
 
     public async ValueTask DisposeAsync()
     {
         // Google Cloud Datastore clients are designed to be long-lived
         // No explicit disposal is typically needed, but we suppress finalization
+        // ReSharper disable once GCSuppressFinalizeForTypeWithoutDestructor
         System.GC.SuppressFinalize(this);
         await Task.CompletedTask;
     }

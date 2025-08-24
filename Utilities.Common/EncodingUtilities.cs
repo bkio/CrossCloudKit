@@ -18,7 +18,7 @@ public static class EncodingUtilities
     public static bool IsHexString(string input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        return input.Length > 0 && input.All(c => char.IsAsciiHexDigit(c));
+        return input.Length > 0 && input.All(char.IsAsciiHexDigit);
     }
 
     /// <summary>

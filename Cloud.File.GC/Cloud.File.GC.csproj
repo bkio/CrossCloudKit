@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cloud.Interfaces\Cloud.Interfaces.csproj" />
+    <ProjectReference Include="..\Cloud.PubSub.GC\Cloud.PubSub.GC.csproj" />
+    <ProjectReference Include="..\Utilities.Common\Utilities.Common.csproj" />
+  </ItemGroup>
+
+</Project>

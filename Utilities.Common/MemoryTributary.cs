@@ -3,11 +3,12 @@
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+// ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
 
 /// <summary>
-/// MemoryTributary is a re-implementation of MemoryStream that uses a dynamic list of byte arrays as a backing store, 
+/// MemoryTributary is a re-implementation of MemoryStream that uses a dynamic list of byte arrays as a backing store,
 /// instead of a single byte array, avoiding allocation failures for large streams that require contiguous memory.
 /// </summary>
 public sealed class MemoryTributary : Stream
@@ -28,7 +29,7 @@ public sealed class MemoryTributary : Stream
     public MemoryTributary(int blockSize = DefaultBlockSize)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(blockSize, 0);
-        
+
         _blockSize = blockSize;
         _blocks = [];
         _position = 0;
@@ -63,7 +64,7 @@ public sealed class MemoryTributary : Stream
     public MemoryTributary(int initialLength, int blockSize = DefaultBlockSize) : this(blockSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialLength);
-        
+
         SetLength(initialLength);
         _position = initialLength;
         _ = GetBlock(BlockId); // Ensure memory allocation
@@ -112,10 +113,10 @@ public sealed class MemoryTributary : Stream
         // No-op for memory stream
     }
 
-    public override Task FlushAsync(CancellationToken cancellationToken = default)
+    public override Task FlushAsync(CancellationToken cancellationToken)
     {
-        return cancellationToken.IsCancellationRequested 
-            ? Task.FromCanceled(cancellationToken) 
+        return cancellationToken.IsCancellationRequested
+            ? Task.FromCanceled(cancellationToken)
             : Task.CompletedTask;
     }
 
@@ -141,7 +142,7 @@ public sealed class MemoryTributary : Stream
             var bytesToRead = Math.Min(span.Length, _blockSize - blockOffset);
 
             currentBlock.AsSpan(blockOffset, bytesToRead).CopyTo(span);
-            
+
             totalRead += bytesToRead;
             _position += bytesToRead;
             span = span[bytesToRead..];
@@ -150,14 +151,14 @@ public sealed class MemoryTributary : Stream
         return totalRead;
     }
 
-    public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+    public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
         return await ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        return cancellationToken.IsCancellationRequested 
+        return cancellationToken.IsCancellationRequested
             ? ValueTask.FromCanceled<int>(cancellationToken)
             : ValueTask.FromResult(Read(buffer.Span));
     }
@@ -183,7 +184,7 @@ public sealed class MemoryTributary : Stream
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentOutOfRangeException.ThrowIfNegative(value);
-        
+
         _length = value;
     }
 
@@ -222,7 +223,7 @@ public sealed class MemoryTributary : Stream
         }
     }
 
-    public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+    public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
         await WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
     }
@@ -357,7 +358,7 @@ public sealed class MemoryTributary : Stream
             while (length > 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 var toRead = (int)Math.Min(buffer.Length, length);
                 var bytesRead = await source.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
                 if (bytesRead == 0) break;

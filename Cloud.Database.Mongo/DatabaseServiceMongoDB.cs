@@ -13,23 +13,24 @@ using Newtonsoft.Json;
 
 namespace Cloud.Database.Mongo;
 
-public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDisposable
+public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDisposable
 {
     /// <summary>
     /// Holds initialization success
     /// </summary>
-    private readonly bool bInitializationSucceed;
+    private readonly bool _bInitializationSucceed;
 
     /// <summary>
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
-    public bool IsInitialized => bInitializationSucceed;
+    // ReSharper disable once ConvertToAutoProperty
+    public bool IsInitialized => _bInitializationSucceed;
 
-    private readonly IMongoDatabase? MongoDB;
+    private readonly IMongoDatabase? _mongoDB;
     private readonly MongoClient? _mongoClient;
 
-    private readonly Dictionary<string, IMongoCollection<BsonDocument>> TableMap = [];
-    private readonly Lock TableMap_DictionaryLock = new();
+    private readonly Dictionary<string, IMongoCollection<BsonDocument>> _tableMap = [];
+    private readonly Lock _tableMapDictionaryLock = new();
 
     /// <summary>
     /// DatabaseServiceMongoDB: Constructor for MongoDB connection using host and port
@@ -50,13 +51,13 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         try
         {
             _mongoClient = new MongoClient($"mongodb://{mongoHost}:{mongoPort}");
-            MongoDB = _mongoClient.GetDatabase(mongoDatabase);
-            bInitializationSucceed = MongoDB != null;
+            _mongoDB = _mongoClient.GetDatabase(mongoDatabase);
+            _bInitializationSucceed = _mongoDB != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceMongoDB->Constructor: {e.Message} \n Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
@@ -77,13 +78,13 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         try
         {
             _mongoClient = new MongoClient(connectionString);
-            MongoDB = _mongoClient.GetDatabase(mongoDatabase);
-            bInitializationSucceed = MongoDB != null;
+            _mongoDB = _mongoClient.GetDatabase(mongoDatabase);
+            _bInitializationSucceed = _mongoDB != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceMongoDB->Constructor: {e.Message} \n Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
@@ -102,7 +103,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         try
         {
             var clientConfigString = mongoClientConfigJson;
-            
+
             // Parse the Client Config Json if it's a base64 encoded (for running on local environment with launchSettings.json)
             Span<byte> buffer = stackalloc byte[clientConfigString.Length];
             if (Convert.TryFromBase64String(clientConfigString, buffer, out int bytesParsed))
@@ -125,10 +126,10 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
             var databaseName = clientConfigJObject.SelectToken("auth.usersWanted[0].db")?.ToObject<string>();
             var userName = clientConfigJObject.SelectToken("auth.usersWanted[0].user")?.ToObject<string>();
             var authMechanism = clientConfigJObject.SelectToken("auth.autoAuthMechanism")?.ToObject<string>();
-            
+
             const int mongoDBPort = 27017;
 
-            var serverList = hosts.Select((host, i) => 
+            var serverList = hosts.Select((host, i) =>
                 new MongoServerAddress(host, i < ports.Count ? ports[i] : mongoDBPort)).ToList();
 
             if (databaseName != null && userName != null && authMechanism != null)
@@ -157,24 +158,24 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
                 _mongoClient = new MongoClient(settings);
             }
 
-            MongoDB = _mongoClient.GetDatabase(mongoDatabase);
-            bInitializationSucceed = MongoDB != null;
+            _mongoDB = _mongoClient.GetDatabase(mongoDatabase);
+            _bInitializationSucceed = _mongoDB != null;
         }
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"DatabaseServiceMongoDB->Constructor: {e.Message} \n Trace: {e.StackTrace}");
-            bInitializationSucceed = false;
+            _bInitializationSucceed = false;
         }
     }
 
     private bool TableExists(string tableName)
     {
-        if (MongoDB == null) return false;
+        if (_mongoDB == null) return false;
 
         var filter = new BsonDocument("name", tableName);
         var options = new ListCollectionNamesOptions { Filter = filter };
 
-        return MongoDB.ListCollectionNames(options).Any();
+        return _mongoDB.ListCollectionNames(options).Any();
     }
 
     /// <summary>
@@ -184,11 +185,11 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
     {
         try
         {
-            if (MongoDB == null) return false;
-            
+            if (_mongoDB == null) return false;
+
             if (!TableExists(tableName))
             {
-                await MongoDB.CreateCollectionAsync(tableName, cancellationToken: cancellationToken);
+                await _mongoDB.CreateCollectionAsync(tableName, cancellationToken: cancellationToken);
             }
             return true;
         }
@@ -200,9 +201,9 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
 
     private async Task<IMongoCollection<BsonDocument>?> GetTableAsync(string tableName, CancellationToken cancellationToken = default)
     {
-        lock (TableMap_DictionaryLock)
+        lock (_tableMapDictionaryLock)
         {
-            if (TableMap.TryGetValue(tableName, out var existingTable))
+            if (_tableMap.TryGetValue(tableName, out var existingTable))
             {
                 return existingTable;
             }
@@ -213,12 +214,12 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
             return null;
         }
 
-        var tableObj = MongoDB?.GetCollection<BsonDocument>(tableName);
+        var tableObj = _mongoDB?.GetCollection<BsonDocument>(tableName);
         if (tableObj != null)
         {
-            lock (TableMap_DictionaryLock)
+            lock (_tableMapDictionaryLock)
             {
-                TableMap.TryAdd(tableName, tableObj);
+                _tableMap.TryAdd(tableName, tableObj);
             }
         }
 
@@ -338,7 +339,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
                 return DatabaseResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
             }
 
-            var filter = keyValues.Aggregate<PrimitiveType, FilterDefinition<BsonDocument>>(
+            var filter = keyValues.Aggregate(
                 Builders<BsonDocument>.Filter.Empty,
                 (current, value) => current == Builders<BsonDocument>.Filter.Empty
                     ? BuildEqFilter(keyName, value)
@@ -696,7 +697,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
             };
 
             var document = await table.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
-            
+
             if (document != null && document.TryGetValue(numericAttributeName, out var value))
             {
                 return DatabaseResult<double>.Success(value.AsDouble);
@@ -1031,7 +1032,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         return bsonValue.BsonType switch
         {
             BsonType.String => new PrimitiveType(bsonValue.AsString),
-            BsonType.Int32 => new PrimitiveType((long)bsonValue.AsInt32),
+            BsonType.Int32 => new PrimitiveType(bsonValue.AsInt32),
             BsonType.Int64 => new PrimitiveType(bsonValue.AsInt64),
             BsonType.Double => new PrimitiveType(bsonValue.AsDouble),
             BsonType.Binary => new PrimitiveType(bsonValue.AsByteArray),
@@ -1043,9 +1044,9 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
     {
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeExists => 
-                Builders<BsonDocument>.Filter.Exists(condition.AttributeName, true),
-            DatabaseAttributeConditionType.AttributeNotExists => 
+            DatabaseAttributeConditionType.AttributeExists =>
+                Builders<BsonDocument>.Filter.Exists(condition.AttributeName),
+            DatabaseAttributeConditionType.AttributeNotExists =>
                 Builders<BsonDocument>.Filter.Exists(condition.AttributeName, false),
             _ when condition is ValueCondition valueCondition => BuildValueFilter(valueCondition),
             _ when condition is ArrayElementCondition arrayCondition => BuildArrayElementFilter(arrayCondition),
@@ -1066,17 +1067,17 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeEquals => 
+            DatabaseAttributeConditionType.AttributeEquals =>
                 Builders<BsonDocument>.Filter.Eq(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeNotEquals => 
+            DatabaseAttributeConditionType.AttributeNotEquals =>
                 Builders<BsonDocument>.Filter.Ne(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeGreater => 
+            DatabaseAttributeConditionType.AttributeGreater =>
                 Builders<BsonDocument>.Filter.Gt(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeGreaterOrEqual => 
+            DatabaseAttributeConditionType.AttributeGreaterOrEqual =>
                 Builders<BsonDocument>.Filter.Gte(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeLess => 
+            DatabaseAttributeConditionType.AttributeLess =>
                 Builders<BsonDocument>.Filter.Lt(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeLessOrEqual => 
+            DatabaseAttributeConditionType.AttributeLessOrEqual =>
                 Builders<BsonDocument>.Filter.Lte(condition.AttributeName, value),
             _ => null
         };
@@ -1095,9 +1096,9 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.ArrayElementExists => 
+            DatabaseAttributeConditionType.ArrayElementExists =>
                 Builders<BsonDocument>.Filter.AnyIn(condition.AttributeName, elementValue),
-            DatabaseAttributeConditionType.ArrayElementNotExists => 
+            DatabaseAttributeConditionType.ArrayElementNotExists =>
                 Builders<BsonDocument>.Filter.AnyNin(condition.AttributeName, elementValue),
             _ => null
         };
@@ -1147,7 +1148,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
     /// Override AddKeyToJson to handle MongoDB-specific key formats
     /// For MongoDB, we need to ensure the key format in JSON matches how it was stored in BSON
     /// </summary>
-    protected static new void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
+    private new static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
     {
         ArgumentNullException.ThrowIfNull(destination);
 
@@ -1155,13 +1156,13 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
         // Use the same conversion logic as BsonValueToPrimitiveType to ensure consistency
         destination[keyName] = keyValue.Kind switch
         {
-            PrimitiveTypeKind.String => (JToken)keyValue.AsString,
-            PrimitiveTypeKind.Integer => (JToken)keyValue.AsInteger,
-            PrimitiveTypeKind.Double => (JToken)keyValue.AsDouble,
-            PrimitiveTypeKind.ByteArray => (JToken)Convert.ToBase64String(keyValue.AsByteArray),// For byte arrays, we need to match how MongoDB BSON handles them
+            PrimitiveTypeKind.String => keyValue.AsString,
+            PrimitiveTypeKind.Integer => keyValue.AsInteger,
+            PrimitiveTypeKind.Double => keyValue.AsDouble,
+            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(keyValue.AsByteArray),// For byte arrays, we need to match how MongoDB BSON handles them
                                                                                                 // MongoDB stores byte arrays as binary data, which JSON.NET can't represent directly
                                                                                                 // So we convert to Base64 string for JSON representation
-            _ => (JToken)keyValue.ToString(),
+            _ => keyValue.ToString(),
         };
     }
 
@@ -1169,25 +1170,25 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
 
     #region Condition Builders
 
-    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) => 
+    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
         new ExistenceCondition(DatabaseAttributeConditionType.AttributeExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) => 
+    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
         new ExistenceCondition(DatabaseAttributeConditionType.AttributeNotExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeGreater, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeLess, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) => 
+    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
         new ValueCondition(DatabaseAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) => 
+    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) => 
+    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
@@ -1195,6 +1196,7 @@ public class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDi
     public void Dispose()
     {
         _mongoClient?.Dispose();
+        // ReSharper disable once GCSuppressFinalizeForTypeWithoutDestructor
         GC.SuppressFinalize(this);
     }
 }

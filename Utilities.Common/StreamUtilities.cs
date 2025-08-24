@@ -23,7 +23,7 @@ public static class StreamUtilities
             return memoryStream.ToArray();
         }
 
-        using var buffer = new MemoryTributary();
+        await using var buffer = new MemoryTributary();
         await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         return buffer.ToArray();
     }

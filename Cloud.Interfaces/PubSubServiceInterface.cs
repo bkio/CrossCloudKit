@@ -9,6 +9,8 @@ namespace Cloud.Interfaces;
 /// </summary>
 public interface IPubSubService
 {
+    protected const string UsedOnBucketEventFlagKey = "used_on_bucket_event";
+
     /// <summary>
     /// Gets a value indicating whether the pub/sub service has been successfully initialized.
     /// </summary>
@@ -68,7 +70,25 @@ public interface IPubSubService
 
     /// <summary>
     /// Used by file services to mark files as used on bucket events. No need to call it explicit.
+    /// <param name="topic">Topic to be marked.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// </summary>
-    /// <param name="topicName">Name of the topic</param>
-    void MarkUsedOnBucketEvent(string topicName);
+    /// <returns>True if succeeded; otherwise, false.</returns>
+    Task<bool> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Used by file services to unmark files as used on bucket events. No need to call it explicit.
+    /// <param name="topic">Topic to be unmarked.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// </summary>
+    /// <returns>True if succeeded; otherwise, false.</returns>
+    Task<bool> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get all topics used on bucket events.
+    /// </summary>
+    /// <param name="errorMessageAction">Optional error callback.</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<List<string>?> GetTopicsUsedOnBucketEventAsync(Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default);
 }

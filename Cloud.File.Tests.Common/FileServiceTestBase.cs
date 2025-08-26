@@ -437,7 +437,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             }
             catch (TimeoutException)
             {
-                if (IsPubSubServiceAWS(service))
+                if (IsPubSubServiceAWS(pubsubService))
                 {
                     testOutputHelper.WriteLine("Warning: Test failed, but due to the AWS eventual-consistency, this is ok.");
                 }
@@ -450,7 +450,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
 
             try
             {
-                await service.DeleteNotificationsAsync(bucket, topic);
+                await service.DeleteNotificationsAsync(pubsubService, bucket, topic);
             }
             catch (Exception)
             {

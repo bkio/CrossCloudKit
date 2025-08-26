@@ -892,7 +892,10 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
 
             await _s3Client.PutBucketNotificationAsync(notificationRequest, cancellationToken);
 
-            pubSubService.MarkUsedOnBucketEvent(topicName);
+            if (!await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken))
+            {
+                throw new Exception("Unable to mark queue as used on bucket event.");
+            }
 
             return FileServiceResult<string>.Success(queueArn);
         }
@@ -906,6 +909,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
     /// Deletes notifications from a bucket
     /// </summary>
     public async Task<FileServiceResult<int>> DeleteNotificationsAsync(
+        IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default)
@@ -926,7 +930,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var response = await _s3Client.GetBucketNotificationAsync(getRequest, cancellationToken).ConfigureAwait(false);
             int deletedCount;
 
-            if (topicName is null)
+            if (topicName == null)
             {
                 // Delete all queue notifications
                 deletedCount = response.QueueConfigurations.Count;
@@ -934,10 +938,24 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 var putRequest = new PutBucketNotificationRequest
                 {
                     BucketName = bucketName,
-                    QueueConfigurations = new List<QueueConfiguration>()
+                    QueueConfigurations = []
                 };
 
                 await _s3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
+
+                var topicsToDelete = await pubSubService.GetTopicsUsedOnBucketEventAsync(cancellationToken: cancellationToken);
+                if (topicsToDelete == null)
+                {
+                    return FileServiceResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
+                }
+
+                foreach (var topic in topicsToDelete)
+                {
+                    if (!await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken))
+                    {
+                        return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                    }
+                }
             }
             else
             {
@@ -955,6 +973,11 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 };
 
                 await _s3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
+
+                if (!await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken))
+                {
+                    return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                }
             }
 
             return FileServiceResult<int>.Success(deletedCount);

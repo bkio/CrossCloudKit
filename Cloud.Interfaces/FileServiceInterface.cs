@@ -462,11 +462,13 @@ public interface IFileService
     /// <summary>
     /// Deletes all pub/sub notifications for a bucket, optionally filtered by topic.
     /// </summary>
+    /// <param name="pubSubService">Pub/Sub service instance</param>
     /// <param name="bucketName">The name of the bucket</param>
     /// <param name="topicName">Optional topic name to filter deletions</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the notification deletion operation</returns>
     Task<FileServiceResult<int>> DeleteNotificationsAsync(
+        IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default);

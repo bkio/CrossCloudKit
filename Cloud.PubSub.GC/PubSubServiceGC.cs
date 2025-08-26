@@ -9,6 +9,9 @@ using Grpc.Core;
 using Utilities.Common;
 using System.Collections.Concurrent;
 using System.Net;
+using Google.Api.Gax.ResourceNames;
+using Google.Protobuf.WellKnownTypes;
+
 // ReSharper disable MemberCanBePrivate.Global
 
 namespace Cloud.PubSub.GC;
@@ -322,10 +325,119 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         return true;
     }
 
-    public void MarkUsedOnBucketEvent(string topicName)
+    public async Task<bool> MarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
     {
-        // No-op
-        // GC implementation doesn't need to track bucket events
+        if (string.IsNullOrWhiteSpace(topicName))
+            return false;
+
+        var publisherClient = await new PublisherServiceApiClientBuilder
+        {
+            Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+        }.BuildAsync(cancellationToken);
+
+        var encodedTopic = EncodeTopic(topicName);
+        var topicNameObj = new TopicName(_projectId, encodedTopic);
+
+        try
+        {
+            var existingTopic = await publisherClient.GetTopicAsync(topicNameObj, cancellationToken);
+            if (existingTopic == null) return false;
+
+            var labels = new Dictionary<string, string>(existingTopic.Labels)
+            {
+                [IPubSubService.UsedOnBucketEventFlagKey] = "true"
+            };
+
+            var updatedTopic = new Topic
+            {
+                TopicName = topicNameObj,
+                Labels = { labels }
+            };
+
+            await publisherClient.UpdateTopicAsync(updatedTopic, new FieldMask { Paths = { "labels" } }, cancellationToken);
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+            return false;
+        }
+    }
+
+    public async Task<bool> UnmarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(topicName))
+            return false;
+
+        var publisherClient = await new PublisherServiceApiClientBuilder
+        {
+            Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+        }.BuildAsync(cancellationToken);
+
+        var encodedTopic = EncodeTopic(topicName);
+        var topicNameObj = new TopicName(_projectId, encodedTopic);
+
+        try
+        {
+            var existingTopic = await publisherClient.GetTopicAsync(topicNameObj, cancellationToken);
+
+            var labels = new Dictionary<string, string>(existingTopic.Labels);
+            if (labels.Remove(IPubSubService.UsedOnBucketEventFlagKey))
+            {
+                var updatedTopic = new Topic
+                {
+                    TopicName = topicNameObj,
+                    Labels = { labels }
+                };
+
+                await publisherClient.UpdateTopicAsync(
+                    updatedTopic,
+                    new FieldMask { Paths = { "labels" } },
+                    cancellationToken
+                );
+            }
+
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    public async Task<List<string>?> GetTopicsUsedOnBucketEventAsync(
+        Action<string>? errorMessageAction = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var publisherClient = await new PublisherServiceApiClientBuilder
+            {
+                Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+            }.BuildAsync(cancellationToken);
+
+            var topics = new List<string>();
+
+            var projectName = ProjectName.FromProject(_projectId);
+            var response = publisherClient.ListTopicsAsync(projectName);
+
+            await foreach (var topic in response.WithCancellation(cancellationToken))
+            {
+                if (topic.Labels.TryGetValue(IPubSubService.UsedOnBucketEventFlagKey, out var flagValue) &&
+                    string.Equals(flagValue, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    topics.Add(TopicName.Parse(topic.Name).TopicId);
+                }
+            }
+
+            return topics;
+        }
+        catch (Exception e)
+        {
+            errorMessageAction?.Invoke($"Failed to get topics: {e.Message}");
+            return null;
+        }
     }
 
     public async ValueTask DisposeAsync()

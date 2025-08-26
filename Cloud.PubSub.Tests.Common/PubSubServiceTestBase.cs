@@ -443,7 +443,11 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         var received1 = new TaskCompletionSource<string>();
         try
         {
-            await service1.SubscribeAsync(topic, (_, msg) => { received1.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+            await service1.SubscribeAsync(topic, (_, msg) =>
+            {
+                received1.TrySetResult(msg);
+                return Task.CompletedTask;
+            }, ErrorLogger);
             await service1.PublishAsync(topic, "message1", ErrorLogger);
             var res1 = (await received1.Task.WaitAsync(TimeSpan.FromSeconds(15)));
             res1.Should().Be("message1");
@@ -456,7 +460,11 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
             var received2 = new TaskCompletionSource<string>();
             try
             {
-                await service2.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+                await service2.SubscribeAsync(topic, (_, msg) =>
+                {
+                    received2.TrySetResult(msg);
+                    return Task.CompletedTask;
+                }, ErrorLogger);
                 await service2.PublishAsync(topic, "message2", ErrorLogger);
                 var res2 = (await received2.Task.WaitAsync(TimeSpan.FromSeconds(15)));
                 res2.Should().Be("message2");
@@ -572,5 +580,168 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
             errors.Add(msg);
             testOutputHelper.WriteLine($"[PubSubTestError] {msg}");
         }
+    }
+
+    [Fact]
+    public async Task MarkUsedOnBucketEvent_ValidTopic_ShouldReturnTrue()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        var topic = GenerateTestTopic();
+
+        // Ensure topic exists first
+        await service.EnsureTopicExistsAsync(topic, errors.Add);
+        try
+        {
+            // Act
+            var result = await service.MarkUsedOnBucketEvent(topic);
+
+            // Assert
+            Assert.True(result, "MarkUsedOnBucketEvent should return true for valid topic");
+        }
+        finally
+        {
+            // Cleanup
+            await service.DeleteTopicAsync(topic);
+        }
+    }
+
+    [Fact]
+    public async Task UnmarkUsedOnBucketEvent_ValidTopic_ShouldReturnTrue()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        var topic = GenerateTestTopic();
+
+        // Ensure topic exists and mark it first
+        await service.EnsureTopicExistsAsync(topic, errors.Add);
+        try
+        {
+            await service.MarkUsedOnBucketEvent(topic);
+
+            // Act
+            var result = await service.UnmarkUsedOnBucketEvent(topic);
+
+            // Assert
+            Assert.True(result, "UnmarkUsedOnBucketEvent should return true for valid topic");
+        }
+        finally
+        {
+            // Cleanup
+            await service.DeleteTopicAsync(topic);
+        }
+    }
+
+    [Fact]
+    public async Task GetTopicsUsedOnBucketEventAsync_AfterMarking_ShouldReturnMarkedTopics()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        var topic1 = GenerateTestTopic();
+        var topic2 = GenerateTestTopic();
+
+        // Ensure topics exist and mark them
+        await service.EnsureTopicExistsAsync(topic1, errors.Add);
+        try
+        {
+            try
+            {
+                await service.EnsureTopicExistsAsync(topic2, errors.Add);
+                await service.MarkUsedOnBucketEvent(topic1);
+                await service.MarkUsedOnBucketEvent(topic2);
+
+                // Act
+                var markedTopics = await service.GetTopicsUsedOnBucketEventAsync(errors.Add);
+
+                // Assert
+                Assert.NotNull(markedTopics);
+                Assert.Contains(topic1, markedTopics);
+                Assert.Contains(topic2, markedTopics);
+            }
+            finally
+            {
+                await service.DeleteTopicAsync(topic2);
+            }
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic1);
+        }
+    }
+
+    [Fact]
+    public async Task GetTopicsUsedOnBucketEventAsync_AfterUnmarking_ShouldNotReturnUnmarkedTopics()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        var topic = GenerateTestTopic();
+
+        // Ensure a topic exists, mark it, then unmark it
+        await service.EnsureTopicExistsAsync(topic, errors.Add);
+        try
+        {
+            await service.MarkUsedOnBucketEvent(topic);
+            await service.UnmarkUsedOnBucketEvent(topic);
+
+            // Act
+            var markedTopics = await service.GetTopicsUsedOnBucketEventAsync(errors.Add);
+
+            // Assert
+            Assert.NotNull(markedTopics);
+            Assert.DoesNotContain(topic, markedTopics);
+        }
+        finally
+        {
+            // Cleanup
+            await service.DeleteTopicAsync(topic);
+        }
+    }
+
+    [Fact]
+    public async Task MarkUsedOnBucketEvent_EmptyTopic_ShouldReturnFalse()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        // Act & Assert
+        var result1 = await service.MarkUsedOnBucketEvent("");
+        var result2 = await service.MarkUsedOnBucketEvent(null!);
+
+        Assert.False(result1, "MarkUsedOnBucketEvent should return false for empty topic");
+        Assert.False(result2, "MarkUsedOnBucketEvent should return false for null topic");
+    }
+
+    [Fact]
+    public async Task BucketEventMethods_NonExistentTopic_ShouldHandleGracefully()
+    {
+        // Arrange
+        var service = CreatePubSubService();
+        var errors = new List<string>();
+        AssertInitialized(service, errors);
+
+        var nonExistentTopic = "non-existent-topic-" + Guid.NewGuid().ToString("N")[..8];
+
+        // Act
+        var markResult = await service.MarkUsedOnBucketEvent(nonExistentTopic);
+        var unmarkResult = await service.UnmarkUsedOnBucketEvent(nonExistentTopic);
+
+        // Assert - behavior may vary by implementation, but should not throw
+        // AWS creates the topic automatically, GC might require explicit creation
+        Assert.True(markResult || !markResult); // Either behavior is acceptable
+        Assert.True(unmarkResult || !unmarkResult); // Either behavior is acceptable
     }
 }

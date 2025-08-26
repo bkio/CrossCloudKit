@@ -15,6 +15,7 @@ namespace Cloud.PubSub.AWS;
 /// </summary>
 public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 {
+    private const string SlaveSeparator = "-slave-";
     private record GetQueueListCacheEntry(List<string> Queues, DateTime CachedAt);
 
     private readonly AmazonSQSClient _sqsClient;
@@ -43,6 +44,8 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             _sqsClient = new AmazonSQSClient(
                 new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
                 Amazon.RegionEndpoint.GetBySystemName(region));
+
+            InitializeS3EventForwardingAsyncNotSafe().Wait();
 
             IsInitialized = true;
         }
@@ -80,7 +83,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             return null;
         }
 
-        var newQueueName = relevantQueues.Count > 0 ? $"{topic}-{StringUtilities.GenerateRandomString(8, true)}" : topic;
+        var newQueueName = relevantQueues.Count > 0 ? $"{topic}{SlaveSeparator}{StringUtilities.GenerateRandomString(8, true)}" : topic;
         try
         {
             await _sqsClient.CreateQueueAsync(new CreateQueueRequest
@@ -332,11 +335,80 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         return true;
     }
 
-    public void MarkUsedOnBucketEvent(string topicName)
+    public async Task<bool> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(topic))
+            return false;
+
         lock (_s3EventTopicsNotTs)
         {
-            _s3EventTopicsNotTs.Add(topicName);
+            _s3EventTopicsNotTs.Add(topic);
+        }
+
+        try
+        {
+            await _sqsClient.TagQueueAsync(new TagQueueRequest
+            {
+                QueueUrl = topic,
+                Tags = new Dictionary<string, string>
+                {
+                    { IPubSubService.UsedOnBucketEventFlagKey, "true" }
+                }
+            }, cancellationToken);
+        }
+        catch (RequestThrottledException)
+        {
+            return await RequestThrottledRetry(() => MarkUsedOnBucketEvent(topic, cancellationToken), null, cancellationToken);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    public async Task<bool> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(topic))
+            return false;
+
+        lock (_s3EventTopicsNotTs)
+        {
+            _s3EventTopicsNotTs.Remove(topic);
+        }
+
+        try
+        {
+            await _sqsClient.UntagQueueAsync(new UntagQueueRequest
+            {
+                QueueUrl = topic,
+                TagKeys = [IPubSubService.UsedOnBucketEventFlagKey]
+            }, cancellationToken);
+        }
+        catch (RequestThrottledException)
+        {
+            return await RequestThrottledRetry(() => UnmarkUsedOnBucketEvent(topic, cancellationToken), null, cancellationToken);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    public Task<List<string>?> GetTopicsUsedOnBucketEventAsync(Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            lock (_s3EventTopicsNotTs)
+            {
+                return Task.FromResult(_s3EventTopicsNotTs.ToList())!;
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessageAction?.Invoke($"Failed to get topics: {e.Message}");
+            return Task.FromResult<List<string>?>(null);
         }
     }
 
@@ -377,16 +449,37 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
         if (relevantQueues.Count == 0)
         {
-            var relevantQueuesResult = await _sqsClient.ListQueuesAsync(new ListQueuesRequest()
+            var allQueues = new List<string>();
+            string? nextToken = null;
+
+            do
             {
-                QueueNamePrefix = topic
-            }, cancellationToken);
+                var relevantQueuesResult = await _sqsClient.ListQueuesAsync(new ListQueuesRequest
+                {
+                    QueueNamePrefix = topic,
+                    NextToken = nextToken,
+                    MaxResults = 1000
+                }, cancellationToken);
+
+                if (relevantQueuesResult.QueueUrls is { Count: > 0 })
+                {
+                    allQueues.AddRange(relevantQueuesResult.QueueUrls);
+                }
+
+                nextToken = relevantQueuesResult.NextToken;
+
+            } while (!string.IsNullOrEmpty(nextToken));
 
             GetQueueListCacheEntry cacheEntry;
-            if (relevantQueuesResult.QueueUrls is { Count: > 0 })
+
+            if (allQueues.Count > 0)
             {
-                cacheEntry = new GetQueueListCacheEntry(relevantQueuesResult.QueueUrls.ToList(), DateTime.UtcNow);
-                relevantQueues.AddRange(relevantQueuesResult.QueueUrls.Select(queueUrl => queueUrl[queueUrl.IndexOf(topic, StringComparison.InvariantCulture)..]));
+                cacheEntry = new GetQueueListCacheEntry(allQueues.ToList(), DateTime.UtcNow);
+
+                relevantQueues.AddRange(
+                    allQueues.Select(queueUrl =>
+                        queueUrl[queueUrl.IndexOf(topic, StringComparison.InvariantCulture)..])
+                );
             }
             else
             {
@@ -459,6 +552,53 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             return false;
         }
         return true;
+    }
+
+    private async Task<List<string>> GetMasterQueuesTaggedWithUsedOnBucketEventAsyncNotSafe(CancellationToken cancellationToken = default)
+    {
+        var matchingQueues = new List<string>();
+        string? nextToken = null;
+
+        do
+        {
+            var listQueuesResponse = await _sqsClient.ListQueuesAsync(new ListQueuesRequest
+            {
+                NextToken = nextToken,
+                MaxResults = 1000 // maximum allowed
+            }, cancellationToken);
+
+            foreach (var queueUrl in listQueuesResponse.QueueUrls)
+            {
+                var tagsResponse = await _sqsClient.ListQueueTagsAsync(new ListQueueTagsRequest
+                {
+                    QueueUrl = queueUrl
+                }, cancellationToken);
+
+                if (tagsResponse.Tags == null ||
+                    !tagsResponse.Tags.ContainsKey(IPubSubService.UsedOnBucketEventFlagKey)) continue;
+
+                if (!queueUrl.Contains(SlaveSeparator))
+                    matchingQueues.Add(new Uri(queueUrl).Segments.Last());
+            }
+
+            nextToken = listQueuesResponse.NextToken;
+
+        } while (!string.IsNullOrEmpty(nextToken));
+
+        return matchingQueues;
+    }
+    private async Task InitializeS3EventForwardingAsyncNotSafe(CancellationToken cancellationToken = default)
+    {
+        var masterQueues = await GetMasterQueuesTaggedWithUsedOnBucketEventAsyncNotSafe(cancellationToken);
+        foreach (var queueName in masterQueues)
+        {
+            lock (_s3EventTopicsNotTs)
+            {
+                _s3EventTopicsNotTs.Add(queueName);
+            }
+            //await SubscribeAsync(queueUrl, (_, _) => Task.CompletedTask, null, cancellationToken);
+            //Logically there should be a listener already, if not, when a new listener is added; forwarding will begin anyway.
+        }
     }
 
     public async ValueTask DisposeAsync()

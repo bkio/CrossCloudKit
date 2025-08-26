@@ -877,7 +877,10 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                     return FileServiceResult<string>.Failure("Notification could not be created");
                 }
 
-                pubSubService.MarkUsedOnBucketEvent(topicName);
+                if (!await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken))
+                {
+                    return FileServiceResult<string>.Failure("Unable to mark queue as used on bucket event.");
+                }
 
                 return FileServiceResult<string>.Success(created.Id);
             }
@@ -912,6 +915,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
     /// Deletes all pub/sub notifications for a bucket, optionally filtered by topic.
     /// </summary>
     public async Task<FileServiceResult<int>> DeleteNotificationsAsync(
+        IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default)
@@ -923,34 +927,47 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             return FileServiceResult<int>.Failure("Google Storage client is not initialized");
         }
 
-        try
+        var fullTopicNamesToDelete = new Dictionary<string, string>();
+        if (topicName == null)
         {
-            var fullTopicName = !string.IsNullOrEmpty(topicName)
-                ? $"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}"
-                : null;
-
-            var notifications = await _gsClient.ListNotificationsAsync(bucketName, new ListNotificationsOptions(), cancellationToken);
-            if (notifications.Count == 0)
+            var topicsToDelete = await pubSubService.GetTopicsUsedOnBucketEventAsync(cancellationToken: cancellationToken);
+            if (topicsToDelete == null)
             {
-                return FileServiceResult<int>.Success(0);
+                return FileServiceResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
             }
 
-            var deletedCount = 0;
-            foreach (var notification in notifications)
+            foreach (var topic in topicsToDelete)
             {
-                if (fullTopicName == null || string.Equals(notification.Topic, fullTopicName, StringComparison.Ordinal))
+                fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{topic}", topic);
+            }
+        }
+        else
+        {
+            fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}", topicName);
+        }
+
+        var notifications = await _gsClient.ListNotificationsAsync(bucketName, new ListNotificationsOptions(), cancellationToken);
+
+        var deletedCount = 0;
+        foreach (var notification in notifications)
+        {
+            if (!fullTopicNamesToDelete.TryGetValue(notification.Topic, out var tName)) continue;
+            try
+            {
+                await _gsClient.DeleteNotificationAsync(bucketName, notification.Id, new DeleteNotificationOptions(), cancellationToken);
+
+                if (!await pubSubService.UnmarkUsedOnBucketEvent(tName, cancellationToken))
                 {
-                    await _gsClient.DeleteNotificationAsync(bucketName, notification.Id, new DeleteNotificationOptions(), cancellationToken);
-                    deletedCount++;
+                    return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
                 }
             }
-
-            return FileServiceResult<int>.Success(deletedCount);
+            catch (Exception e)
+            {
+                return FileServiceResult<int>.Failure($"Delete notifications failed: {e.Message}");
+            }
+            deletedCount++;
         }
-        catch (Exception e)
-        {
-            return FileServiceResult<int>.Failure($"Delete notifications failed: {e.Message}");
-        }
+        return FileServiceResult<int>.Success(deletedCount);
     }
 
     private static PredefinedObjectAcl ConvertAccessibilityToAcl(FileAccessibility accessibility)

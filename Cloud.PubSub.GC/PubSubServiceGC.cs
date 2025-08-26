@@ -28,7 +28,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     private readonly string _projectId;
     private readonly GoogleCredential _credential = null!;
     private readonly ConcurrentDictionary<string, PublisherServiceApiClient> _publishers = new();
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _subscriptions = new();
+    private readonly ConcurrentDictionary<string, List<CancellationTokenSource>> _subscriptions = new();
     private readonly ConcurrentDictionary<string, List<SubscriptionName>> _topicSubscriptions = new();
 
     public bool IsInitialized { get; }
@@ -133,7 +133,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task<bool> PublishAsync(string topic, string message, Action<string>? errorMessageAction = null)
+    public async Task<bool> PublishAsync(string topic, string message, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
         {
@@ -144,11 +144,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         try
         {
             var encodedTopic = EncodeTopic(topic);
-            var publisher = await GetPublisherAsync(encodedTopic);
+            var publisher = await GetPublisherAsync(encodedTopic, cancellationToken);
             var topicName = new TopicName(_projectId, encodedTopic);
             var pubsubMessage = new PubsubMessage { Data = ByteString.CopyFromUtf8(message) };
 
-            await publisher.PublishAsync(topicName, [pubsubMessage]);
+            await publisher.PublishAsync(topicName, [pubsubMessage], cancellationToken: cancellationToken);
             return true;
         }
         catch (Exception e)
@@ -158,7 +158,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task<bool> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<string>? errorMessageAction = null)
+    public async Task<bool> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(topic) || onMessage == null)
             return false;
@@ -166,12 +166,15 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         try
         {
             var encodedTopic = EncodeTopic(topic);
+
             var cts = new CancellationTokenSource();
+            _subscriptions.AddOrUpdate(topic,
+                [cts],
+                (_, existing) => { existing.Add(cts); return existing; });
 
             // Start subscription in the background
             await StartSubscriptionAsync(topic, encodedTopic, onMessage, errorMessageAction, cts.Token);
 
-            _subscriptions[topic] = cts;
             return true;
         }
         catch (Exception e)
@@ -251,20 +254,23 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task DeleteTopicAsync(string topic, Action<string>? errorMessageAction = null)
+    public async Task<bool> DeleteTopicAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(topic))
-            return;
+            return false;
 
         try
         {
             var encodedTopic = EncodeTopic(topic);
 
             // Cancel local subscription tracking
-            if (_subscriptions.TryRemove(topic, out var cts))
+            if (_subscriptions.TryRemove(topic, out var ctsList))
             {
-                await cts.CancelAsync();
-                cts.Dispose();
+                foreach (var cts in ctsList)
+                {
+                    await cts.CancelAsync();
+                    cts.Dispose();
+                }
             }
 
             // Delete all subscriptions for this topic from Google Cloud
@@ -273,13 +279,13 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 var subscriberApi = await new SubscriberServiceApiClientBuilder
                 {
                     Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
-                }.BuildAsync();
+                }.BuildAsync(cancellationToken);
 
                 await Task.WhenAll(subscriptions.Select(async sub =>
                 {
                     try
                     {
-                        await subscriberApi.DeleteSubscriptionAsync(sub);
+                        await subscriberApi.DeleteSubscriptionAsync(sub, cancellationToken: cancellationToken);
                     }
                     catch (RpcException e) when (e.Status.StatusCode == StatusCode.NotFound)
                     {
@@ -298,10 +304,10 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             var publisherClient = await new PublisherServiceApiClientBuilder
             {
                 Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
-            }.BuildAsync();
+            }.BuildAsync(cancellationToken);
 
             var topicName = new TopicName(_projectId, encodedTopic);
-            await publisherClient.DeleteTopicAsync(topicName);
+            await publisherClient.DeleteTopicAsync(topicName, cancellationToken);
         }
         catch (RpcException e) when (e.Status.StatusCode == StatusCode.NotFound)
         {
@@ -310,18 +316,29 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         catch (Exception e)
         {
             errorMessageAction?.Invoke($"Delete topic failed: {e.Message}");
+            return false;
         }
+
+        return true;
+    }
+
+    public void MarkUsedOnBucketEvent(string topicName)
+    {
+        // No-op
+        // GC implementation doesn't need to track bucket events
     }
 
     public async ValueTask DisposeAsync()
     {
         // Cancel all subscription tokens
-        var cancellationTasks = _subscriptions.Values.Select(async cts =>
+        var cancellationTasks = _subscriptions.Values.Select(async ctsList =>
         {
-            await cts.CancelAsync();
-            cts.Dispose();
+            foreach (var cts in ctsList)
+            {
+                await cts.CancelAsync();
+                cts.Dispose();
+            }
         });
-
         await Task.WhenAll(cancellationTasks);
 
         _subscriptions.Clear();

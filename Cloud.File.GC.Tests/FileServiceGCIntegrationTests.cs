@@ -6,6 +6,7 @@ using Cloud.Interfaces;
 using Cloud.PubSub.GC;
 using FluentAssertions;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Cloud.File.GC.Tests;
 
@@ -21,7 +22,7 @@ namespace Cloud.File.GC.Tests;
 /// 2. Valid service account credentials and a real Google Cloud project, OR
 /// 3. Application Default Credentials (ADC) properly configured
 /// </summary>
-public class FileServiceGCIntegrationTests : FileServiceTestBase
+public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) : FileServiceTestBase(testOutputHelper)
 {
     private const string TestProjectId = "test-project-id";
     private const string TestBucketName = "test-bucket-name";
@@ -108,7 +109,6 @@ public class FileServiceGCIntegrationTests : FileServiceTestBase
     }
 
     protected override string GetTestBucketName() => GetTestBucketName(TestBucketName);
-    protected override string GetTestProjectId() => GetTestProjectId(TestProjectId);
 
     [Fact]
     public void FileServiceGC_WithServiceAccountFilePath_ShouldInitialize()

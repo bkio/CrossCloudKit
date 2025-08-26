@@ -32,11 +32,13 @@ public interface IPubSubService
     /// <param name="topic">Topic to be subscribed to.</param>
     /// <param name="onMessage">Action invoked for each received message (topic, message).</param>
     /// <param name="errorMessageAction">Optional error callback.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if subscription succeeded; otherwise, false.</returns>
     Task<bool> SubscribeAsync(
         string topic,
         Func<string, string, Task> onMessage,
-        Action<string>? errorMessageAction = null);
+        Action<string>? errorMessageAction = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Publishes the given message to the given topic.
@@ -44,18 +46,29 @@ public interface IPubSubService
     /// <param name="topic">Topic to publish to.</param>
     /// <param name="message">Message to be sent.</param>
     /// <param name="errorMessageAction">Optional error callback.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if publish succeeded; otherwise, false.</returns>
     Task<bool> PublishAsync(
         string topic,
         string message,
-        Action<string>? errorMessageAction = null);
+        Action<string>? errorMessageAction = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes all messages and the topic of the given workspace.
     /// </summary>
     /// <param name="topic">Topic to be deleted.</param>
     /// <param name="errorMessageAction">Optional error callback.</param>
-    Task DeleteTopicAsync(
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if publish succeeded; otherwise, false.</returns>
+    Task<bool> DeleteTopicAsync(
         string topic,
-        Action<string>? errorMessageAction = null);
+        Action<string>? errorMessageAction = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Used by file services to mark files as used on bucket events. No need to call it explicit.
+    /// </summary>
+    /// <param name="topicName">Name of the topic</param>
+    void MarkUsedOnBucketEvent(string topicName);
 }

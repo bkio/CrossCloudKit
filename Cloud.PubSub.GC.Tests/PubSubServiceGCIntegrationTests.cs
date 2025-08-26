@@ -39,7 +39,7 @@ public class PubSubServiceGCIntegrationTests(ITestOutputHelper testOutputHelper)
         return CreatePubSubServiceForTesting(projectId);
     }
 
-    protected override string GetTestProjectId()
+    private string GetTestProjectId()
     {
         return Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT") ?? TestProjectId;
     }

@@ -11,7 +11,6 @@ namespace Cloud.PubSub.Tests.Common;
 public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
 {
     protected abstract IPubSubService CreatePubSubService();
-    protected abstract string GetTestProjectId();
 
     protected virtual string GenerateTestTopic() => $"test-topic-{Guid.NewGuid():N}";
 
@@ -69,12 +68,39 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         {
             var received1 = new TaskCompletionSource<string>();
             var received2 = new TaskCompletionSource<string>();
-            await service.SubscribeAsync(topic, (_, msg) => { received1.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
-            await service.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+
+            testOutputHelper.WriteLine("Setting up first subscription...");
+            var sub1Result = await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                testOutputHelper.WriteLine($"Subscriber 1 received: {msg}");
+                received1.TrySetResult(msg);
+                return Task.CompletedTask;
+            }, ErrorLogger);
+            sub1Result.Should().BeTrue("First subscription should succeed");
+
+            testOutputHelper.WriteLine("Setting up second subscription...");
+            var sub2Result = await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                testOutputHelper.WriteLine($"Subscriber 2 received: {msg}");
+                received2.TrySetResult(msg);
+                return Task.CompletedTask;
+            }, ErrorLogger);
+            sub2Result.Should().BeTrue("Second subscription should succeed");
+
+            // Allow significant time for both subscriptions to be fully established in the cloud
+            testOutputHelper.WriteLine("Waiting for subscriptions to be fully established...");
+            await Task.Delay(5000);
+
             const string sent = "fanout";
-            await service.PublishAsync(topic, sent, ErrorLogger);
-            (await received1.Task.WaitAsync(TimeSpan.FromSeconds(10))).Should().Be(sent);
-            (await received2.Task.WaitAsync(TimeSpan.FromSeconds(10))).Should().Be(sent);
+            testOutputHelper.WriteLine($"Publishing message: {sent}");
+            var publishResult = await service.PublishAsync(topic, sent, ErrorLogger);
+            publishResult.Should().BeTrue($"Publish should succeed. Errors: {string.Join(" | ", errors)}");
+
+            testOutputHelper.WriteLine("Waiting for messages to be delivered...");
+            (await received1.Task.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(sent);
+            (await received2.Task.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(sent);
+
+            testOutputHelper.WriteLine("Both subscribers received the message successfully!");
         }
         finally
         {
@@ -150,11 +176,18 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         AssertInitialized(service, errors);
         var topic = GenerateTestTopic();
         var received = false;
-        await service.SubscribeAsync(topic, (_, _) => { received = true; return Task.CompletedTask; }, ErrorLogger);
-        if (service is IAsyncDisposable asyncDisposable)
-            await asyncDisposable.DisposeAsync();
-        await service.PublishAsync(topic, "should-not-deliver", ErrorLogger);
-        received.Should().BeFalse();
+        try
+        {
+            await service.SubscribeAsync(topic, (_, _) => { received = true; return Task.CompletedTask; }, ErrorLogger);
+            if (service is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            await service.PublishAsync(topic, "should-not-deliver", ErrorLogger);
+            received.Should().BeFalse();
+        }
+        finally
+        {
+            await service.DeleteTopicAsync(topic, ErrorLogger);
+        }
         return;
 
         void ErrorLogger(string msg)
@@ -400,17 +433,20 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
     public virtual async Task Service_Reinitialization_ShouldMaintainFunctionality()
     {
         var errors = new List<string>();
+
+        var topic = GenerateTestTopic();
+
         var service1 = CreatePubSubService();
         AssertInitialized(service1, errors);
 
-        var topic = GenerateTestTopic();
+        // Test with first service instance
+        var received1 = new TaskCompletionSource<string>();
         try
         {
-            // Test with first service instance
-            var received1 = new TaskCompletionSource<string>();
             await service1.SubscribeAsync(topic, (_, msg) => { received1.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
             await service1.PublishAsync(topic, "message1", ErrorLogger);
-            (await received1.Task.WaitAsync(TimeSpan.FromSeconds(5))).Should().Be("message1");
+            var res1 = (await received1.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+            res1.Should().Be("message1");
 
             // Create a new service instance
             var service2 = CreatePubSubService();
@@ -418,13 +454,21 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
 
             // Test with a second service instance
             var received2 = new TaskCompletionSource<string>();
-            await service2.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
-            await service2.PublishAsync(topic, "message2", ErrorLogger);
-            (await received2.Task.WaitAsync(TimeSpan.FromSeconds(5))).Should().Be("message2");
+            try
+            {
+                await service2.SubscribeAsync(topic, (_, msg) => { received2.TrySetResult(msg); return Task.CompletedTask; }, ErrorLogger);
+                await service2.PublishAsync(topic, "message2", ErrorLogger);
+                var res2 = (await received2.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+                res2.Should().Be("message2");
+            }
+            finally
+            {
+                await service2.DeleteTopicAsync(topic, ErrorLogger);
 
-            // Cleanup with the second service
-            if (service2 is IAsyncDisposable asyncDisposable2)
-                await asyncDisposable2.DisposeAsync();
+                // Cleanup with the second service
+                if (service2 is IAsyncDisposable asyncDisposable2)
+                    await asyncDisposable2.DisposeAsync();
+            }
         }
         finally
         {
@@ -450,9 +494,9 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         AssertInitialized(service, errors);
         var topic = GenerateTestTopic();
 
+        var received = new List<string>();
         try
         {
-            var received = new List<string>();
             var lockObj = new object();
             var allReceived = new TaskCompletionSource<bool>();
             const int messageCount = 100;
@@ -465,6 +509,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
                     if (received.Count >= messageCount)
                         allReceived.TrySetResult(true);
                 }
+
                 return Task.CompletedTask;
             }, ErrorLogger);
 

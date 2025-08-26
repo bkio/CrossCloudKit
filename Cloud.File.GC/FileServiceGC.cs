@@ -876,6 +876,9 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                 {
                     return FileServiceResult<string>.Failure("Notification could not be created");
                 }
+
+                pubSubService.MarkUsedOnBucketEvent(topicName);
+
                 return FileServiceResult<string>.Success(created.Id);
             }
             catch (GoogleApiException ex) when (

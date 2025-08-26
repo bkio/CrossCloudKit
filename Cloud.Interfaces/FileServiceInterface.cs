@@ -219,11 +219,6 @@ public sealed record ListFilesResult
     /// Gets the continuation token for the next page, if any.
     /// </summary>
     public string? NextContinuationToken { get; init; }
-
-    /// <summary>
-    /// Gets whether there are more files to retrieve.
-    /// </summary>
-    public bool HasMore => !string.IsNullOrEmpty(NextContinuationToken);
 }
 
 /// <summary>

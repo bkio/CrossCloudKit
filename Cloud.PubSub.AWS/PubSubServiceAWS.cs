@@ -20,8 +20,8 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
     private readonly AmazonSQSClient _sqsClient;
     private readonly ConcurrentDictionary<string, List<CancellationTokenSource>> _subscriptions = new();
-    private readonly Dictionary<string, HashSet<string>> _queuesNotTs = new();
-    private readonly Dictionary<string, GetQueueListCacheEntry> _queueListCacheNotTs = new();
+    private readonly Dictionary<string, HashSet<string>> _queuesNotTs = [];
+    private readonly Dictionary<string, GetQueueListCacheEntry> _queueListCacheNotTs = [];
     private readonly HashSet<string> _s3EventTopicsNotTs = [];
 
     public bool IsInitialized { get; }
@@ -474,7 +474,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
             if (allQueues.Count > 0)
             {
-                cacheEntry = new GetQueueListCacheEntry(allQueues.ToList(), DateTime.UtcNow);
+                cacheEntry = new GetQueueListCacheEntry([.. allQueues], DateTime.UtcNow);
 
                 relevantQueues.AddRange(
                     allQueues.Select(queueUrl =>
@@ -505,7 +505,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             {
                 finalQueues.Add(queueUrl);
             }
-            return finalQueues.ToList(); //Create copy
+            return [.. finalQueues]; //Create copy
         }
     }
 

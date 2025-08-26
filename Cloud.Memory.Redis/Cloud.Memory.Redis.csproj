@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cloud.Interfaces\Cloud.Interfaces.csproj" />
+    <ProjectReference Include="..\Cloud.Memory.Redis.Common\Cloud.Memory.Redis.Common.csproj" />
+    <ProjectReference Include="..\Utilities.Common\Utilities.Common.csproj" />
+  </ItemGroup>
+
+</Project>

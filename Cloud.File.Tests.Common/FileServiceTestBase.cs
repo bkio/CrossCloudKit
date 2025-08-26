@@ -20,7 +20,10 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
 
     private static StringOrStream ContentStream(string content)
     {
-        return new(new MemoryTributary(System.Text.Encoding.UTF8.GetBytes(content)), System.Text.Encoding.UTF8.GetByteCount(content));
+        return new StringOrStream(
+            new MemoryTributary(
+            System.Text.Encoding.UTF8.GetBytes(content)),
+            System.Text.Encoding.UTF8.GetByteCount(content));
     }
 
     [Fact]

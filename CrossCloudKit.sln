@@ -43,6 +43,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.AWS", "Cloud.P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.AWS.Tests", "Cloud.PubSub.AWS.Tests\Cloud.PubSub.AWS.Tests.csproj", "{868E91FF-993F-481F-B0C1-5C2B0E0FE904}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis", "Cloud.Memory.Redis\Cloud.Memory.Redis.csproj", "{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis.Tests", "Cloud.Memory.Redis.Tests\Cloud.Memory.Redis.Tests.csproj", "{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Tests.Common", "Cloud.Memory.Tests.Common\Cloud.Memory.Tests.Common.csproj", "{AE748BE5-515E-4260-9F75-6FE9575DE1CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis.Common", "Cloud.Memory.Redis.Common\Cloud.Memory.Redis.Common.csproj", "{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis", "Cloud.PubSub.Redis\Cloud.PubSub.Redis.csproj", "{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis.Tests", "Cloud.PubSub.Redis.Tests\Cloud.PubSub.Redis.Tests.csproj", "{86CEA989-BDB0-48B8-910A-E5FFE33EC855}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -129,6 +141,30 @@ Global
 		{868E91FF-993F-481F-B0C1-5C2B0E0FE904}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{868E91FF-993F-481F-B0C1-5C2B0E0FE904}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{868E91FF-993F-481F-B0C1-5C2B0E0FE904}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AE748BE5-515E-4260-9F75-6FE9575DE1CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AE748BE5-515E-4260-9F75-6FE9575DE1CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AE748BE5-515E-4260-9F75-6FE9575DE1CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AE748BE5-515E-4260-9F75-6FE9575DE1CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

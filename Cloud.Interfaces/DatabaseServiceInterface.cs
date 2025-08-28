@@ -48,26 +48,6 @@ public class DatabaseOptions
     public AutoConvertRoundableFloatToInt AutoConvertRoundableFloatToInt { get; set; } = AutoConvertRoundableFloatToInt.No;
 }
 
-/// <summary>
-/// Represents the result of a database operation
-/// </summary>
-public class DatabaseResult<T>
-{
-    public bool IsSuccessful { get; }
-    public T? Data { get; }
-    public string? ErrorMessage { get; }
-
-    private DatabaseResult(bool isSuccessful, T? data, string? errorMessage)
-    {
-        IsSuccessful = isSuccessful;
-        Data = data;
-        ErrorMessage = errorMessage;
-    }
-
-    public static DatabaseResult<T> Success(T data) => new(true, data, null);
-    public static DatabaseResult<T> Failure(string errorMessage) => new(false, default, errorMessage);
-}
-
 public abstract class DatabaseAttributeCondition(DatabaseAttributeConditionType conditionType, string attributeName)
 {
     public DatabaseAttributeConditionType ConditionType { get; } = conditionType;
@@ -123,7 +103,6 @@ public abstract class DatabaseServiceBase
 
     protected static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
     {
-        ArgumentNullException.ThrowIfNull(destination);
         destination[keyName] = FromPrimitiveTypeToJToken(keyValue);
     }
 
@@ -165,7 +144,7 @@ public interface IDatabaseService
     /// <summary>
     /// Checks if an item exists and optionally satisfies a condition
     /// </summary>
-    Task<DatabaseResult<bool>> ItemExistsAsync(
+    Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -175,7 +154,7 @@ public interface IDatabaseService
     /// <summary>
     /// Gets an item from the database
     /// </summary>
-    Task<DatabaseResult<JObject?>> GetItemAsync(
+    Task<OperationResult<JObject?>> GetItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -185,7 +164,7 @@ public interface IDatabaseService
     /// <summary>
     /// Gets multiple items from the database
     /// </summary>
-    Task<DatabaseResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
         string tableName,
         string keyName,
         PrimitiveType[] keyValues,
@@ -195,7 +174,7 @@ public interface IDatabaseService
     /// <summary>
     /// Puts an item into the database
     /// </summary>
-    Task<DatabaseResult<JObject?>> PutItemAsync(
+    Task<OperationResult<JObject?>> PutItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -207,7 +186,7 @@ public interface IDatabaseService
     /// <summary>
     /// Updates an existing item in the database
     /// </summary>
-    Task<DatabaseResult<JObject?>> UpdateItemAsync(
+    Task<OperationResult<JObject?>> UpdateItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -219,7 +198,7 @@ public interface IDatabaseService
     /// <summary>
     /// Deletes an item from the database
     /// </summary>
-    Task<DatabaseResult<JObject?>> DeleteItemAsync(
+    Task<OperationResult<JObject?>> DeleteItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -230,7 +209,7 @@ public interface IDatabaseService
     /// <summary>
     /// Adds elements to an array attribute of an item
     /// </summary>
-    Task<DatabaseResult<JObject?>> AddElementsToArrayAsync(
+    Task<OperationResult<JObject?>> AddElementsToArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -243,7 +222,7 @@ public interface IDatabaseService
     /// <summary>
     /// Removes elements from an array attribute of an item
     /// </summary>
-    Task<DatabaseResult<JObject?>> RemoveElementsFromArrayAsync(
+    Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -256,7 +235,7 @@ public interface IDatabaseService
     /// <summary>
     /// Atomically increments or decrements a numeric attribute of an item
     /// </summary>
-    Task<DatabaseResult<double>> IncrementAttributeAsync(
+    Task<OperationResult<double>> IncrementAttributeAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -268,7 +247,7 @@ public interface IDatabaseService
     /// <summary>
     /// Scans a table and returns all items
     /// </summary>
-    Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
         string tableName,
         string[] keyNames,
         CancellationToken cancellationToken = default);
@@ -276,7 +255,7 @@ public interface IDatabaseService
     /// <summary>
     /// Scans a table with pagination support
     /// </summary>
-    Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
         string tableName,
         string[] keyNames,
         int pageSize,
@@ -286,7 +265,7 @@ public interface IDatabaseService
     /// <summary>
     /// Scans a table and returns items that match the specified filter condition
     /// </summary>
-    Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,
@@ -295,7 +274,7 @@ public interface IDatabaseService
     /// <summary>
     /// Scans a table with filtering and pagination support
     /// </summary>
-    Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,

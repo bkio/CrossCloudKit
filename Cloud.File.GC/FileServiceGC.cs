@@ -149,10 +149,8 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Uploads content to the file service.
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> UploadFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> UploadFileAsync(
         StringOrStream content,
         string bucketName,
         string keyInBucket,
@@ -160,13 +158,9 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
         IReadOnlyDictionary<string, string>? tags = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(content);
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<FileMetadata>.Failure("Google Storage client is not initialized");
+            return OperationResult<FileMetadata>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -200,7 +194,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
 
             if (uploadedObject == null)
             {
-                return FileServiceResult<FileMetadata>.Failure("Upload operation failed");
+                return OperationResult<FileMetadata>.Failure("Upload operation failed");
             }
 
             // Set cache control and metadata
@@ -221,31 +215,25 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             await _gsClient.PatchObjectAsync(uploadedObject, new PatchObjectOptions(), cancellationToken);
 
             var metadata = CreateFileMetadata(uploadedObject);
-            return FileServiceResult<FileMetadata>.Success(metadata);
+            return OperationResult<FileMetadata>.Success(metadata);
         }
         catch (Exception e)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Upload failed: {e.Message}");
+            return OperationResult<FileMetadata>.Failure($"Upload failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Downloads a file from the file service.
-    /// </summary>
-    public async Task<FileServiceResult<long>> DownloadFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> DownloadFileAsync(
         string bucketName,
         string keyInBucket,
         StringOrStream destination,
         DownloadOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-        ArgumentNullException.ThrowIfNull(destination);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<long>.Failure("Google Storage client is not initialized");
+            return OperationResult<long>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -254,12 +242,12 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var existsResult = await FileExistsAsync(bucketName, keyInBucket, cancellationToken);
             if (!existsResult.IsSuccessful)
             {
-                return FileServiceResult<long>.Failure(existsResult.ErrorMessage ?? "Failed to check file existence");
+                return OperationResult<long>.Failure(existsResult.ErrorMessage ?? "Failed to check file existence");
             }
 
             if (!existsResult.Data)
             {
-                return FileServiceResult<long>.Failure("File does not exist in the storage service");
+                return OperationResult<long>.Failure("File does not exist in the storage service");
             }
 
             DownloadObjectOptions? downloadOptions = null;
@@ -311,18 +299,16 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                     return Task.CompletedTask;
                 });
 
-            return FileServiceResult<long>.Success(bytesDownloaded);
+            return OperationResult<long>.Success(bytesDownloaded);
         }
         catch (Exception e)
         {
-            return FileServiceResult<long>.Failure($"Download failed: {e.Message}");
+            return OperationResult<long>.Failure($"Download failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Copies a file from one location to another within the file service.
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> CopyFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> CopyFileAsync(
         string sourceBucketName,
         string sourceKeyInBucket,
         string destinationBucketName,
@@ -330,14 +316,9 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
         FileAccessibility accessibility = FileAccessibility.AuthenticatedRead,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceKeyInBucket);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destinationBucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destinationKeyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<FileMetadata>.Failure("Google Storage client is not initialized");
+            return OperationResult<FileMetadata>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -357,62 +338,52 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
 
             if (copiedObject == null)
             {
-                return FileServiceResult<FileMetadata>.Failure("Copy operation failed");
+                return OperationResult<FileMetadata>.Failure("Copy operation failed");
             }
 
             copiedObject.CacheControl = acl == PredefinedObjectAcl.PublicRead ? "public" : "private";
             await _gsClient.PatchObjectAsync(copiedObject, new PatchObjectOptions(), cancellationToken);
 
             var metadata = CreateFileMetadata(copiedObject);
-            return FileServiceResult<FileMetadata>.Success(metadata);
+            return OperationResult<FileMetadata>.Success(metadata);
         }
         catch (Exception e)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Copy failed: {e.Message}");
+            return OperationResult<FileMetadata>.Failure($"Copy failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes a file from the file service.
-    /// </summary>
-    public async Task<FileServiceResult<bool>> DeleteFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteFileAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<bool>.Failure("Google Storage client is not initialized");
+            return OperationResult<bool>.Failure("Google Storage client is not initialized");
         }
 
         try
         {
             await _gsClient.DeleteObjectAsync(bucketName, keyInBucket, new DeleteObjectOptions(), cancellationToken);
-            return FileServiceResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            return FileServiceResult<bool>.Failure($"Delete failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Delete failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes all files in a folder (prefix).
-    /// </summary>
-    public async Task<FileServiceResult<int>> DeleteFolderAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<int>> DeleteFolderAsync(
         string bucketName,
         string folderPrefix,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(folderPrefix);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<int>.Failure("Google Storage client is not initialized");
+            return OperationResult<int>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -426,59 +397,49 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                 deletedCount++;
             }
 
-            return FileServiceResult<int>.Success(deletedCount);
+            return OperationResult<int>.Success(deletedCount);
         }
         catch (Exception e)
         {
-            return FileServiceResult<int>.Failure($"Delete folder failed: {e.Message}");
+            return OperationResult<int>.Failure($"Delete folder failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Checks if a file exists in the file service.
-    /// </summary>
-    public async Task<FileServiceResult<bool>> FileExistsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> FileExistsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<bool>.Failure("Google Storage client is not initialized");
+            return OperationResult<bool>.Failure("Google Storage client is not initialized");
         }
 
         try
         {
             var obj = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
-            return FileServiceResult<bool>.Success(obj != null);
+            return OperationResult<bool>.Success(obj != null);
         }
         catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            return FileServiceResult<bool>.Success(false);
+            return OperationResult<bool>.Success(false);
         }
         catch (Exception e)
         {
-            return FileServiceResult<bool>.Failure($"File existence check failed: {e.Message}");
+            return OperationResult<bool>.Failure($"File existence check failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the size of a file in bytes.
-    /// </summary>
-    public async Task<FileServiceResult<long>> GetFileSizeAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> GetFileSizeAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<long>.Failure("Google Storage client is not initialized");
+            return OperationResult<long>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -486,31 +447,26 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var obj = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
             if (obj?.Size == null)
             {
-                return FileServiceResult<long>.Failure("Could not retrieve file size");
+                return OperationResult<long>.Failure("Could not retrieve file size");
             }
 
-            return FileServiceResult<long>.Success((long)obj.Size.Value);
+            return OperationResult<long>.Success((long)obj.Size.Value);
         }
         catch (Exception e)
         {
-            return FileServiceResult<long>.Failure($"Get file size failed: {e.Message}");
+            return OperationResult<long>.Failure($"Get file size failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the MD5 checksum of a file.
-    /// </summary>
-    public async Task<FileServiceResult<string>> GetFileChecksumAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<string>> GetFileChecksumAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<string>.Failure("Google Storage client is not initialized");
+            return OperationResult<string>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -518,32 +474,27 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var obj = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
             if (obj?.Md5Hash == null)
             {
-                return FileServiceResult<string>.Failure("Could not retrieve file checksum");
+                return OperationResult<string>.Failure("Could not retrieve file checksum");
             }
 
             var checksum = BitConverter.ToString(Convert.FromBase64String(obj.Md5Hash)).Replace("-", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-            return FileServiceResult<string>.Success(checksum);
+            return OperationResult<string>.Success(checksum);
         }
         catch (Exception e)
         {
-            return FileServiceResult<string>.Failure($"Get file checksum failed: {e.Message}");
+            return OperationResult<string>.Failure($"Get file checksum failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets comprehensive metadata for a file.
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> GetFileMetadataAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> GetFileMetadataAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<FileMetadata>.Failure("Google Storage client is not initialized");
+            return OperationResult<FileMetadata>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -551,32 +502,27 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var obj = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions() { Projection = Projection.Full }, cancellationToken);
             if (obj == null)
             {
-                return FileServiceResult<FileMetadata>.Failure("File not found");
+                return OperationResult<FileMetadata>.Failure("File not found");
             }
 
             var metadata = CreateFileMetadata(obj);
-            return FileServiceResult<FileMetadata>.Success(metadata);
+            return OperationResult<FileMetadata>.Success(metadata);
         }
         catch (Exception e)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Get file metadata failed: {e.Message}");
+            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the tags associated with a file.
-    /// </summary>
-    public async Task<FileServiceResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Failure("Google Storage client is not initialized");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -584,34 +530,28 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var obj = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
             if (obj?.Metadata == null)
             {
-                return FileServiceResult<IReadOnlyDictionary<string, string>>.Success(new Dictionary<string, string>());
+                return OperationResult<IReadOnlyDictionary<string, string>>.Success(new Dictionary<string, string>());
             }
 
             var tags = obj.Metadata.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Success(tags.AsReadOnly());
+            return OperationResult<IReadOnlyDictionary<string, string>>.Success(tags.AsReadOnly());
         }
         catch (Exception e)
         {
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {e.Message}");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Sets the tags for a file, replacing any existing tags.
-    /// </summary>
-    public async Task<FileServiceResult<bool>> SetFileTagsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         IReadOnlyDictionary<string, string> tags,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-        ArgumentNullException.ThrowIfNull(tags);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<bool>.Failure("Google Storage client is not initialized");
+            return OperationResult<bool>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -619,7 +559,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var existingObject = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
             if (existingObject == null)
             {
-                return FileServiceResult<bool>.Failure("File not found");
+                return OperationResult<bool>.Failure("File not found");
             }
 
             existingObject.Metadata = new Dictionary<string, string>(tags, StringComparer.Ordinal);
@@ -631,29 +571,24 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             }
 
             var updatedObject = await _gsClient.UpdateObjectAsync(existingObject, new UpdateObjectOptions(), cancellationToken);
-            return FileServiceResult<bool>.Success(updatedObject != null);
+            return OperationResult<bool>.Success(updatedObject != null);
         }
         catch (Exception e)
         {
-            return FileServiceResult<bool>.Failure($"Set file tags failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Set file tags failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Changes the accessibility level of a file.
-    /// </summary>
-    public async Task<FileServiceResult<bool>> SetFileAccessibilityAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetFileAccessibilityAsync(
         string bucketName,
         string keyInBucket,
         FileAccessibility accessibility,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<bool>.Failure("Google Storage client is not initialized");
+            return OperationResult<bool>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -662,7 +597,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var existingObject = await _gsClient.GetObjectAsync(bucketName, keyInBucket, new GetObjectOptions(), cancellationToken);
             if (existingObject == null)
             {
-                return FileServiceResult<bool>.Failure("File not found");
+                return OperationResult<bool>.Failure("File not found");
             }
 
             existingObject.CacheControl = acl == PredefinedObjectAcl.PublicRead ? "public" : "private";
@@ -672,29 +607,24 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                 PredefinedAcl = acl
             }, cancellationToken);
 
-            return FileServiceResult<bool>.Success(updatedObject != null);
+            return OperationResult<bool>.Success(updatedObject != null);
         }
         catch (Exception e)
         {
-            return FileServiceResult<bool>.Failure($"Set file accessibility failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Set file accessibility failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Creates a signed URL for uploading a file.
-    /// </summary>
-    public async Task<FileServiceResult<SignedUrl>> CreateSignedUploadUrlAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedUploadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_credentialScoped == null)
         {
-            return FileServiceResult<SignedUrl>.Failure("Credentials not available for signing URLs");
+            return OperationResult<SignedUrl>.Failure("Credentials not available for signing URLs");
         }
 
         try
@@ -727,29 +657,24 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var signedUrl = await signer.SignAsync(template, UrlSigner.Options.FromDuration(options.ValidFor), cancellationToken);
             var expiresAt = DateTimeOffset.UtcNow.Add(options.ValidFor);
 
-            return FileServiceResult<SignedUrl>.Success(new SignedUrl(signedUrl, expiresAt));
+            return OperationResult<SignedUrl>.Success(new SignedUrl(signedUrl, expiresAt));
         }
         catch (Exception e)
         {
-            return FileServiceResult<SignedUrl>.Failure($"Create signed upload URL failed: {e.Message}");
+            return OperationResult<SignedUrl>.Failure($"Create signed upload URL failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Creates a signed URL for downloading a file.
-    /// </summary>
-    public async Task<FileServiceResult<SignedUrl>> CreateSignedDownloadUrlAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedDownloadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-
         if (_credentialScoped == null)
         {
-            return FileServiceResult<SignedUrl>.Failure("Credentials not available for signing URLs");
+            return OperationResult<SignedUrl>.Failure("Credentials not available for signing URLs");
         }
 
         try
@@ -765,27 +690,23 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             var signedUrl = await signer.SignAsync(template, UrlSigner.Options.FromDuration(options.ValidFor), cancellationToken);
             var expiresAt = DateTimeOffset.UtcNow.Add(options.ValidFor);
 
-            return FileServiceResult<SignedUrl>.Success(new SignedUrl(signedUrl, expiresAt));
+            return OperationResult<SignedUrl>.Success(new SignedUrl(signedUrl, expiresAt));
         }
         catch (Exception e)
         {
-            return FileServiceResult<SignedUrl>.Failure($"Create signed download URL failed: {e.Message}");
+            return OperationResult<SignedUrl>.Failure($"Create signed download URL failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Lists all files in a bucket with optional filtering and pagination.
-    /// </summary>
-    public async Task<FileServiceResult<ListFilesResult>> ListFilesAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<ListFilesResult>> ListFilesAsync(
         string bucketName,
         ListFilesOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<ListFilesResult>.Failure("Google Storage client is not initialized");
+            return OperationResult<ListFilesResult>.Failure("Google Storage client is not initialized");
         }
 
         try
@@ -809,23 +730,23 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                 NextContinuationToken = listResult.NextPageToken
             };
 
-            return FileServiceResult<ListFilesResult>.Success(result);
+            return OperationResult<ListFilesResult>.Success(result);
         }
         catch (Exception e)
         {
-            return FileServiceResult<ListFilesResult>.Failure($"List files failed: {e.Message}");
+            return OperationResult<ListFilesResult>.Failure($"List files failed: {e.Message}");
         }
     }
 
     /// <summary>
-    /// Creates a pub/sub notification for file events in a bucket.
+    /// <inheritdoc />
     /// Note: The pub/sub publisher role must be added to the storage service account.
     /// For example:
     /// gcloud projects add-iam-policy-binding cross-cloud-kit \
     /// --member="serviceAccount:service-xxx@gs-project-accounts.iam.gserviceaccount.com" \
     /// --role="roles/pubsub.publisher"
     /// </summary>
-    public async Task<FileServiceResult<string>> CreateNotificationAsync(
+    public async Task<OperationResult<string>> CreateNotificationAsync(
         string bucketName,
         string topicName,
         string pathPrefix,
@@ -833,14 +754,9 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
         IPubSubService pubSubService,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(topicName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(pathPrefix);
-        ArgumentNullException.ThrowIfNull(eventTypes);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<string>.Failure("Google Storage client is not initialized");
+            return OperationResult<string>.Failure("Google Storage client is not initialized");
         }
 
         var fullTopicName = $"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}";
@@ -874,69 +790,54 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                 var created = await _gsClient.CreateNotificationAsync(bucketName, notification, new CreateNotificationOptions(), cancellationToken);
                 if (created?.Id == null)
                 {
-                    return FileServiceResult<string>.Failure("Notification could not be created");
+                    return OperationResult<string>.Failure("Notification could not be created");
                 }
 
-                if (!await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken))
-                {
-                    return FileServiceResult<string>.Failure("Unable to mark queue as used on bucket event.");
-                }
-
-                return FileServiceResult<string>.Success(created.Id);
+                return !(await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful ? OperationResult<string>.Failure("Unable to mark queue as used on bucket event.") : OperationResult<string>.Success(created.Id);
             }
             catch (GoogleApiException ex) when (
                 (ex.HttpStatusCode == System.Net.HttpStatusCode.BadRequest && ex.Message.Contains("not found")) ||
                 (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound))
             {
-                var errors = new List<string>();
-
                 // Topic does not exist, try to create it and retry
-                if (!await pubSubService.EnsureTopicExistsAsync(topicName, (err) => { errors.Add(err); },
-                        cancellationToken))
+                var ensureResult = await pubSubService.EnsureTopicExistsAsync(topicName, cancellationToken);
+                if (!ensureResult.IsSuccessful)
                 {
-                    return FileServiceResult<string>.Failure($"Notification could not be created: {string.Join(", ", errors)}");
+                    return OperationResult<string>.Failure($"Notification could not be created: {ensureResult.ErrorMessage}");
                 }
 
                 var created = await _gsClient.CreateNotificationAsync(bucketName, notification, new CreateNotificationOptions(), cancellationToken);
-                if (created?.Id == null)
-                {
-                    return FileServiceResult<string>.Failure("Notification could not be created after topic creation");
-                }
-                return FileServiceResult<string>.Success(created.Id);
+                return created?.Id == null ? OperationResult<string>.Failure("Notification could not be created after topic creation") : OperationResult<string>.Success(created.Id);
             }
         }
         catch (Exception e)
         {
-            return FileServiceResult<string>.Failure($"Create notification failed: {e.Message}");
+            return OperationResult<string>.Failure($"Create notification failed: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes all pub/sub notifications for a bucket, optionally filtered by topic.
-    /// </summary>
-    public async Task<FileServiceResult<int>> DeleteNotificationsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<int>> DeleteNotificationsAsync(
         IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-
         if (_gsClient == null)
         {
-            return FileServiceResult<int>.Failure("Google Storage client is not initialized");
+            return OperationResult<int>.Failure("Google Storage client is not initialized");
         }
 
         var fullTopicNamesToDelete = new Dictionary<string, string>();
         if (topicName == null)
         {
             var topicsToDelete = await pubSubService.GetTopicsUsedOnBucketEventAsync(cancellationToken: cancellationToken);
-            if (topicsToDelete == null)
+            if (!topicsToDelete.IsSuccessful || topicsToDelete.Data == null)
             {
-                return FileServiceResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
+                return OperationResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
             }
 
-            foreach (var topic in topicsToDelete)
+            foreach (var topic in topicsToDelete.Data)
             {
                 fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{topic}", topic);
             }
@@ -956,18 +857,18 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             {
                 await _gsClient.DeleteNotificationAsync(bucketName, notification.Id, new DeleteNotificationOptions(), cancellationToken);
 
-                if (!await pubSubService.UnmarkUsedOnBucketEvent(tName, cancellationToken))
+                if (!(await pubSubService.UnmarkUsedOnBucketEvent(tName, cancellationToken)).IsSuccessful)
                 {
-                    return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                    return OperationResult<int>.Failure("Unable to unmark queue as used on bucket event.");
                 }
             }
             catch (Exception e)
             {
-                return FileServiceResult<int>.Failure($"Delete notifications failed: {e.Message}");
+                return OperationResult<int>.Failure($"Delete notifications failed: {e.Message}");
             }
             deletedCount++;
         }
-        return FileServiceResult<int>.Success(deletedCount);
+        return OperationResult<int>.Success(deletedCount);
     }
 
     private static PredefinedObjectAcl ConvertAccessibilityToAcl(FileAccessibility accessibility)

@@ -7,11 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="StackExchange.Redis" Version="2.9.11" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Cloud.Interfaces\Cloud.Interfaces.csproj" />
+    <ProjectReference Include="..\Cloud.File.AWS\Cloud.File.AWS.csproj" />
   </ItemGroup>
 
 </Project>

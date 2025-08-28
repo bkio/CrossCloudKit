@@ -83,8 +83,6 @@ public static class FileSystemUtilities
     /// <returns>The root directory tree node</returns>
     public static async Task<DirectoryTreeNode> GetDirectoryTreeAsync(string directoryPath, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
-
         return await Task.Run(() =>
         {
             var directoryInfo = new DirectoryInfo(directoryPath);
@@ -134,7 +132,6 @@ public static class FileSystemUtilities
     /// <returns>The file size in bytes</returns>
     public static long GetFileSize(string filePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         return new FileInfo(filePath).Length;
     }
 
@@ -166,8 +163,6 @@ public static class FileSystemUtilities
     /// <param name="deleteDirectory">Whether to delete the directory itself after cleaning</param>
     public static void DeleteDirectoryContents(string directoryPath, bool deleteDirectory = false)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
-
         if (!Directory.Exists(directoryPath))
             return;
 

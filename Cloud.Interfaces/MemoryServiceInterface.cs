@@ -1,477 +1,341 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Collections.ObjectModel;
 using Utilities.Common;
 
 namespace Cloud.Interfaces;
 
 /// <summary>
-/// Interface for abstracting Memory Services to make it usable with multiple solutions, like Redis, Memcached, or multiple systems combined etc. 
+/// Extend this interface to define a memory scope.
 /// </summary>
-public interface IMemoryService
-{/// <summary>
- /// 
- /// <para>HasInitializationSucceed:</para>
- /// 
- /// <returns>Returns: Initialization succeed or failed</returns>
- /// 
- /// </summary>
-    bool HasInitializationSucceed();
+public interface IMemoryServiceScope
+{
+    public string Compile();
+}
+
+/// <summary>
+/// Modern async interface for abstracting Memory Services across multiple providers (Redis, Memcached, etc.)
+/// Provides unified access with proper error handling and .NET 10 features.
+/// </summary>
+public interface IMemoryService : IAsyncDisposable
+{
+    /// <summary>
+    /// Gets a value indicating whether the memory service has been successfully initialized.
+    /// </summary>
+    bool IsInitialized { get; }
+
+    // Key-Value Operations
 
     /// <summary>
-    /// Blocks the caller thread if failover mechanism is running
+    /// Sets the expire time for the given memory scope key.
     /// </summary>
-    void FailoverCheck();
+    /// <param name="memoryScope">The memory scope key to set expiration for.</param>
+    /// <param name="timeToLive">Time to live duration.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the operation was successful; otherwise, false.</returns>
+    Task<OperationResult<bool>> SetKeyExpireTimeAsync(
+        IMemoryServiceScope memoryScope,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>SetKeyExpireTime</para>
-    /// 
-    /// <para>Sets given namespace's expire time</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>                Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_TTL"/>                           Time to live</para>
-    /// <para><paramref name="_ErrorMessageAction"/>            Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                      Operation success</returns>
-    /// 
+    /// Gets the expire time for the given memory scope key.
     /// </summary>
-    bool SetKeyExpireTime(
-        string _MemoryScopeKey,
-        TimeSpan _TTL,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key to check expiration for.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The time to live if found; otherwise, null.</returns>
+    Task<OperationResult<TimeSpan?>> GetKeyExpireTimeAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetKeyExpireTime</para>
-    /// 
-    /// <para>Gets given namespace's expire time</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>                Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_TTL"/>                           Time to live</para>
-    /// <para><paramref name="_ErrorMessageAction"/>            Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                      Operation success</returns>
-    /// 
+    /// Sets key-value pairs within the given namespace and optionally publishes change notifications.
     /// </summary>
-    bool GetKeyExpireTime(
-        string _MemoryScopeKey,
-        out TimeSpan _TTL,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="keyValues">Collection of key-value pairs to set.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the operation was successful; otherwise, false.</returns>
+    Task<OperationResult<bool>> SetKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<KeyValuePair<string, PrimitiveType>> keyValues,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>SetKeyValue</para>
-    /// 
-    /// <para>Sets given keys' values within given namespace and publishes message to [_Domain]:[_SubDomain] topic</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_KeyValues"/>                 Key-values to be set</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Operation success</returns>
-    /// 
+    /// Sets a key-value pair conditionally (only if the key does not exist).
     /// </summary>
-    bool SetKeyValue(
-        string _MemoryScopeKey,
-        Tuple<string, PrimitiveType>[] _KeyValues,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="key">The key to set.</param>
+    /// <param name="value">The value to set.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the key was set; false if it already existed.</returns>
+    Task<OperationResult<bool>> SetKeyValueConditionallyAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        PrimitiveType value,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>SetKeyValueConditionally</para>
-    /// 
-    /// <para>Sets given keys' values within given namespace and publishes message to [_Domain]:[_SubDomain] topic;</para>
-    /// <para>With a condition; if key does not exist.</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_KeyValue"/>                  Key-value to be set</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Operation success; if condition fails; returns false.</returns>
-    /// 
+    /// Gets the value for the specified key within the given namespace.
     /// </summary>
-    bool SetKeyValueConditionally(
-        string _MemoryScopeKey,
-        Tuple<string, PrimitiveType> _KeyValue,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="key">The key to retrieve.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The value if found; otherwise, null.</returns>
+    Task<OperationResult<PrimitiveType?>> GetKeyValueAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetKeyValue</para>
-    /// 
-    /// <para>Gets given key's value within given namespace [_Domain]:[_SubDomain]</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_Key"/>                       Key to be gotten</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Given key's value, null if not found</returns>
-    /// 
+    /// Gets values for multiple keys within the given namespace.
     /// </summary>
-    PrimitiveType GetKeyValue(
-        string _MemoryScopeKey,
-        string _Key,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="keys">Collection of keys to retrieve.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Dictionary of found key-value pairs.</returns>
+    Task<OperationResult<Dictionary<string, PrimitiveType>>> GetKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<string> keys,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetKeysValues</para>
-    /// 
-    /// <para>Gets given keys' values' within given namespace [_Domain]:[_SubDomain]</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_Keys"/>                      Keys to be gotten</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Found values</returns>
-    /// 
+    /// Gets all key-value pairs within the given namespace.
     /// </summary>
-    Dictionary<string, PrimitiveType> GetKeysValues(
-        string _MemoryScopeKey,
-        List<string> _Keys,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Dictionary of all key-value pairs in the namespace.</returns>
+    Task<OperationResult<Dictionary<string, PrimitiveType>>> GetAllKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetAllKeyValues</para>
-    /// 
-    /// <para>Gets all keys and keys' values of given namespace [_Domain]:[_SubDomain]</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  All keys and keys' values for given namespace</returns>
-    /// 
+    /// Deletes a key within the given namespace and optionally publishes change notifications.
     /// </summary>
-    Tuple<string, PrimitiveType>[] GetAllKeyValues(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="key">The key to delete.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the key was deleted; otherwise, false.</returns>
+    Task<OperationResult<bool>> DeleteKeyAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>DeleteKey</para>
-    /// 
-    /// <para>Deletes given key within given namespace [_Domain]:[_SubDomain] and publishes message to [_Domain]:[_SubDomain] topic</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_Key"/>                       Key to be deleted</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  True if deletion was successful.</returns>
-    /// 
+    /// Deletes all keys within the given namespace and optionally publishes change notifications.
     /// </summary>
-    bool DeleteKey(
-        string _MemoryScopeKey,
-        string _Key,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if keys were deleted; otherwise, false.</returns>
+    Task<OperationResult<bool>> DeleteAllKeysAsync(
+        IMemoryServiceScope memoryScope,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>DeleteAllKeys</para>
-    /// 
-    /// <para>Deletes all keys for given namespace and publishes message to [_Domain]:[_SubDomain] topic</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_bWaitUntilCompletion"/>      Whether wait until query is done or fire and forget</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  True if deletion was successful.</returns>
-    /// 
+    /// Gets all keys within the given namespace.
     /// </summary>
-    bool DeleteAllKeys(
-        string _MemoryScopeKey,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Collection of keys in the namespace.</returns>
+    Task<OperationResult<ReadOnlyCollection<string>>> GetKeysAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetKeys</para>
-    /// 
-    /// <para>Gets all keys of given workspace [_Domain]:[_SubDomain]</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Array of returned keys</returns>
-    /// 
+    /// Gets the number of keys within the given namespace.
     /// </summary>
-    string[] GetKeys(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The number of keys in the namespace.</returns>
+    Task<OperationResult<long>> GetKeysCountAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetKeysCount</para>
-    /// 
-    /// <para>Returns number of keys of given workspace [_Domain]:[_SubDomain]</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Number of keys of given workspace</returns>
-    /// 
+    /// Increments multiple keys by their respective values and optionally publishes change notifications.
     /// </summary>
-    long GetKeysCount(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="keyIncrements">Collection of key-increment value pairs.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Dictionary of keys and their new values after increment.</returns>
+    Task<OperationResult<Dictionary<string, long>>> IncrementKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<KeyValuePair<string, long>> keyIncrements,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>IncrementKeyValues</para>
-    /// 
-    /// <para>Increments given keys' by given values within given namespace and publishes message to [_Domain]:[_SubDomain] topic</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_KeysAndIncrementByValues"/>  Key-values to be used for incrementing</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
+    /// Increments a key by the specified value and returns the new value.
     /// </summary>
-    void IncrementKeyValues(
-        string _MemoryScopeKey,
-        Tuple<string, long>[] _KeysAndIncrementByValues,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="key">The key to increment.</param>
+    /// <param name="incrementBy">The value to increment by.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The new value after increment.</returns>
+    Task<OperationResult<long>> IncrementKeyByValueAndGetAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        long incrementBy,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
+
+    // List Operations
 
     /// <summary>
-    /// 
-    /// <para>IncrementKeyByValueAndGet</para>
-    /// 
-    /// <para>Increments given key by given value within given namespace, publishes message to [_Domain]:[_SubDomain] topic and returns new value</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_string"/>                    Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_KeyValue"/>                  Key-value to be used for incrementing</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Incremented value, zero if fails.</returns>
-    /// 
+    /// Pushes values to the tail of the specified list.
     /// </summary>
-    long IncrementKeyByValueAndGet(
-        string _string,
-        Tuple<string, long> _KeyValue,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="values">Values to push to the list.</param>
+    /// <param name="onlyIfExists">Only push if the list already exists.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the operation was successful; otherwise, false.</returns>
+    Task<OperationResult<bool>> PushToListTailAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool onlyIfExists = false,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>PushToListTail</para>
-    /// 
-    /// <para>Pushes the value(s) to the tail of given list, returns if push succeeds (If _bAsync is true, always returns true).</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_Values"/>                    Value(s) to push</para>
-    /// <para><paramref name="_bPushIfListExists"/>         If true, only pushes if list exists</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bAsync"/>                    Asynchronous execution, will be ignored if _bPushIfListExists = true </para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Operation success</returns>
-    /// 
+    /// Pushes values to the head of the specified list.
     /// </summary>
-    bool PushToListTail(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType[] _Values,
-        bool _bPushIfListExists = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bAsync = false,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="values">Values to push to the list.</param>
+    /// <param name="onlyIfExists">Only push if the list already exists.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the operation was successful; otherwise, false.</returns>
+    Task<OperationResult<bool>> PushToListHeadAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool onlyIfExists = false,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>PushToListHead</para>
-    /// 
-    /// <para>Pushes the value(s) to the head of given list, returns if push succeeds (If _bAsync is true, always returns true).</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_Values"/>                    Value(s) to push</para>
-    /// <para><paramref name="_bPushIfListExists"/>         If true, only pushes if list exists</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bAsync"/>                    Asynchronous execution, will be ignored if _bPushIfListExists = true </para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Operation success</returns>
-    /// 
+    /// Pops the last element from the specified list.
     /// </summary>
-    bool PushToListHead(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType[] _Values,
-        bool _bPushIfListExists = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bAsync = false,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The popped element if found; otherwise, null.</returns>
+    Task<OperationResult<PrimitiveType?>> PopLastElementOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>PopLastElementOfList</para>
-    /// 
-    /// <para>Pops the value from the tail of given list</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Returned element</returns>
-    /// 
+    /// Pops the first element from the specified list.
     /// </summary>
-    PrimitiveType PopLastElementOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The popped element if found; otherwise, null.</returns>
+    Task<OperationResult<PrimitiveType?>> PopFirstElementOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>PopFirstElementOfList</para>
-    /// 
-    /// <para>Pops the value from the head of given list</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Returned element</returns>
-    /// 
+    /// Removes given values from the specified list.
     /// </summary>
-    PrimitiveType PopFirstElementOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="values">Values to be removed from the list.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Removed values</returns>
+    Task<OperationResult<IEnumerable<PrimitiveType?>>> RemoveElementsFromListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>GetAllElementsOfList</para>
-    /// 
-    /// <para>Gets all values from the given list</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Returned elements</returns>
-    /// 
+    /// Gets all elements from the specified list.
     /// </summary>
-    PrimitiveType[] GetAllElementsOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Collection of all elements in the list.</returns>
+    Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> GetAllElementsOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>EmptyList</para>
-    /// 
-    /// <para>Empties the list</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_bWaitUntilCompletion"/>      Whether wait until query is done or fire and forget</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
-    /// <returns> Returns:                                  Returns if list is found and emptied or not</returns>
-    /// 
+    /// Empties the specified list.
     /// </summary>
-    bool EmptyList(
-        string _MemoryScopeKey,
-        string _ListName,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the list was emptied; otherwise, false.</returns>
+    Task<OperationResult<bool>> EmptyListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>EmptyListAndSublists</para>
-    /// 
-    /// <para>Fetches all elements in _ListName, iterates and empties all sublists (_SublistPrefix + Returned SublistName)</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_SublistPrefix"/>             Prepends this to found sublist name</para>
-    /// <para><paramref name="_bWaitUntilCompletion"/>      Whether wait until query is done or fire and forget</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// <para><paramref name="_bPublishChange"/>            Publish the change to Pub/Sub channel</para>
-    /// 
+    /// Empties the specified list and all its sublists based on the prefix pattern.
     /// </summary>
-    void EmptyListAndSublists(
-        string _MemoryScopeKey,
-        string _ListName,
-        string _SublistPrefix,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the main list.</param>
+    /// <param name="sublistPrefix">Prefix pattern for sublists.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the list was emptied; otherwise, false.</returns>
+    Task<OperationResult<bool>> EmptyListAndSublistsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        string sublistPrefix,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>ListSize</para>
-    /// 
-    /// <para>Returns number of elements of the given list</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  Size of the list</returns>
-    /// 
+    /// Gets the size (number of elements) of the specified list.
     /// </summary>
-    long ListSize(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>The number of elements in the list.</returns>
+    Task<OperationResult<long>> GetListSizeAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 
-    /// <para>ListContains</para>
-    /// 
-    /// <para>Returns if given list contains given value or not</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_MemoryScopeKey"/>            Memory scope key need to be provided for performing this operation</para>
-    /// <para><paramref name="_ListName"/>                  Name of list</para>
-    /// <para><paramref name="_ErrorMessageAction"/>        Error messages will be pushed to this action</para>
-    /// 
-    /// <returns> Returns:                                  True if list contains the value</returns>
-    /// 
+    /// Checks if the specified list contains the given value.
     /// </summary>
-    bool ListContains(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType _Value,
-        Action<string> _ErrorMessageAction = null);
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="value">The value to search for.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>True if the list contains the value; otherwise, false.</returns>
+    Task<OperationResult<bool>> ListContainsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        PrimitiveType value,
+        CancellationToken cancellationToken = default);
 }

@@ -17,7 +17,6 @@ public static class EncodingUtilities
     /// <returns>True if the string contains only hex characters</returns>
     public static bool IsHexString(string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
         return input.Length > 0 && input.All(char.IsAsciiHexDigit);
     }
 
@@ -28,7 +27,6 @@ public static class EncodingUtilities
     /// <returns>The decoded ASCII string</returns>
     public static string HexDecode(string hexInput)
     {
-        ArgumentNullException.ThrowIfNull(hexInput);
         ArgumentOutOfRangeException.ThrowIfNotEqual(hexInput.Length % 2, 0);
 
         var bytes = new byte[hexInput.Length / 2];
@@ -47,7 +45,6 @@ public static class EncodingUtilities
     /// <returns>The decoded UTF-8 string</returns>
     public static string Base64Decode(string base64Input)
     {
-        ArgumentNullException.ThrowIfNull(base64Input);
         var bytes = Convert.FromBase64String(base64Input);
         return Encoding.UTF8.GetString(bytes);
     }
@@ -59,7 +56,6 @@ public static class EncodingUtilities
     /// <returns>The Base64 encoded string</returns>
     public static string Base64Encode(string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
         var bytes = Encoding.UTF8.GetBytes(input);
         return Convert.ToBase64String(bytes);
     }

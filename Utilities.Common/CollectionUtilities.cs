@@ -15,7 +15,6 @@ public static class CollectionUtilities
     /// <returns>The first valid string, or null if none found</returns>
     public static string? GetFirstValidString(IEnumerable<string?> list)
     {
-        ArgumentNullException.ThrowIfNull(list);
         return list.FirstOrDefault(s => !string.IsNullOrEmpty(s));
     }
 
@@ -27,9 +26,6 @@ public static class CollectionUtilities
     /// <returns>The value if found, null otherwise</returns>
     public static string? GetValueByKey(IEnumerable<(string Key, string Value)> pairs, string key)
     {
-        ArgumentNullException.ThrowIfNull(pairs);
-        ArgumentNullException.ThrowIfNull(key);
-
         return pairs.FirstOrDefault(pair => pair.Key == key).Value;
     }
 
@@ -41,9 +37,6 @@ public static class CollectionUtilities
     /// <returns>The value if found, null otherwise</returns>
     public static string? GetValueByKey((string Key, string Value)[] pairs, string key)
     {
-        ArgumentNullException.ThrowIfNull(pairs);
-        ArgumentNullException.ThrowIfNull(key);
-
         return pairs.FirstOrDefault(pair => pair.Key == key).Value;
     }
 }

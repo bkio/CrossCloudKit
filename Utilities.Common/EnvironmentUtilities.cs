@@ -18,8 +18,6 @@ public static class EnvironmentUtilities
     /// <exception cref="InvalidOperationException">Thrown when required variables are not found</exception>
     public static Dictionary<string, string> GetRequiredEnvironmentVariables(IEnumerable<IEnumerable<string>> variableKeyOptions)
     {
-        ArgumentNullException.ThrowIfNull(variableKeyOptions);
-
         var keyOptionsList = variableKeyOptions.ToList();
         if (keyOptionsList.Count == 0)
         {

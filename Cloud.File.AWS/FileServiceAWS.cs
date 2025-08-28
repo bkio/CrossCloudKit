@@ -17,17 +17,17 @@ namespace Cloud.File.AWS;
 /// <summary>
 /// AWS S3 file service implementation with async/await patterns
 /// </summary>
-public sealed class FileServiceAWS : IFileService, IAsyncDisposable
+public class FileServiceAWS : IFileService, IAsyncDisposable
 {
-    private readonly AmazonS3Client? _s3Client;
-    private readonly TransferUtility? _transferUtil;
-    private readonly Amazon.Runtime.AWSCredentials? _awsCredentials;
-    private readonly RegionEndpoint? _regionEndpoint;
+    protected AmazonS3Client? _s3Client;
+    protected TransferUtility? _transferUtil;
+    protected Amazon.Runtime.AWSCredentials? _awsCredentials;
+    protected RegionEndpoint? _regionEndpoint;
 
     /// <summary>
     /// Gets a value indicating whether the service was initialized successfully
     /// </summary>
-    public bool IsInitialized { get; }
+    public bool IsInitialized { get; protected set; }
 
     /// <summary>
     /// Initializes a new instance of the FileServiceAWS class using AWS credentials
@@ -61,53 +61,10 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             IsInitialized = false;
         }
     }
+    protected FileServiceAWS() { }
 
-    /// <summary>
-    /// Initializes a new instance of the FileServiceAWS class for S3-compatible storage (e.g., MinIO)
-    /// </summary>
-    /// <param name="serverAddress">Server address</param>
-    /// <param name="accessKey">Access key</param>
-    /// <param name="secretKey">Secret key</param>
-    /// <param name="region">Region</param>
-    public FileServiceAWS(string serverAddress, string accessKey, string secretKey, string region)
-    {
-        try
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(serverAddress);
-            ArgumentException.ThrowIfNullOrWhiteSpace(accessKey);
-            ArgumentException.ThrowIfNullOrWhiteSpace(secretKey);
-            ArgumentException.ThrowIfNullOrWhiteSpace(region);
-
-            _awsCredentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
-            _regionEndpoint = RegionEndpoint.GetBySystemName(region);
-
-            var clientConfig = new AmazonS3Config
-            {
-                AuthenticationRegion = region,
-                ServiceURL = serverAddress,
-                ForcePathStyle = true
-            };
-
-            _s3Client = new AmazonS3Client(_awsCredentials, clientConfig);
-
-            var transferUtilConfig = new TransferUtilityConfig
-            {
-                ConcurrentServiceRequests = 10,
-            };
-            _transferUtil = new TransferUtility(_s3Client, transferUtilConfig);
-
-            IsInitialized = true;
-        }
-        catch
-        {
-            IsInitialized = false;
-        }
-    }
-
-    /// <summary>
-    /// Uploads content to the file service
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> UploadFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> UploadFileAsync(
         StringOrStream content,
         string bucketName,
         string keyInBucket,
@@ -116,7 +73,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _transferUtil is null)
-            return FileServiceResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized");
 
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
@@ -161,7 +118,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var metadataResult = await GetFileMetadataAsync(bucketName, keyInBucket, cancellationToken);
             if (metadataResult is { IsSuccessful: true, Data: not null })
             {
-                return FileServiceResult<FileMetadata>.Success(metadataResult.Data);
+                return OperationResult<FileMetadata>.Success(metadataResult.Data);
             }
 
             // Fallback metadata
@@ -176,18 +133,16 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 Tags = tags?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value) ?? new Dictionary<string, string>()
             };
 
-            return FileServiceResult<FileMetadata>.Success(fallbackMetadata);
+            return OperationResult<FileMetadata>.Success(fallbackMetadata);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Upload failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Upload failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Downloads content from the file service
-    /// </summary>
-    public async Task<FileServiceResult<long>> DownloadFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> DownloadFileAsync(
         string bucketName,
         string keyInBucket,
         StringOrStream destination,
@@ -195,31 +150,28 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<long>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<long>.Failure("Service not initialized");
 
         try
         {
             // Check if file exists
             var existsResult = await FileExistsAsync(bucketName, keyInBucket, cancellationToken);
             if (!existsResult.IsSuccessful || !existsResult.Data)
-                return FileServiceResult<long>.Failure("File does not exist");
+                return OperationResult<long>.Failure("File does not exist");
 
             return await destination.MatchAsync(
                 async filePath =>
                 {
                     if (_transferUtil is null)
-                        return FileServiceResult<long>.Failure("Transfer utility not initialized");
+                        return OperationResult<long>.Failure("Transfer utility not initialized");
 
                     await _transferUtil.DownloadAsync(filePath, bucketName, keyInBucket, cancellationToken).ConfigureAwait(false);
 
                     if (!System.IO.File.Exists(filePath))
-                        return FileServiceResult<long>.Failure("Download completed but file doesn't exist locally");
+                        return OperationResult<long>.Failure("Download completed but file doesn't exist locally");
 
                     var size = new FileInfo(filePath).Length;
-                    return FileServiceResult<long>.Success(size);
+                    return OperationResult<long>.Success(size);
                 },
                 async (stream, _) =>
                 {
@@ -246,19 +198,17 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                     using var response = await _s3Client.GetObjectAsync(getRequest, cancellationToken).ConfigureAwait(false);
                     await response.ResponseStream.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
 
-                    return FileServiceResult<long>.Success(response.ContentLength);
+                    return OperationResult<long>.Success(response.ContentLength);
                 });
         }
         catch (Exception ex)
         {
-            return FileServiceResult<long>.Failure($"Download failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Download failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Copies a file within the file service
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> CopyFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> CopyFileAsync(
         string sourceBucketName,
         string sourceKeyInBucket,
         string destinationBucketName,
@@ -267,12 +217,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<FileMetadata>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceKeyInBucket);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destinationBucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destinationKeyInBucket);
+            return OperationResult<FileMetadata>.Failure("Service not initialized");
 
         try
         {
@@ -290,30 +235,25 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var metadataResult = await GetFileMetadataAsync(destinationBucketName, destinationKeyInBucket, cancellationToken);
             if (metadataResult is { IsSuccessful: true, Data: not null })
             {
-                return FileServiceResult<FileMetadata>.Success(metadataResult.Data);
+                return OperationResult<FileMetadata>.Success(metadataResult.Data);
             }
 
-            return FileServiceResult<FileMetadata>.Failure("Copy completed but metadata retrieval failed");
+            return OperationResult<FileMetadata>.Failure("Copy completed but metadata retrieval failed");
         }
         catch (Exception ex)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Copy failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Copy failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes a file from the file service
-    /// </summary>
-    public async Task<FileServiceResult<bool>> DeleteFileAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteFileAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<bool>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<bool>.Failure("Service not initialized");
 
         try
         {
@@ -324,27 +264,22 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             await _s3Client.DeleteObjectAsync(deleteRequest, cancellationToken).ConfigureAwait(false);
-            return FileServiceResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<bool>.Failure($"Delete failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Delete failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes all files with the specified prefix (folder)
-    /// </summary>
-    public async Task<FileServiceResult<int>> DeleteFolderAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<int>> DeleteFolderAsync(
         string bucketName,
         string folderPrefix,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<int>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(folderPrefix);
+            return OperationResult<int>.Failure("Service not initialized");
 
         try
         {
@@ -372,7 +307,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             while ((response.IsTruncated ?? false) && !cancellationToken.IsCancellationRequested);
 
             if (objectsToDelete.Count == 0)
-                return FileServiceResult<int>.Success(0);
+                return OperationResult<int>.Success(0);
 
             // Delete objects in batches
             const int batchSize = 1000;
@@ -391,27 +326,22 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 deletedCount += batch.Count;
             }
 
-            return FileServiceResult<int>.Success(deletedCount);
+            return OperationResult<int>.Success(deletedCount);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<int>.Failure($"Delete folder failed: {ex.Message}");
+            return OperationResult<int>.Failure($"Delete folder failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Checks if a file exists in the file service
-    /// </summary>
-    public async Task<FileServiceResult<bool>> FileExistsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> FileExistsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<bool>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<bool>.Failure("Service not initialized");
 
         try
         {
@@ -422,31 +352,26 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             await _s3Client.GetObjectMetadataAsync(metadataRequest, cancellationToken).ConfigureAwait(false);
-            return FileServiceResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            return FileServiceResult<bool>.Success(false);
+            return OperationResult<bool>.Success(false);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<bool>.Failure($"File existence check failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"File existence check failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the size of a file in bytes
-    /// </summary>
-    public async Task<FileServiceResult<long>> GetFileSizeAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> GetFileSizeAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<long>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<long>.Failure("Service not initialized");
 
         try
         {
@@ -457,27 +382,22 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             var response = await _s3Client.GetObjectMetadataAsync(metadataRequest, cancellationToken).ConfigureAwait(false);
-            return FileServiceResult<long>.Success(response.Headers.ContentLength);
+            return OperationResult<long>.Success(response.Headers.ContentLength);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<long>.Failure($"Get file size failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Get file size failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the checksum of a file
-    /// </summary>
-    public async Task<FileServiceResult<string>> GetFileChecksumAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<string>> GetFileChecksumAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<string>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<string>.Failure("Service not initialized");
 
         try
         {
@@ -491,28 +411,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var checksum = response.ETag?.Trim('"').ToLowerInvariant();
 
             return string.IsNullOrWhiteSpace(checksum)
-                ? FileServiceResult<string>.Failure("No checksum available")
-                : FileServiceResult<string>.Success(checksum);
+                ? OperationResult<string>.Failure("No checksum available")
+                : OperationResult<string>.Success(checksum);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<string>.Failure($"Get file checksum failed: {ex.Message}");
+            return OperationResult<string>.Failure($"Get file checksum failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the metadata of a file
-    /// </summary>
-    public async Task<FileServiceResult<FileMetadata>> GetFileMetadataAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<FileMetadata>> GetFileMetadataAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<FileMetadata>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<FileMetadata>.Failure("Service not initialized");
 
         try
         {
@@ -568,27 +483,22 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 Tags = tags
             };
 
-            return FileServiceResult<FileMetadata>.Success(metadata);
+            return OperationResult<FileMetadata>.Success(metadata);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets the tags of a file
-    /// </summary>
-    public async Task<FileServiceResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure("Service not initialized");
 
         try
         {
@@ -601,29 +511,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var response = await _s3Client.GetObjectTaggingAsync(taggingRequest, cancellationToken).ConfigureAwait(false);
             var tags = response.Tagging?.ToDictionary(tag => tag.Key, tag => tag.Value) ?? new Dictionary<string, string>();
 
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Success(tags);
+            return OperationResult<IReadOnlyDictionary<string, string>>.Success(tags);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {ex.Message}");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Sets the tags of a file
-    /// </summary>
-    public async Task<FileServiceResult<bool>> SetFileTagsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         IReadOnlyDictionary<string, string> tags,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<bool>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
-        ArgumentNullException.ThrowIfNull(tags);
+            return OperationResult<bool>.Failure("Service not initialized");
 
         try
         {
@@ -641,28 +545,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             await _s3Client.PutObjectTaggingAsync(taggingRequest, cancellationToken).ConfigureAwait(false);
-            return FileServiceResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<bool>.Failure($"Set file tags failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file tags failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Sets the accessibility of a file
-    /// </summary>
-    public async Task<FileServiceResult<bool>> SetFileAccessibilityAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetFileAccessibilityAsync(
         string bucketName,
         string keyInBucket,
         FileAccessibility accessibility,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<bool>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<bool>.Failure("Service not initialized");
 
         try
         {
@@ -676,28 +575,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
 #pragma warning disable CS0618 // Type or member is obsolete
             await _s3Client.PutACLAsync(aclRequest, cancellationToken).ConfigureAwait(false);
 #pragma warning restore CS0618 // Type or member is obsolete
-            return FileServiceResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<bool>.Failure($"Set file accessibility failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file accessibility failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Creates a signed URL for uploading a file
-    /// </summary>
-    public async Task<FileServiceResult<SignedUrl>> CreateSignedUploadUrlAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedUploadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<SignedUrl>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<SignedUrl>.Failure("Service not initialized");
 
         try
         {
@@ -715,28 +609,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var url = await _s3Client.GetPreSignedURLAsync(preSignedRequest);
             var signedUrl = new SignedUrl(url, DateTime.UtcNow.Add(validFor));
 
-            return FileServiceResult<SignedUrl>.Success(signedUrl);
+            return OperationResult<SignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<SignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}");
+            return OperationResult<SignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Creates a signed URL for downloading a file
-    /// </summary>
-    public async Task<FileServiceResult<SignedUrl>> CreateSignedDownloadUrlAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedDownloadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<SignedUrl>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
+            return OperationResult<SignedUrl>.Failure("Service not initialized");
 
         try
         {
@@ -753,26 +642,22 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             var url = await _s3Client.GetPreSignedURLAsync(preSignedRequest);
             var signedUrl = new SignedUrl(url, DateTime.UtcNow.Add(validFor));
 
-            return FileServiceResult<SignedUrl>.Success(signedUrl);
+            return OperationResult<SignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<SignedUrl>.Failure($"Create signed download URL failed: {ex.Message}");
+            return OperationResult<SignedUrl>.Failure($"Create signed download URL failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Lists files in a bucket
-    /// </summary>
-    public async Task<FileServiceResult<ListFilesResult>> ListFilesAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<ListFilesResult>> ListFilesAsync(
         string bucketName,
         ListFilesOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<ListFilesResult>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
+            return OperationResult<ListFilesResult>.Failure("Service not initialized");
 
         try
         {
@@ -795,18 +680,16 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             // Note: HasMore property might be read-only, so we create the result without setting it
             // The AWS SDK response.IsTruncated indicates if there are more results
 
-            return FileServiceResult<ListFilesResult>.Success(result);
+            return OperationResult<ListFilesResult>.Success(result);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<ListFilesResult>.Failure($"List files failed: {ex.Message}");
+            return OperationResult<ListFilesResult>.Failure($"List files failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Creates a notification for file events
-    /// </summary>
-    public async Task<FileServiceResult<string>> CreateNotificationAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<string>> CreateNotificationAsync(
         string bucketName,
         string topicName,
         string pathPrefix,
@@ -815,12 +698,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<string>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(topicName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(pathPrefix);
-        ArgumentNullException.ThrowIfNull(eventTypes);
+            return OperationResult<string>.Failure("Service not initialized");
 
         try
         {
@@ -844,7 +722,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             // Always fetch account ID using Security Token Service with stored credentials
             if (_awsCredentials is null)
             {
-                return FileServiceResult<string>.Failure("AWS credentials not available");
+                return OperationResult<string>.Failure("AWS credentials not available");
             }
 
             using var stsClient = new AmazonSecurityTokenServiceClient(_awsCredentials, _regionEndpoint);
@@ -856,7 +734,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             {
                 if (_regionEndpoint is null)
                 {
-                    return FileServiceResult<string>.Failure("AWS region not available for ARN construction");
+                    return OperationResult<string>.Failure("AWS region not available for ARN construction");
                 }
 
                 // Get a bucket location to determine region
@@ -868,7 +746,7 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
             }
 
             // Ensure queue exists (pass queue name, assuming pubSubService expects name not ARN)
-            await pubSubService.EnsureTopicExistsAsync(topicName, Console.WriteLine, cancellationToken);
+            await pubSubService.EnsureTopicExistsAsync(topicName, cancellationToken);
 
             var notificationRequest = new PutBucketNotificationRequest
             {
@@ -892,32 +770,23 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
 
             await _s3Client.PutBucketNotificationAsync(notificationRequest, cancellationToken);
 
-            if (!await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken))
-            {
-                throw new Exception("Unable to mark queue as used on bucket event.");
-            }
-
-            return FileServiceResult<string>.Success(queueArn);
+            return !(await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful ? throw new Exception("Unable to mark queue as used on bucket event.") : OperationResult<string>.Success(queueArn);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<string>.Failure($"Create notification failed: {ex.Message}");
+            return OperationResult<string>.Failure($"Create notification failed: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Deletes notifications from a bucket
-    /// </summary>
-    public async Task<FileServiceResult<int>> DeleteNotificationsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<int>> DeleteNotificationsAsync(
         IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _s3Client is null)
-            return FileServiceResult<int>.Failure("Service not initialized");
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
+            return OperationResult<int>.Failure("Service not initialized");
 
         try
         {
@@ -944,16 +813,16 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
                 await _s3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
 
                 var topicsToDelete = await pubSubService.GetTopicsUsedOnBucketEventAsync(cancellationToken: cancellationToken);
-                if (topicsToDelete == null)
+                if (!topicsToDelete.IsSuccessful || topicsToDelete.Data == null)
                 {
-                    return FileServiceResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
+                    return OperationResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
                 }
 
-                foreach (var topic in topicsToDelete)
+                foreach (var topic in topicsToDelete.Data)
                 {
-                    if (!await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken))
+                    if (!(await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken)).IsSuccessful)
                     {
-                        return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                        return OperationResult<int>.Failure("Unable to unmark queue as used on bucket event.");
                     }
                 }
             }
@@ -974,17 +843,17 @@ public sealed class FileServiceAWS : IFileService, IAsyncDisposable
 
                 await _s3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
 
-                if (!await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken))
+                if (!(await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful)
                 {
-                    return FileServiceResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                    return OperationResult<int>.Failure("Unable to unmark queue as used on bucket event.");
                 }
             }
 
-            return FileServiceResult<int>.Success(deletedCount);
+            return OperationResult<int>.Success(deletedCount);
         }
         catch (Exception ex)
         {
-            return FileServiceResult<int>.Failure($"Delete notifications failed: {ex.Message}");
+            return OperationResult<int>.Failure($"Delete notifications failed: {ex.Message}");
         }
     }
 

@@ -45,49 +45,6 @@ public enum FileNotificationEventType
 }
 
 /// <summary>
-/// Represents the result of a file service operation.
-/// </summary>
-/// <typeparam name="T">The type of data returned by the operation</typeparam>
-public class FileServiceResult<T>
-{
-    /// <summary>
-    /// Gets whether the operation was successful.
-    /// </summary>
-    public bool IsSuccessful { get; }
-
-    /// <summary>
-    /// Gets the data returned by the operation, if successful.
-    /// </summary>
-    public T? Data { get; }
-
-    /// <summary>
-    /// Gets the error message if the operation failed.
-    /// </summary>
-    public string? ErrorMessage { get; }
-
-    private FileServiceResult(bool isSuccessful, T? data, string? errorMessage)
-    {
-        IsSuccessful = isSuccessful;
-        Data = data;
-        ErrorMessage = errorMessage;
-    }
-
-    /// <summary>
-    /// Creates a successful result with data.
-    /// </summary>
-    /// <param name="data">The operation result data</param>
-    /// <returns>A successful FileServiceResult</returns>
-    public static FileServiceResult<T> Success(T data) => new(true, data, null);
-
-    /// <summary>
-    /// Creates a failed result with an error message.
-    /// </summary>
-    /// <param name="errorMessage">The error message</param>
-    /// <returns>A failed FileServiceResult</returns>
-    public static FileServiceResult<T> Failure(string errorMessage) => new(false, default, errorMessage);
-}
-
-/// <summary>
 /// Represents file metadata information.
 /// </summary>
 public sealed record FileMetadata
@@ -242,7 +199,7 @@ public interface IFileService
     /// <param name="tags">Optional tags to associate with the file</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the upload operation</returns>
-    Task<FileServiceResult<FileMetadata>> UploadFileAsync(
+    Task<OperationResult<FileMetadata>> UploadFileAsync(
         StringOrStream content,
         string bucketName,
         string keyInBucket,
@@ -259,7 +216,7 @@ public interface IFileService
     /// <param name="options">Download options for range requests</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the download operation</returns>
-    Task<FileServiceResult<long>> DownloadFileAsync(
+    Task<OperationResult<long>> DownloadFileAsync(
         string bucketName,
         string keyInBucket,
         StringOrStream destination,
@@ -276,7 +233,7 @@ public interface IFileService
     /// <param name="accessibility">The accessibility level for the copied file</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the copy operation</returns>
-    Task<FileServiceResult<FileMetadata>> CopyFileAsync(
+    Task<OperationResult<FileMetadata>> CopyFileAsync(
         string sourceBucketName,
         string sourceKeyInBucket,
         string destinationBucketName,
@@ -291,7 +248,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the delete operation</returns>
-    Task<FileServiceResult<bool>> DeleteFileAsync(
+    Task<OperationResult<bool>> DeleteFileAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -303,7 +260,7 @@ public interface IFileService
     /// <param name="folderPrefix">The folder prefix to delete</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the delete operation with count of deleted files</returns>
-    Task<FileServiceResult<int>> DeleteFolderAsync(
+    Task<OperationResult<int>> DeleteFolderAsync(
         string bucketName,
         string folderPrefix,
         CancellationToken cancellationToken = default);
@@ -315,7 +272,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the existence check</returns>
-    Task<FileServiceResult<bool>> FileExistsAsync(
+    Task<OperationResult<bool>> FileExistsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -327,7 +284,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the size retrieval operation</returns>
-    Task<FileServiceResult<long>> GetFileSizeAsync(
+    Task<OperationResult<long>> GetFileSizeAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -339,7 +296,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the checksum retrieval operation</returns>
-    Task<FileServiceResult<string>> GetFileChecksumAsync(
+    Task<OperationResult<string>> GetFileChecksumAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -351,7 +308,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the metadata retrieval operation</returns>
-    Task<FileServiceResult<FileMetadata>> GetFileMetadataAsync(
+    Task<OperationResult<FileMetadata>> GetFileMetadataAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -363,7 +320,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the tags retrieval operation</returns>
-    Task<FileServiceResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
+    Task<OperationResult<IReadOnlyDictionary<string, string>>> GetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         CancellationToken cancellationToken = default);
@@ -376,7 +333,7 @@ public interface IFileService
     /// <param name="tags">The tags to set</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the tags update operation</returns>
-    Task<FileServiceResult<bool>> SetFileTagsAsync(
+    Task<OperationResult<bool>> SetFileTagsAsync(
         string bucketName,
         string keyInBucket,
         IReadOnlyDictionary<string, string> tags,
@@ -390,7 +347,7 @@ public interface IFileService
     /// <param name="accessibility">The new accessibility level</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the accessibility update operation</returns>
-    Task<FileServiceResult<bool>> SetFileAccessibilityAsync(
+    Task<OperationResult<bool>> SetFileAccessibilityAsync(
         string bucketName,
         string keyInBucket,
         FileAccessibility accessibility,
@@ -404,7 +361,7 @@ public interface IFileService
     /// <param name="options">Options for the signed URL</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the signed URL creation</returns>
-    Task<FileServiceResult<SignedUrl>> CreateSignedUploadUrlAsync(
+    Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedUploadUrlOptions? options = null,
@@ -418,7 +375,7 @@ public interface IFileService
     /// <param name="options">Options for the signed URL</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the signed URL creation</returns>
-    Task<FileServiceResult<SignedUrl>> CreateSignedDownloadUrlAsync(
+    Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(
         string bucketName,
         string keyInBucket,
         SignedDownloadUrlOptions? options = null,
@@ -431,7 +388,7 @@ public interface IFileService
     /// <param name="options">Options for listing files</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the file listing operation</returns>
-    Task<FileServiceResult<ListFilesResult>> ListFilesAsync(
+    Task<OperationResult<ListFilesResult>> ListFilesAsync(
         string bucketName,
         ListFilesOptions? options = null,
         CancellationToken cancellationToken = default);
@@ -446,7 +403,7 @@ public interface IFileService
     /// <param name="pubSubService">Pub/Sub service instance</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the notification creation</returns>
-    Task<FileServiceResult<string>> CreateNotificationAsync(
+    Task<OperationResult<string>> CreateNotificationAsync(
         string bucketName,
         string topicName,
         string pathPrefix,
@@ -462,7 +419,7 @@ public interface IFileService
     /// <param name="topicName">Optional topic name to filter deletions</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the notification deletion operation</returns>
-    Task<FileServiceResult<int>> DeleteNotificationsAsync(
+    Task<OperationResult<int>> DeleteNotificationsAsync(
         IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,

@@ -185,7 +185,6 @@ public sealed class ReadOnlyAtomicable<T>(Atomicable<T> atomicable)
     /// </summary>
     public static implicit operator T(ReadOnlyAtomicable<T> readOnlyAtomicable)
     {
-        ArgumentNullException.ThrowIfNull(readOnlyAtomicable);
         return readOnlyAtomicable.GetValue();
     }
 }

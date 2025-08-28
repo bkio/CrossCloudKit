@@ -57,30 +57,33 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task<bool> EnsureTopicExistsAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
-        return await InternalEnsureTopicExistsAsync(topic, false, errorMessageAction, cancellationToken) is { Count: > 0 };
+        var result = await InternalEnsureTopicExistsAsync(topic, false, cancellationToken);
+        if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
+            return OperationResult<bool>.Failure("Operation has failed.");
+        return OperationResult<bool>.Success(true);
     }
-    private async Task<List<string>?> InternalEnsureTopicExistsAsync(string topic, bool forceAddNew, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    private async Task<OperationResult<List<string>>> InternalEnsureTopicExistsAsync(string topic, bool forceAddNew, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return null;
+            return OperationResult<List<string>>.Failure("Not initialized or parameters are invalid.");
 
         List<string> relevantQueues;
         try
         {
             relevantQueues = await GetQueueListNotSafe(topic, cancellationToken);
             if (!forceAddNew && relevantQueues.Count > 0)
-                return relevantQueues;
+                return OperationResult<List<string>>.Success(relevantQueues);
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, errorMessageAction, cancellationToken), errorMessageAction, cancellationToken);
+            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, cancellationToken), cancellationToken);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to ensure topic exists(1): {e.Message}");
-            return null;
+            return OperationResult<List<string>>.Failure($"Failed to ensure topic exists(1): {e.Message}");
         }
 
         var newQueueName = relevantQueues.Count > 0 ? $"{topic}{SlaveSeparator}{StringUtilities.GenerateRandomString(8, true)}" : topic;
@@ -93,16 +96,16 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, errorMessageAction, cancellationToken), errorMessageAction, cancellationToken);
+            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, cancellationToken), cancellationToken);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to ensure topic exists(2): {e.Message}");
-            return null;
+            return OperationResult<List<string>>.Failure($"Failed to ensure topic exists(2): {e.Message}");
         }
 
-        if (!await SetSqsInstanceRights(newQueueName, errorMessageAction, cancellationToken))
-            return null; // Failed to set a queue policy (e.g. due to missing permissions)
+        var setRightsResult = await SetSqsInstanceRights(newQueueName, cancellationToken);
+        if (!setRightsResult.IsSuccessful)
+            return OperationResult<List<string>>.Failure($"Failed to set queue policy: {setRightsResult.ErrorMessage}");
 
         relevantQueues.Add(newQueueName);
         lock (_queuesNotTs)
@@ -113,17 +116,19 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             }
         }
 
-        return relevantQueues;
+        return OperationResult<List<string>>.Success(relevantQueues);
     }
 
-    public async Task<bool> PublishAsync(string topic, string message, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
-            return false;
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        var relevantQueues = await InternalEnsureTopicExistsAsync(topic, false, errorMessageAction, cancellationToken);
-        if (relevantQueues is not {Count: > 0})
-            return false;
+        var result = await InternalEnsureTopicExistsAsync(topic, false, cancellationToken);
+        if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
+            return OperationResult<bool>.Failure("Operation has failed.");
+        var relevantQueues = result.Data;
 
         try
         {
@@ -138,27 +143,31 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => PublishAsync(topic, message, errorMessageAction, cancellationToken), errorMessageAction, cancellationToken);
+            return await RequestThrottledRetry(() => PublishAsync(topic, message, cancellationToken), cancellationToken);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Publish failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Publish failed: {e.Message}");
         }
-
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
-    public async Task<bool> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SubscribeAsync(
+        string topic,
+        Func<string, string, Task>? onMessage,
+        Action<Exception>? onError = null,
+        CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
-            return false;
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         try
         {
-            var relevantQueues = await InternalEnsureTopicExistsAsync(topic, true, errorMessageAction, cancellationToken);
-            if (relevantQueues is not {Count: > 0})
-                return false;
+            var result = await InternalEnsureTopicExistsAsync(topic, true, cancellationToken);
+            if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
+                return OperationResult<bool>.Failure("Operation has failed.");
+            var relevantQueues = result.Data;
 
             var queueName = relevantQueues[^1]; // Use the last queue URL from relevantQueues
 
@@ -168,18 +177,22 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                 (_, existing) => { existing.Add(cts); return existing; });
 
             // Start message polling in the background
-            _ = Task.Run(async () => await PollMessagesAsync(topic, queueName, onMessage, relevantQueues.Count == 1, errorMessageAction, cts.Token), cts.Token);
-
-            return true;
+            _ = Task.Run(async () => await PollMessagesAsync(topic, queueName, onMessage, onError, relevantQueues.Count == 1, cts.Token), cts.Token);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Subscribe failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Subscribe failed: {e.Message}");
         }
+        return OperationResult<bool>.Success(true);
     }
 
-    private async Task PollMessagesAsync(string topic, string queueName, Func<string, string, Task> onMessage, bool isMasterSubscription, Action<string>? errorMessageAction, CancellationToken cancellationToken)
+    private async Task PollMessagesAsync(
+        string topic,
+        string queueName,
+        Func<string, string, Task> onMessage,
+        Action<Exception>? onError,
+        bool isMasterSubscription,
+        CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -210,7 +223,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                     }
                     catch (Exception e)
                     {
-                        errorMessageAction?.Invoke($"Message handler failed: {e.Message}");
+                        onError?.Invoke(e);
                     }
 
                     deleteTasks.Add(_sqsClient.DeleteMessageAsync(new DeleteMessageRequest
@@ -259,7 +272,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             }
             catch (Exception e)
             {
-                errorMessageAction?.Invoke($"Message polling failed: {e.Message}");
+                onError?.Invoke(e);
                 // Wait before retrying to avoid tight loop on persistent errors
                 try
                 {
@@ -273,10 +286,11 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task<bool> DeleteTopicAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return false;
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         // Cancel all subscriptions for this topic
         if (_subscriptions.TryRemove(topic, out var ctsList))
@@ -324,21 +338,20 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => DeleteTopicAsync(topic, errorMessageAction, cancellationToken), errorMessageAction, cancellationToken);
+            return await RequestThrottledRetry(() => DeleteTopicAsync(topic, cancellationToken), cancellationToken);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to delete queue(1) {topic}: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Failed to delete queue(1) {topic}: {e.Message}");
         }
-
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
-    public async Task<bool> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topic))
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         lock (_s3EventTopicsNotTs)
         {
@@ -358,19 +371,20 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => MarkUsedOnBucketEvent(topic, cancellationToken), null, cancellationToken);
+            return await RequestThrottledRetry(() => MarkUsedOnBucketEvent(topic, cancellationToken), cancellationToken);
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return false;
+            return OperationResult<bool>.Failure($"Failed to mark topic as used with bucket events {topic}: {e.Message}");
         }
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
-    public async Task<bool> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topic))
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         lock (_s3EventTopicsNotTs)
         {
@@ -387,34 +401,33 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (RequestThrottledException)
         {
-            return await RequestThrottledRetry(() => UnmarkUsedOnBucketEvent(topic, cancellationToken), null, cancellationToken);
+            return await RequestThrottledRetry(() => UnmarkUsedOnBucketEvent(topic, cancellationToken), cancellationToken);
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return false;
+            return OperationResult<bool>.Failure($"Failed to unmark topic as used with bucket events {topic}: {e.Message}");
         }
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
-    public Task<List<string>?> GetTopicsUsedOnBucketEventAsync(Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             lock (_s3EventTopicsNotTs)
             {
-                return Task.FromResult(_s3EventTopicsNotTs.ToList())!;
+                return Task.FromResult(OperationResult<List<string>>.Success(_s3EventTopicsNotTs.ToList()));
             }
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to get topics: {e.Message}");
-            return Task.FromResult<List<string>?>(null);
+            return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}"));
         }
     }
 
-    private static async Task<T> RequestThrottledRetry<T>(Func<Task<T>> onRetry, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    private static async Task<T> RequestThrottledRetry<T>(Func<Task<T>> onRetry, CancellationToken cancellationToken = default)
     {
-        errorMessageAction?.Invoke($"RequestThrottledException; will retry.");
         try
         {
             await Task.Delay(5000, cancellationToken);
@@ -509,7 +522,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
     }
 
-    private async Task<bool> SetSqsInstanceRights(string topicName, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    private async Task<OperationResult<bool>> SetSqsInstanceRights(string topicName, CancellationToken cancellationToken = default)
     {
         // Get queue URL
         var queueUrlResponse = await _sqsClient.GetQueueUrlAsync(topicName, cancellationToken).ConfigureAwait(false);
@@ -548,10 +561,9 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to set queue policy: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Failed to set queue policy: {e.Message}");
         }
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
     private async Task<List<string>> GetMasterQueuesTaggedWithUsedOnBucketEventAsyncNotSafe(CancellationToken cancellationToken = default)

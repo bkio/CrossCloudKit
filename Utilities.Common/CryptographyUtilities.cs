@@ -20,8 +20,6 @@ public static class CryptographyUtilities
     /// <returns>The SHA-256 hash as a lowercase hex string</returns>
     public static async Task<string> CalculateFileSha256Async(string filePath, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-
         await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
         return await CalculateStreamSha256Async(fileStream, cancellationToken).ConfigureAwait(false);
     }
@@ -34,8 +32,6 @@ public static class CryptographyUtilities
     /// <returns>The SHA-256 hash as a lowercase hex string</returns>
     public static async Task<string> CalculateStreamSha256Async(Stream stream, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(stream);
-
         var originalPosition = stream.CanSeek ? stream.Position : -1;
 
         try
@@ -65,8 +61,6 @@ public static class CryptographyUtilities
     /// <returns>The SHA-256 hash as a lowercase hex string</returns>
     public static string CalculateStringSha256(string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
-
         var bytes = Encoding.UTF8.GetBytes(input);
         using var sha256 = SHA256.Create();
         var hashBytes = sha256.ComputeHash(bytes);
@@ -82,8 +76,6 @@ public static class CryptographyUtilities
     [Obsolete("MD5 is cryptographically broken. Use SHA-256 instead.")]
     public static async Task<string> CalculateFileMd5Async(string filePath, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-
         await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
         return await CalculateStreamMd5Async(fileStream, cancellationToken).ConfigureAwait(false);
     }
@@ -97,8 +89,6 @@ public static class CryptographyUtilities
     [Obsolete("MD5 is cryptographically broken. Use SHA-256 instead.")]
     public static async Task<string> CalculateStreamMd5Async(Stream stream, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(stream);
-
         var originalPosition = stream.CanSeek ? stream.Position : -1;
 
         try

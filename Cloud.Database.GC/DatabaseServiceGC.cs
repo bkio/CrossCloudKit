@@ -374,10 +374,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     private static string GetFinalKeyFromNameValue(string keyName, PrimitiveType keyValue)
         => $"{keyName}:{keyValue}";
 
-    /// <summary>
-    /// Checks if an item exists and optionally satisfies a condition.
-    /// </summary>
-    public async Task<DatabaseResult<bool>> ItemExistsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -386,13 +384,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<bool>.Failure("DatabaseServiceGC->ItemExistsAsync: DSDB is null.");
+            return OperationResult<bool>.Failure("DatabaseServiceGC->ItemExistsAsync: DSDB is null.");
         }
         try
         {
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return DatabaseResult<bool>.Failure("Failed to load table key factory");
+                return OperationResult<bool>.Failure("Failed to load table key factory");
             }
 
             var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
@@ -400,7 +398,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
             if (entity == null)
             {
-                return DatabaseResult<bool>.Success(false);
+                return OperationResult<bool>.Success(false);
             }
 
             if (condition != null)
@@ -411,22 +409,20 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     AddKeyToJson(entityJson, keyName, keyValue);
                     ApplyOptions(entityJson);
                     bool conditionSatisfied = ConditionCheck(entityJson, condition);
-                    return DatabaseResult<bool>.Success(conditionSatisfied);
+                    return OperationResult<bool>.Success(conditionSatisfied);
                 }
             }
 
-            return DatabaseResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            return DatabaseResult<bool>.Failure($"DatabaseServiceGC->ItemExistsAsync: {e.Message}");
+            return OperationResult<bool>.Failure($"DatabaseServiceGC->ItemExistsAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets an item from the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> GetItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> GetItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -435,13 +431,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->GetItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->GetItemAsync: DSDB is null.");
         }
         try
         {
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
+                return OperationResult<JObject?>.Failure("Failed to load table key factory");
             }
 
             var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
@@ -449,7 +445,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
             if (entity == null)
             {
-                return DatabaseResult<JObject?>.Success(null);
+                return OperationResult<JObject?>.Success(null);
             }
 
             var result = FromEntityToJson(entity);
@@ -459,18 +455,16 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 ApplyOptions(result);
             }
 
-            return DatabaseResult<JObject?>.Success(result);
+            return OperationResult<JObject?>.Success(result);
         }
         catch (Exception e)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->GetItemAsync: {e.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceGC->GetItemAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets multiple items from the database.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
         string tableName,
         string keyName,
         PrimitiveType[] keyValues,
@@ -479,18 +473,18 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->GetItemsAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->GetItemsAsync: DSDB is null.");
         }
         try
         {
             if (keyValues.Length == 0)
             {
-                return DatabaseResult<IReadOnlyList<JObject>>.Success([]);
+                return OperationResult<IReadOnlyList<JObject>>.Success([]);
             }
 
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return DatabaseResult<IReadOnlyList<JObject>>.Failure("Failed to load table key factory");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to load table key factory");
             }
 
             var datastoreKeys = keyValues.Select(value =>
@@ -514,18 +508,16 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
             }
 
-            return DatabaseResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
         }
         catch (Exception e)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->GetItemsAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->GetItemsAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Puts an item into the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> PutItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> PutItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -538,10 +530,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             returnBehavior, null, overwriteIfExists, cancellationToken);
     }
 
-    /// <summary>
-    /// Updates an existing item in the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> UpdateItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> UpdateItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -554,10 +544,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             returnBehavior, condition, false, cancellationToken);
     }
 
-    /// <summary>
-    /// Deletes an item from the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> DeleteItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> DeleteItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -570,7 +558,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
         if (_dsdb == null)
         {
-            return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->DeleteItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->DeleteItemAsync: DSDB is null.");
         }
 
         while (++retryCount <= maxRetryNumber)
@@ -579,7 +567,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -600,7 +588,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                             if (condition != null && !ConditionCheck(entityJson, condition))
                             {
-                                return DatabaseResult<JObject?>.Failure("Condition not satisfied");
+                                return OperationResult<JObject?>.Failure("Condition not satisfied");
                             }
 
                             if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
@@ -614,7 +602,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 transaction.Delete(key);
                 await transaction.CommitAsync();
 
-                return DatabaseResult<JObject?>.Success(returnItem);
+                return OperationResult<JObject?>.Success(returnItem);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -622,24 +610,22 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: {e.Message}");
             }
         }
 
-        return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
 
-    /// <summary>
-    /// Scans a table and returns all items.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
         string tableName,
         string[] keyNames,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.");
         }
         try
         {
@@ -671,18 +657,16 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
             }
 
-            return DatabaseResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
         }
         catch (Exception e)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->ScanTableAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->ScanTableAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Scans a table with pagination support.
-    /// </summary>
-    public async Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
         string tableName,
         string[] keyNames,
         int pageSize,
@@ -691,7 +675,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.");
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.");
         }
         try
         {
@@ -747,20 +731,18 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
 
             // Note: Google Cloud Datastore doesn't easily provide total count for queries
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
                 (results.AsReadOnly(), nextPageToken, null));
         }
         catch (Exception e)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceGC->ScanTablePaginatedAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Scans a table and returns items that match the specified filter condition.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,
@@ -768,7 +750,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableWithFilterAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableWithFilterAsync: DSDB is null.");
         }
         try
         {
@@ -807,19 +789,17 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
             }
 
-            return DatabaseResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
         }
         catch (Exception e)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure(
+            return OperationResult<IReadOnlyList<JObject>>.Failure(
                 $"DatabaseServiceGC->ScanTableWithFilterAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Scans a table with filtering and pagination support.
-    /// </summary>
-    public async Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,
@@ -829,7 +809,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.");
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.");
         }
         try
         {
@@ -890,20 +870,18 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 nextPageToken = Convert.ToBase64String(queryResults.EndCursor.ToByteArray());
             }
 
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
                 (results.AsReadOnly(), nextPageToken, null));
         }
         catch (Exception e)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Adds elements to an array attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> AddElementsToArrayAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> AddElementsToArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -915,7 +893,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->AddElementsToArrayAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->AddElementsToArrayAsync: DSDB is null.");
         }
 
         const int maxRetryNumber = 5;
@@ -927,12 +905,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (elementsToAdd.Length == 0)
                 {
-                    return DatabaseResult<JObject?>.Failure("ElementsToAdd must contain values.");
+                    return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.");
                 }
 
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -951,7 +929,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return DatabaseResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied");
                         }
 
                         if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
@@ -991,7 +969,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                                 return getResult;
                             }
 
-                            return DatabaseResult<JObject?>.Success(returnItem);
+                            return OperationResult<JObject?>.Success(returnItem);
                         }
                     }
                 }
@@ -1028,11 +1006,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                             return getResult;
                         }
 
-                        return DatabaseResult<JObject?>.Success(returnItem);
+                        return OperationResult<JObject?>.Success(returnItem);
                     }
                 }
 
-                return DatabaseResult<JObject?>.Failure("Failed to process array update");
+                return OperationResult<JObject?>.Failure("Failed to process array update");
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1040,17 +1018,15 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: {e.Message}");
             }
         }
 
-        return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
 
-    /// <summary>
-    /// Removes elements from an array attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> RemoveElementsFromArrayAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -1062,7 +1038,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->RemoveElementsFromArrayAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->RemoveElementsFromArrayAsync: DSDB is null.");
         }
 
         const int maxRetryNumber = 5;
@@ -1074,12 +1050,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (elementsToRemove.Length == 0)
                 {
-                    return DatabaseResult<JObject?>.Failure("ElementsToRemove must contain values.");
+                    return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.");
                 }
 
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1098,7 +1074,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return DatabaseResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied");
                         }
 
                         if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
@@ -1147,13 +1123,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                                     return getResult;
                                 }
 
-                                return DatabaseResult<JObject?>.Success(returnItem);
+                                return OperationResult<JObject?>.Success(returnItem);
                             }
                         }
                     }
                 }
 
-                return DatabaseResult<JObject?>.Success(returnItem);
+                return OperationResult<JObject?>.Success(returnItem);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1161,17 +1137,15 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: {e.Message}");
             }
         }
 
-        return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
 
-    /// <summary>
-    /// Atomically increments or decrements a numeric attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<double>> IncrementAttributeAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<double>> IncrementAttributeAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -1182,7 +1156,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<double>.Failure("DatabaseServiceGC->IncrementAttributeAsync: DSDB is null.");
+            return OperationResult<double>.Failure("DatabaseServiceGC->IncrementAttributeAsync: DSDB is null.");
         }
 
         const int maxRetryNumber = 5;
@@ -1194,7 +1168,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return DatabaseResult<double>.Failure("Failed to load table key factory");
+                    return OperationResult<double>.Failure("Failed to load table key factory");
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1213,7 +1187,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return DatabaseResult<double>.Failure("Condition not satisfied");
+                            return OperationResult<double>.Failure("Condition not satisfied");
                         }
 
                         // Get current value and increment
@@ -1238,7 +1212,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                             transaction.Upsert(updatedEntity);
                             await transaction.CommitAsync();
 
-                            return DatabaseResult<double>.Success(newValue);
+                            return OperationResult<double>.Success(newValue);
                         }
                     }
                 }
@@ -1256,11 +1230,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         transaction.Upsert(newEntity);
                         await transaction.CommitAsync();
 
-                        return DatabaseResult<double>.Success(newValue);
+                        return OperationResult<double>.Success(newValue);
                     }
                 }
 
-                return DatabaseResult<double>.Failure("Failed to increment attribute");
+                return OperationResult<double>.Failure("Failed to increment attribute");
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1268,11 +1242,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return DatabaseResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: {e.Message}");
+                return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: {e.Message}");
             }
         }
 
-        return DatabaseResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
 
     private enum PutOrUpdateItemType
@@ -1281,7 +1255,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         UpdateItem
     }
 
-    private async Task<DatabaseResult<JObject?>> PutOrUpdateItemAsync(
+    private async Task<OperationResult<JObject?>> PutOrUpdateItemAsync(
         PutOrUpdateItemType putOrUpdateItemType,
         string tableName,
         string keyName,
@@ -1294,7 +1268,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return DatabaseResult<JObject?>.Failure("DatabaseServiceGC->PutOrUpdateItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->PutOrUpdateItemAsync: DSDB is null.");
         }
 
         const int maxRetryNumber = 5;
@@ -1309,7 +1283,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return DatabaseResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1334,7 +1308,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     {
                         if (!ConditionCheck(returnedPreOperationObject, conditionExpression))
                         {
-                            return DatabaseResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied");
                         }
                     }
 
@@ -1352,7 +1326,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 {
                     if (!shouldOverrideIfExist && returnedPreOperationObject != null)
                     {
-                        return DatabaseResult<JObject?>.Failure("Item already exists");
+                        return OperationResult<JObject?>.Failure("Item already exists");
                     }
                 }
 
@@ -1374,10 +1348,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         return getResult;
                     }
 
-                    return DatabaseResult<JObject?>.Success(returnItem);
+                    return OperationResult<JObject?>.Success(returnItem);
                 }
 
-                return DatabaseResult<JObject?>.Failure("Failed to convert JSON to entity");
+                return OperationResult<JObject?>.Failure("Failed to convert JSON to entity");
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1385,11 +1359,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: {e.Message}");
             }
         }
 
-        return DatabaseResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
     }
 
     private void ApplyOptions(JObject jsonObject)

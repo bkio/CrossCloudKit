@@ -416,8 +416,8 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
                 return Task.CompletedTask;
             });
 
-            subscribeResult1.Should().BeTrue("Failed to subscribe to notification topic");
-            subscribeResult2.Should().BeTrue("Failed to subscribe to notification topic");
+            subscribeResult1.IsSuccessful.Should().BeTrue("Failed to subscribe to notification topic");
+            subscribeResult2.IsSuccessful.Should().BeTrue("Failed to subscribe to notification topic");
 
             // Create notification for upload events
             var result = await service.CreateNotificationAsync(bucket, topic, prefix, [FileNotificationEventType.Uploaded], pubsubService);

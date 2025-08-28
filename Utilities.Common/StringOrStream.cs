@@ -61,8 +61,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ArgumentNullException">Thrown when content is null</exception>
     public StringOrStream(string content, Encoding? encoding = null)
     {
-        ArgumentNullException.ThrowIfNull(content);
-
         Kind = StringOrStreamKind.String;
         _stringValue = content;
         _encoding = encoding ?? Encoding.UTF8;
@@ -78,7 +76,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when length is negative</exception>
     public StringOrStream(Stream stream, long length, Encoding? encoding = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
 
         Kind = StringOrStreamKind.Stream;
@@ -98,8 +95,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when length is negative</exception>
     public StringOrStream(Stream stream, long length, Func<ValueTask> cleanupAction, Encoding? encoding = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
-        ArgumentNullException.ThrowIfNull(cleanupAction);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
 
         Kind = StringOrStreamKind.Stream;
@@ -249,8 +244,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ObjectDisposedException">Thrown when the instance has been disposed</exception>
     public T Match<T>(Func<string, T> onString, Func<Stream, long, T> onStream)
     {
-        ArgumentNullException.ThrowIfNull(onString);
-        ArgumentNullException.ThrowIfNull(onStream);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         return Kind switch
@@ -273,8 +266,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         Func<string, Task<T>> onString,
         Func<Stream, long, Task<T>> onStream)
     {
-        ArgumentNullException.ThrowIfNull(onString);
-        ArgumentNullException.ThrowIfNull(onStream);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         return Kind switch
@@ -293,7 +284,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ObjectDisposedException">Thrown when the instance has been disposed</exception>
     public void CopyTo(Stream destination)
     {
-        ArgumentNullException.ThrowIfNull(destination);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         switch (Kind)
@@ -328,7 +318,6 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// <exception cref="ObjectDisposedException">Thrown when the instance has been disposed</exception>
     public async Task CopyToAsync(Stream destination, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(destination);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         switch (Kind)

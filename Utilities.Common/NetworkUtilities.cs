@@ -20,8 +20,6 @@ public static class NetworkUtilities
     /// <returns>The resolved IP address</returns>
     public static async Task<IPAddress> ResolveHostnameAsync(string hostNameOrAddress, bool preferIPv6 = false, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(hostNameOrAddress);
-
         var preferredFamily = preferIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
 
         var addresses = await Dns.GetHostAddressesAsync(hostNameOrAddress, cancellationToken).ConfigureAwait(false);

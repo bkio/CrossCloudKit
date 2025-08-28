@@ -4,162 +4,135 @@
 using Cloud.Interfaces;
 using Cloud.Memory.Redis.Common;
 using StackExchange.Redis;
+using Utilities.Common;
 
 namespace Cloud.PubSub.Redis
 {
     public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService
     {
         /// <summary>
-        /// 
-        /// <para>PubSubServiceRedis: Parametered Constructor</para>
+        ///
+        /// <para>PubSubServiceRedis: Parameterized Constructor</para>
         /// <para>Note: Redis Pub/Sub service does not keep messages in a permanent queue, therefore if there is not any listener, message will be lost, unlike other Pub/Sub services.</para>
-        /// 
+        ///
         /// <para>Parameters:</para>
-        /// <para><paramref name="_RedisHost"/>                     Redis Host (without Port)</para>
-        /// <para><paramref name="_RedisPort"/>                     Redis Endpoint Port</para>
-        /// <para><paramref name="_RedisUser"/>                     Redis User</para>
-        /// <para><paramref name="_RedisPassword"/>                 Redis Server Password</para>
-        /// 
+        /// <param name="connectionOptions">Redis connection configuration options.</param>
+        ///
         /// </summary>
-        public PubSubServiceRedis(
-            string _RedisHost,
-            int _RedisPort,
-            string _RedisUser,
-            string _RedisPassword,
-            bool _bFailoverMechanismEnabled = true,
-            Action<string> _ErrorMessageAction = null) : base("PubSubServiceRedis", _RedisHost, _RedisPort, _RedisUser, _RedisPassword, false, _bFailoverMechanismEnabled, _ErrorMessageAction)
+        public PubSubServiceRedis(RedisConnectionOptions connectionOptions) : base(connectionOptions) {}
+
+        public bool IsInitialized => Initialized;
+
+        /// <inheritdoc />
+        public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
         {
-        }
+            if (string.IsNullOrEmpty(topic))
+                return OperationResult<bool>.Failure("Topic cannot be empty.");
+            if (RedisConnection == null)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
 
-        /// <summary>
-        /// 
-        /// <para>PubSubServiceRedis: Parametered Constructor</para>
-        /// <para>Note: Redis Pub/Sub service does not keep messages in a permanent queue, therefore if there is not any listener, message will be lost, unlike other Pub/Sub services.</para>
-        /// 
-        /// <para>Parameters:</para>
-        /// <para><paramref name="_RedisHost"/>                     Redis Host (without Port)</para>
-        /// <para><paramref name="_RedisUser"/>                     Redis User</para>
-        /// <para><paramref name="_RedisPort"/>                     Redis Endpoint Port</para>
-        /// <para><paramref name="_RedisPassword"/>                 Redis Server Password</para>
-        /// <para><paramref name="_RedisSslEnabled"/>               Redis Server SSL Connection Enabled/Disabled</para>
-        /// 
-        /// </summary>
-        public PubSubServiceRedis(
-            string _RedisHost,
-            int _RedisPort,
-            string _RedisUser,
-            string _RedisPassword,
-            bool _RedisSslEnabled,
-            bool _bFailoverMechanismEnabled = true,
-            Action<string> _ErrorMessageAction = null) : base("PubSubServiceRedis", _RedisHost, _RedisPort, _RedisUser, _RedisPassword, _RedisSslEnabled, _bFailoverMechanismEnabled, _ErrorMessageAction)
-        {
-        }
-
-
-        public bool IsInitialized => throw new NotImplementedException();
-
-        public async Task<bool> DeleteTopicAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
-        {
-            if (topic != null && topic.Length > 0)
+            var result = await ExecuteRedisOperationAsync(async _ =>
             {
-                try
-                {
-                    await RedisConnection.GetSubscriber().UnsubscribeAsync(topic, null);
-                }
-                catch (Exception e)
-                {
-                    if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-                    {
-                        OnFailoverDetected(errorMessageAction);
-                        await DeleteTopicAsync(topic, errorMessageAction);
-                    }
-                    else
-                    {
-                        errorMessageAction?.Invoke($"PubSubServiceRedis->DeleteTopicGlobally: {e.Message}, Trace: {e.StackTrace}");
-                    }
-                }
-            }
-            return true;
-        }
-
-        public async Task<bool> EnsureTopicExistsAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
-        {
-            return true;
-        }
-
-        public async Task<bool> PublishAsync(string topic, string message, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
-        {
-            if (topic != null && topic.Length > 0
-                && message != null && message.Length > 0)
-            {
-                FailoverCheck();
-                try
-                {
-                    using (var CreatedTask = RedisConnection.GetDatabase().PublishAsync(topic, message))
-                    {
-                        CreatedTask.Wait();
-                    }
-                }
-                catch (Exception e)
-                {
-                    if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-                    {
-                        OnFailoverDetected(errorMessageAction);
-                        return await PublishAsync(topic, message, errorMessageAction);
-                    }
-                    else
-                    {
-                        errorMessageAction?.Invoke($"PubSubServiceRedis->CustomPublish: {e.Message}, Trace: {e.StackTrace}");
-                        return false;
-                    }
-                }
+                await RedisConnection.GetSubscriber().UnsubscribeAsync(RedisChannel.Literal(topic)).ConfigureAwait(false);
                 return true;
-            }
-            return false;
+            }, cancellationToken).ConfigureAwait(false);
+
+            return result;
         }
 
-        public async Task<bool> SubscribeAsync(string topic, Func<string, string, Task> onMessage, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+        /// <inheritdoc />
+        public Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
         {
-            if (topic != null && topic.Length > 0 && onMessage != null)
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+
+        /// <inheritdoc />
+        public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(topic)
+                || string.IsNullOrEmpty(message))
+                return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+            if (RedisConnection == null)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
+
+            return await ExecuteRedisOperationAsync(async _ =>
             {
-                FailoverCheck();
-                try
-                {
-                    RedisConnection.GetSubscriber().Subscribe(
-                        topic,
-                        (RedisChannel Channel, RedisValue Value) =>
-                        {
-                            onMessage?.Invoke(Channel, Value.ToString());
-                        });
-                }
-                catch (Exception e)
-                {
-                    if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-                    {
-                        OnFailoverDetected(errorMessageAction);
-                        return await SubscribeAsync(topic, onMessage, errorMessageAction);
-                    }
-
-                    errorMessageAction?.Invoke($"PubSubServiceRedis->CustomSubscribe: {e.Message}, Trace: {e.StackTrace}");
-                    return false;
-                }
+                await RedisConnection.GetDatabase().PublishAsync(RedisChannel.Literal(topic), message);
                 return true;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task> onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(topic))
+                return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+            if (RedisConnection == null)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
+
+            return await ExecuteRedisOperationAsync(async _ =>
+            {
+                await RedisConnection.GetSubscriber().SubscribeAsync(
+                    RedisChannel.Literal(topic),
+                    (channel, value) =>
+                    {
+                        onMessage.Invoke(channel!, value.ToString());
+                    });
+                return true;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
+        {
+            return await Common_PushToListAsync(
+                _systemMemoryScope,
+                UsedOnBucketEventListName,
+                [
+                    new PrimitiveType(topic)
+                ],
+                true,
+                false,
+                false,
+                this,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
+        {
+            var result = await Common_RemoveElementsFromListAsync(
+                _systemMemoryScope,
+                UsedOnBucketEventListName,
+                [
+                    new PrimitiveType(topic)
+                ],
+                false,
+                this,
+                cancellationToken).ConfigureAwait(false);
+            return result.IsSuccessful ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure(result.ErrorMessage ?? string.Empty);
+        }
+
+        /// <inheritdoc />
+        public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
+        {
+            var result = await Common_GetAllElementsOfListAsync(
+                _systemMemoryScope,
+                UsedOnBucketEventListName,
+                cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccessful || result.Data == null) return OperationResult<List<string>>.Failure(result.ErrorMessage ?? string.Empty);
+            return OperationResult<List<string>>.Success(result.Data.Select(x => x.ToString()).ToList());
+        }
+
+        private class SystemMemoryScope : IMemoryServiceScope
+        {
+            public string Compile()
+            {
+                return Scope;
             }
-            return false;
+            private const string Scope = "Cloud.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope";
         }
-
-        public async Task<bool> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
-        {
-            return true;
-        }
-
-        public async Task<bool> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
-        {
-            return true;
-        }
-        public async Task<List<string>?> GetTopicsUsedOnBucketEventAsync(Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
-        {
-            return new List<string>();
-        }
+        private readonly IMemoryServiceScope _systemMemoryScope = new SystemMemoryScope();
+        private const string UsedOnBucketEventListName = "user_on_bucket_event_list";
     }
 }

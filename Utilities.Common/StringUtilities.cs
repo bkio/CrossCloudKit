@@ -21,8 +21,6 @@ public static class StringUtilities
     /// <returns>The trimmed string</returns>
     public static string TrimStart(this string target, string trimString)
     {
-        ArgumentNullException.ThrowIfNull(target);
-
         if (string.IsNullOrEmpty(trimString))
             return target;
 
@@ -43,8 +41,6 @@ public static class StringUtilities
     /// <returns>The trimmed string</returns>
     public static string TrimEnd(this string target, string trimString)
     {
-        ArgumentNullException.ThrowIfNull(target);
-
         if (string.IsNullOrEmpty(trimString))
             return target;
 
@@ -97,7 +93,6 @@ public static class StringUtilities
     /// <returns>A regular expression pattern</returns>
     public static string WildcardToRegex(string wildcardPattern)
     {
-        ArgumentNullException.ThrowIfNull(wildcardPattern);
         return $"^{Regex.Escape(wildcardPattern).Replace("\\*", ".*").Replace("\\?", ".")}$";
     }
 
@@ -108,7 +103,6 @@ public static class StringUtilities
     /// <returns>The encoded string</returns>
     public static string EncodeForTagging(string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
         return WebUtility.UrlEncode(input).Replace("%", "@pPp@");
     }
 
@@ -119,7 +113,6 @@ public static class StringUtilities
     /// <returns>The decoded string</returns>
     public static string DecodeFromTagging(string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
         return WebUtility.UrlDecode(input.Replace("@pPp@", "%"));
     }
 

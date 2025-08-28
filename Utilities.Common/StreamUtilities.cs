@@ -16,8 +16,6 @@ public static class StreamUtilities
     /// <returns>All bytes from the stream</returns>
     public static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(stream);
-
         if (stream is MemoryStream memoryStream)
         {
             return memoryStream.ToArray();
@@ -35,8 +33,6 @@ public static class StreamUtilities
     /// <returns>All bytes from the stream</returns>
     public static byte[] ReadAllBytes(Stream stream)
     {
-        ArgumentNullException.ThrowIfNull(stream);
-
         var originalPosition = stream.CanSeek ? stream.Position : -1;
 
         try

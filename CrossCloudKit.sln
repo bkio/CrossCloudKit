@@ -55,6 +55,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis", "Cloud
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis.Tests", "Cloud.PubSub.Redis.Tests\Cloud.PubSub.Redis.Tests.csproj", "{86CEA989-BDB0-48B8-910A-E5FFE33EC855}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.S3Compatible", "Cloud.File.S3Compatible\Cloud.File.S3Compatible.csproj", "{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.S3Compatible.Tests", "Cloud.File.S3Compatible.Tests\Cloud.File.S3Compatible.Tests.csproj", "{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -165,6 +169,14 @@ Global
 		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{86CEA989-BDB0-48B8-910A-E5FFE33EC855}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

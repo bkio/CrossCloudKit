@@ -122,26 +122,26 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
     }
 
-    public async Task<bool> EnsureTopicExistsAsync(string topic, Action<string>? errorMessageAction, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
         try
         {
             await GetPublisherAsync(topic, cancellationToken, false);
-            return true;
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"EnsureTopicExistsAsync failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"EnsureTopicExistsAsync failed: {e.Message}");
         }
     }
 
-    public async Task<bool> PublishAsync(string topic, string message, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
         {
-            errorMessageAction?.Invoke("Topic and message cannot be empty");
-            return false;
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
         }
 
         try
@@ -152,19 +152,19 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             var pubsubMessage = new PubsubMessage { Data = ByteString.CopyFromUtf8(message) };
 
             await publisher.PublishAsync(topicName, [pubsubMessage], cancellationToken: cancellationToken);
-            return true;
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Publish failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Publish failed: {e.Message}");
         }
     }
 
-    public async Task<bool> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topic) || onMessage == null)
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         try
         {
@@ -176,18 +176,17 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 (_, existing) => { existing.Add(cts); return existing; });
 
             // Start subscription in the background
-            await StartSubscriptionAsync(topic, encodedTopic, onMessage, errorMessageAction, cts.Token);
+            await StartSubscriptionAsync(topic, encodedTopic, onMessage, onError, cts.Token);
 
-            return true;
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Subscribe failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Subscribe failed: {e.Message}");
         }
     }
 
-    private async Task StartSubscriptionAsync(string originalTopic, string encodedTopic, Func<string, string, Task> onMessage, Action<string>? errorMessageAction, CancellationToken cancellationToken)
+    private async Task StartSubscriptionAsync(string originalTopic, string encodedTopic, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
     {
         SubscriberClient? subscriber;
         try
@@ -196,7 +195,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             var subscriptionName = new SubscriptionName(_projectId, $"{encodedTopic}-{Guid.NewGuid():N}");
 
             // Ensure the topic exists first
-            await EnsureTopicExistsAsync(encodedTopic, errorMessageAction, cancellationToken);
+            var ensureResult = await EnsureTopicExistsAsync(encodedTopic, cancellationToken);
+            if (!ensureResult.IsSuccessful)
+            {
+                throw new Exception($"Ensure topic failed: {ensureResult.ErrorMessage}");
+            }
 
             // Create subscription
             var subscriberApi = await new SubscriberServiceApiClientBuilder
@@ -242,7 +245,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 }
                 catch (Exception e)
                 {
-                    errorMessageAction?.Invoke($"Message handler failed: {e.Message}");
+                    onError?.Invoke(e);
                     return SubscriberClient.Reply.Nack;
                 }
             });
@@ -251,16 +254,13 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         {
             // Expected on cancellation
         }
-        catch (Exception e)
-        {
-            errorMessageAction?.Invoke($"Subscription failed: {e.Message}");
-        }
     }
 
-    public async Task<bool> DeleteTopicAsync(string topic, Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topic))
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         try
         {
@@ -284,6 +284,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                     Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
                 }.BuildAsync(cancellationToken);
 
+                var errorMsg = new ConcurrentBag<string>();
                 await Task.WhenAll(subscriptions.Select(async sub =>
                 {
                     try
@@ -296,12 +297,19 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                     }
                     catch (Exception e)
                     {
-                        errorMessageAction?.Invoke($"Delete subscription failed: {e.Message}");
+                        lock (errorMsg)
+                        {
+                            errorMsg.Add(e.Message);
+                        }
                     }
                 }));
+                if (!errorMsg.IsEmpty)
+                {
+                    return OperationResult<bool>.Failure($"Delete subscription failed: {string.Join(Environment.NewLine, errorMsg)}");
+                }
             }
 
-            // Remove publisher from cache and delete topic
+            // Remove publisher from cache and delete the topic
             _publishers.TryRemove(encodedTopic, out _);
 
             var publisherClient = await new PublisherServiceApiClientBuilder
@@ -318,17 +326,17 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Delete topic failed: {e.Message}");
-            return false;
+            return OperationResult<bool>.Failure($"Delete topic failed: {e.Message}");
         }
 
-        return true;
+        return OperationResult<bool>.Success(true);
     }
 
-    public async Task<bool> MarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topicName))
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
@@ -341,7 +349,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         try
         {
             var existingTopic = await publisherClient.GetTopicAsync(topicNameObj, cancellationToken);
-            if (existingTopic == null) return false;
+            if (existingTopic == null) return OperationResult<bool>.Failure("Topic does not exist.");
 
             var labels = new Dictionary<string, string>(existingTopic.Labels)
             {
@@ -356,19 +364,19 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 
             await publisherClient.UpdateTopicAsync(updatedTopic, new FieldMask { Paths = { "labels" } }, cancellationToken);
 
-            return true;
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            Console.WriteLine(e.Message);
-            return false;
+            return OperationResult<bool>.Failure($"Failed to mark topic as used with bucket events {topicName}: {e.Message}");
         }
     }
 
-    public async Task<bool> UnmarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(topicName))
-            return false;
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
@@ -398,17 +406,16 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 );
             }
 
-            return true;
+            return OperationResult<bool>.Success(true);
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return false;
+            return OperationResult<bool>.Failure($"Failed to unmark topic as used with bucket events {topicName}: {e.Message}");
         }
     }
 
-    public async Task<List<string>?> GetTopicsUsedOnBucketEventAsync(
-        Action<string>? errorMessageAction = null,
-        CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -431,12 +438,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 }
             }
 
-            return topics;
+            return OperationResult<List<string>>.Success(topics);
         }
         catch (Exception e)
         {
-            errorMessageAction?.Invoke($"Failed to get topics: {e.Message}");
-            return null;
+            return OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}");
         }
     }
 

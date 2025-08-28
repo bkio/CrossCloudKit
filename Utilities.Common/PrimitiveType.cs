@@ -2,7 +2,8 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Globalization;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
+
 // ReSharper disable MemberCanBePrivate.Global
 
 namespace Utilities.Common;
@@ -22,6 +23,7 @@ public enum PrimitiveTypeKind
 /// Represents a discriminated union of primitive types (string, long, double, byte array).
 /// This type is immutable and provides type-safe access to the underlying value.
 /// </summary>
+[JsonConverter(typeof(PrimitiveTypeJsonConverter))]
 public sealed class PrimitiveType : IEquatable<PrimitiveType>
 {
     public PrimitiveTypeKind Kind { get; }
@@ -35,8 +37,6 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <exception cref="ArgumentNullException">Thrown when other is null</exception>
     public PrimitiveType(PrimitiveType other)
     {
-        ArgumentNullException.ThrowIfNull(other);
-
         Kind = other.Kind;
         _value = other.Kind switch
         {
@@ -51,7 +51,6 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <param name="value">The string value</param>
     public PrimitiveType(string value)
     {
-        ArgumentNullException.ThrowIfNull(value);
         Kind = PrimitiveTypeKind.String;
         _value = value;
     }
@@ -83,7 +82,6 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
     public PrimitiveType(byte[] value)
     {
-        ArgumentNullException.ThrowIfNull(value);
         Kind = PrimitiveTypeKind.ByteArray;
         _value = value.ToArray(); // Create a copy to ensure immutability
     }
@@ -299,11 +297,6 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         Func<double, T> onDouble,
         Func<ReadOnlySpan<byte>, T> onByteArray)
     {
-        ArgumentNullException.ThrowIfNull(onString);
-        ArgumentNullException.ThrowIfNull(onInteger);
-        ArgumentNullException.ThrowIfNull(onDouble);
-        ArgumentNullException.ThrowIfNull(onByteArray);
-
         return Kind switch
         {
             PrimitiveTypeKind.String => onString((string)_value),
@@ -316,85 +309,106 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
 }
 
 /// <summary>
-/// Serializable wrapper for PrimitiveType that can be used for JSON serialization.
-/// Uses System.Text.Json for modern .NET serialization.
+/// Custom JSON converter for PrimitiveType.
+/// Serializes as { "kind": "String|Integer|Double|ByteArray", "value": ... } for unambiguous deserialization.
 /// </summary>
-public sealed class SerializablePrimitiveType
+public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
 {
-    [JsonPropertyName("kind")]
-    public PrimitiveTypeKind Kind { get; set; }
-
-    [JsonPropertyName("value")]
-    public string Value { get; set; } = string.Empty;
-
     /// <summary>
-    /// Default constructor for JSON deserialization.
+    /// Writes the PrimitiveType value to JSON using kind + value format.
     /// </summary>
-    public SerializablePrimitiveType() { }
-
-    /// <summary>
-    /// Creates a SerializablePrimitiveType from a PrimitiveType.
-    /// </summary>
-    /// <param name="primitiveType">The PrimitiveType to serialize</param>
-    public SerializablePrimitiveType(PrimitiveType primitiveType)
+    public override void WriteJson(JsonWriter writer, PrimitiveType? value, JsonSerializer serializer)
     {
-        ArgumentNullException.ThrowIfNull(primitiveType);
-
-        Kind = primitiveType.Kind;
-        Value = primitiveType.Kind switch
+        if (value == null)
         {
-            PrimitiveTypeKind.String => primitiveType.AsString,
-            PrimitiveTypeKind.Integer => primitiveType.AsInteger.ToString(),
-            PrimitiveTypeKind.Double => primitiveType.AsDouble.ToString("R"), // Round-trip format
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(primitiveType.AsByteArray),
-            _ => throw new InvalidOperationException($"Unknown primitive type kind: {primitiveType.Kind}")
+            writer.WriteNull();
+            return;
+        }
+
+        writer.WriteStartObject();
+
+        // Write the kind as a string
+        writer.WritePropertyName("kind");
+        writer.WriteValue(value.Kind.ToString());
+
+        // Write the value according to the kind
+        writer.WritePropertyName("value");
+        switch (value.Kind)
+        {
+            case PrimitiveTypeKind.String:
+                writer.WriteValue(value.AsString);
+                break;
+
+            case PrimitiveTypeKind.Integer:
+                writer.WriteValue(value.AsInteger);
+                break;
+
+            case PrimitiveTypeKind.Double:
+                writer.WriteValue(value.AsDouble);
+                break;
+
+            case PrimitiveTypeKind.ByteArray:
+                writer.WriteValue(Convert.ToBase64String(value.AsByteArray));
+                break;
+
+            default:
+                throw new JsonSerializationException($"Unsupported kind {value.Kind}");
+        }
+
+        writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Reads JSON back into a PrimitiveType.
+    /// Expects JSON in the { "kind": ..., "value": ... } format.
+    /// </summary>
+    public override PrimitiveType ReadJson(JsonReader reader, Type objectType, PrimitiveType? existingValue, bool hasExistingValue, JsonSerializer serializer)
+    {
+        if (reader.TokenType == JsonToken.Null)
+            return null!;
+
+        if (reader.TokenType != JsonToken.StartObject)
+            throw new JsonSerializationException($"Expected StartObject but got {reader.TokenType}");
+
+        // Temporary variables to hold parsed values
+        PrimitiveTypeKind? kind = null;
+        object? value = null;
+
+        // Read the properties
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonToken.EndObject)
+                break;
+
+            if (reader.TokenType != JsonToken.PropertyName)
+                continue;
+
+            var propertyName = (string)reader.Value!;
+            reader.Read(); // Move to property value
+
+            switch (propertyName)
+            {
+                case "kind":
+                    kind = Enum.Parse<PrimitiveTypeKind>((string)reader.Value!, ignoreCase: true);
+                    break;
+
+                case "value":
+                    value = reader.Value;
+                    break;
+            }
+        }
+
+        if (kind == null)
+            throw new JsonSerializationException("Missing 'kind' property");
+
+        // Construct PrimitiveType based on kind
+        return kind.Value switch
+        {
+            PrimitiveTypeKind.String => new PrimitiveType((string)value!),
+            PrimitiveTypeKind.Integer => new PrimitiveType(Convert.ToInt64(value!)),
+            PrimitiveTypeKind.Double => new PrimitiveType(Convert.ToDouble(value!)),
+            PrimitiveTypeKind.ByteArray => new PrimitiveType(Convert.FromBase64String((string)value!)),
+            _ => throw new JsonSerializationException($"Unsupported kind {kind}")
         };
     }
-
-    /// <summary>
-    /// Converts this serializable wrapper back to a PrimitiveType.
-    /// </summary>
-    /// <returns>The deserialized PrimitiveType</returns>
-    /// <exception cref="FormatException">Thrown when the Value cannot be parsed for the specified Kind</exception>
-    public PrimitiveType ToPrimitiveType()
-    {
-        return Kind switch
-        {
-            PrimitiveTypeKind.String => new PrimitiveType(Value),
-            PrimitiveTypeKind.Integer => new PrimitiveType(long.Parse(Value)),
-            PrimitiveTypeKind.Double => new PrimitiveType(double.Parse(Value)),
-            PrimitiveTypeKind.ByteArray => new PrimitiveType(Convert.FromBase64String(Value)),
-            _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
-        };
-    }
-
-    /// <summary>
-    /// Converts an array of PrimitiveType instances to an array of SerializablePrimitiveType instances.
-    /// </summary>
-    /// <param name="array">The array to convert</param>
-    /// <returns>The converted array, or empty array if input is null or empty</returns>
-    public static SerializablePrimitiveType[] FromPrimitiveTypes(PrimitiveType[]? array)
-    {
-        if (array is null || array.Length == 0)
-            return [];
-
-        return array.Select(p => new SerializablePrimitiveType(p)).ToArray();
-    }
-
-    /// <summary>
-    /// Converts an array of SerializablePrimitiveType instances to an array of PrimitiveType instances.
-    /// </summary>
-    /// <param name="array">The array to convert</param>
-    /// <returns>The converted array, or empty array if input is null or empty</returns>
-    public static PrimitiveType[] ToPrimitiveTypes(SerializablePrimitiveType[]? array)
-    {
-        if (array is null || array.Length == 0)
-            return [];
-
-        return array.Select(s => s.ToPrimitiveType()).ToArray();
-    }
-
-    // Implicit conversion operators
-    public static implicit operator SerializablePrimitiveType(PrimitiveType primitiveType) => new(primitiveType);
-    public static implicit operator PrimitiveType(SerializablePrimitiveType serializableType) => serializableType.ToPrimitiveType();
 }

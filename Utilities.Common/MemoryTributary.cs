@@ -317,7 +317,6 @@ public sealed class MemoryTributary : Stream
     /// <param name="length">The number of bytes to copy</param>
     public void ReadFrom(Stream source, long length)
     {
-        ArgumentNullException.ThrowIfNull(source);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -348,7 +347,6 @@ public sealed class MemoryTributary : Stream
     /// <param name="cancellationToken">A cancellation token to observe</param>
     public async Task ReadFromAsync(Stream source, long length, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(source);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -379,7 +377,6 @@ public sealed class MemoryTributary : Stream
     /// <param name="destination">The stream to write the content to</param>
     public void WriteTo(Stream destination)
     {
-        ArgumentNullException.ThrowIfNull(destination);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var originalPosition = _position;
@@ -401,7 +398,6 @@ public sealed class MemoryTributary : Stream
     /// <param name="cancellationToken">A cancellation token to observe</param>
     public async Task WriteToAsync(Stream destination, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(destination);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var originalPosition = _position;

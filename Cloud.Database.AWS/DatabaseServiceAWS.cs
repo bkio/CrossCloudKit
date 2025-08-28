@@ -357,10 +357,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
     #region Modern Async API
 
-    /// <summary>
-    /// Checks if an item exists and optionally satisfies a condition.
-    /// </summary>
-    public async Task<DatabaseResult<bool>> ItemExistsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -370,14 +368,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         try
         {
             if (_dynamoDbClient == null)
-                return DatabaseResult<bool>.Failure("DynamoDB client not initialized");
+                return OperationResult<bool>.Failure("DynamoDB client not initialized");
 
             // First try to create/get table - if this fails, the item definitely doesn't exist
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
                 // Table doesn't exist, so item definitely doesn't exist
-                return DatabaseResult<bool>.Success(false);
+                return OperationResult<bool>.Success(false);
             }
 
             // Use GetItem to retrieve the full item for condition evaluation
@@ -395,7 +393,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             if (!response.IsItemSet)
             {
-                return DatabaseResult<bool>.Success(false);
+                return OperationResult<bool>.Success(false);
             }
 
             // If condition is specified, check it against the retrieved item
@@ -406,26 +404,24 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 AddKeyToJson(jsonObject, keyName, keyValue);
 
                 bool conditionSatisfied = EvaluateCondition(jsonObject, condition);
-                return DatabaseResult<bool>.Success(conditionSatisfied);
+                return OperationResult<bool>.Success(conditionSatisfied);
             }
 
-            return DatabaseResult<bool>.Success(true);
+            return OperationResult<bool>.Success(true);
         }
         catch (ResourceNotFoundException)
         {
             // Table or item doesn't exist
-            return DatabaseResult<bool>.Success(false);
+            return OperationResult<bool>.Success(false);
         }
         catch (Exception ex)
         {
-            return DatabaseResult<bool>.Failure($"DatabaseServiceAWS->ItemExistsAsync: {ex.Message}");
+            return OperationResult<bool>.Failure($"DatabaseServiceAWS->ItemExistsAsync: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets an item from the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> GetItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> GetItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -437,7 +433,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table");
             }
 
             var config = new GetItemOperationConfig
@@ -453,25 +449,23 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var document = await table.GetItemAsync(keyValue.ToString(), config, cancellationToken);
             if (document == null)
             {
-                return DatabaseResult<JObject?>.Success(null);
+                return OperationResult<JObject?>.Success(null);
             }
 
             var result = JObject.Parse(document.ToJson());
             AddKeyToJson(result, keyName, keyValue);
             ApplyOptions(result);
 
-            return DatabaseResult<JObject?>.Success(result);
+            return OperationResult<JObject?>.Success(result);
         }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->GetItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceAWS->GetItemAsync: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Gets multiple items from the database.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
         string tableName,
         string keyName,
         PrimitiveType[] keyValues,
@@ -482,13 +476,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         {
             if (keyValues.Length == 0)
             {
-                return DatabaseResult<IReadOnlyList<JObject>>.Success([]);
+                return OperationResult<IReadOnlyList<JObject>>.Success([]);
             }
 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
             }
 
             var batchGet = table.CreateBatchGet();
@@ -514,18 +508,16 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 }
             }
 
-            return DatabaseResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
         }
         catch (Exception e)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceAWS->GetItemsAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceAWS->GetItemsAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Puts an item into the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> PutItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> PutItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -538,10 +530,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             returnBehavior, null, overwriteIfExists, cancellationToken);
     }
 
-    /// <summary>
-    /// Updates an existing item in the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> UpdateItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> UpdateItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -554,10 +544,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             returnBehavior, condition, false, cancellationToken);
     }
 
-    /// <summary>
-    /// Deletes an item from the database.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> DeleteItemAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> DeleteItemAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -570,7 +558,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table");
             }
 
             var config = new DeleteItemOperationConfig
@@ -593,28 +581,26 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             if (returnBehavior == ReturnItemBehavior.DoNotReturn)
             {
-                return DatabaseResult<JObject?>.Success(null);
+                return OperationResult<JObject?>.Success(null);
             }
 
             if (document != null)
             {
                 var result = JObject.Parse(document.ToJson());
                 ApplyOptions(result);
-                return DatabaseResult<JObject?>.Success(result);
+                return OperationResult<JObject?>.Success(result);
             }
 
-            return DatabaseResult<JObject?>.Success(null);
+            return OperationResult<JObject?>.Success(null);
         }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->DeleteItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceAWS->DeleteItemAsync: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Adds elements to an array attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> AddElementsToArrayAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> AddElementsToArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -628,25 +614,25 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         {
             if (elementsToAdd.Length == 0)
             {
-                return DatabaseResult<JObject?>.Failure("ElementsToAdd must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.");
             }
 
             var expectedKind = elementsToAdd[0].Kind;
             if (elementsToAdd.Any(element => element.Kind != expectedKind))
             {
-                return DatabaseResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.");
             }
 
             // Ensure table exists first
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<JObject?>.Failure("Failed to get or create table");
+                return OperationResult<JObject?>.Failure("Failed to get or create table");
             }
 
             if (_dynamoDbClient == null)
             {
-                return DatabaseResult<JObject?>.Failure("DynamoDB client not initialized");
+                return OperationResult<JObject?>.Failure("DynamoDB client not initialized");
             }
 
             var request = new UpdateItemRequest
@@ -721,25 +707,23 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             {
                 var result = JObject.Parse(Document.FromAttributeMap(response.Attributes).ToJson());
                 ApplyOptions(result);
-                return DatabaseResult<JObject?>.Success(result);
+                return OperationResult<JObject?>.Success(result);
             }
 
-            return DatabaseResult<JObject?>.Success(null);
+            return OperationResult<JObject?>.Success(null);
         }
         catch (ConditionalCheckFailedException)
         {
-            return DatabaseResult<JObject?>.Failure("Condition check failed");
+            return OperationResult<JObject?>.Failure("Condition check failed");
         }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->AddElementsToArrayAsync: {ex.GetType().Name}: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceAWS->AddElementsToArrayAsync: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Removes elements from an array attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<JObject?>> RemoveElementsFromArrayAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -753,13 +737,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         {
             if (elementsToRemove.Length == 0)
             {
-                return DatabaseResult<JObject?>.Failure("ElementsToRemove must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.");
             }
 
             var expectedKind = elementsToRemove[0].Kind;
             if (elementsToRemove.Any(element => element.Kind != expectedKind))
             {
-                return DatabaseResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.");
             }
 
             // For DynamoDB, removing from LIST type arrays requires a different approach
@@ -767,13 +751,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
             if (!getResult.IsSuccessful || getResult.Data == null)
             {
-                return DatabaseResult<JObject?>.Failure("Item not found for array removal operation");
+                return OperationResult<JObject?>.Failure("Item not found for array removal operation");
             }
 
             var currentItem = getResult.Data;
             if (!currentItem.TryGetValue(arrayAttributeName, out var arrayToken) || arrayToken is not JArray currentArray)
             {
-                return DatabaseResult<JObject?>.Failure($"Attribute {arrayAttributeName} is not an array");
+                return OperationResult<JObject?>.Failure($"Attribute {arrayAttributeName} is not an array");
             }
 
             JObject? oldItem = returnBehavior == ReturnItemBehavior.ReturnOldValues
@@ -808,31 +792,29 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             if (!updateResult.IsSuccessful)
             {
-                return DatabaseResult<JObject?>.Failure(updateResult.ErrorMessage ?? "Array update failed");
+                return OperationResult<JObject?>.Failure(updateResult.ErrorMessage ?? "Array update failed");
             }
 
             return returnBehavior switch
             {
-                ReturnItemBehavior.DoNotReturn => DatabaseResult<JObject?>.Success(null),
-                ReturnItemBehavior.ReturnOldValues => DatabaseResult<JObject?>.Success(oldItem),
+                ReturnItemBehavior.DoNotReturn => OperationResult<JObject?>.Success(null),
+                ReturnItemBehavior.ReturnOldValues => OperationResult<JObject?>.Success(oldItem),
                 ReturnItemBehavior.ReturnNewValues => updateResult,
-                _ => DatabaseResult<JObject?>.Success(null)
+                _ => OperationResult<JObject?>.Success(null)
             };
         }
         catch (ConditionalCheckFailedException)
         {
-            return DatabaseResult<JObject?>.Failure("Condition check failed");
+            return OperationResult<JObject?>.Failure("Condition check failed");
         }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->RemoveElementsFromArrayAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceAWS->RemoveElementsFromArrayAsync: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Atomically increments or decrements a numeric attribute of an item.
-    /// </summary>
-    public async Task<DatabaseResult<double>> IncrementAttributeAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<double>> IncrementAttributeAsync(
         string tableName,
         string keyName,
         PrimitiveType keyValue,
@@ -847,12 +829,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<double>.Failure("Failed to get or create table");
+                return OperationResult<double>.Failure("Failed to get or create table");
             }
 
             if (_dynamoDbClient == null)
             {
-                return DatabaseResult<double>.Failure("DynamoDB client not initialized");
+                return OperationResult<double>.Failure("DynamoDB client not initialized");
             }
 
             var request = new UpdateItemRequest
@@ -915,29 +897,27 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             if (response.Attributes?.TryGetValue(numericAttributeName, out var value) == true &&
                 double.TryParse(value.N, out var newValue))
             {
-                return DatabaseResult<double>.Success(newValue);
+                return OperationResult<double>.Success(newValue);
             }
 
-            return DatabaseResult<double>.Failure("Failed to get updated value from DynamoDB response");
+            return OperationResult<double>.Failure("Failed to get updated value from DynamoDB response");
         }
         catch (ConditionalCheckFailedException)
         {
-            return DatabaseResult<double>.Failure("Condition check failed");
+            return OperationResult<double>.Failure("Condition check failed");
         }
         catch (ResourceNotFoundException ex)
         {
-            return DatabaseResult<double>.Failure($"Table not found: {ex.Message}");
+            return OperationResult<double>.Failure($"Table not found: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return DatabaseResult<double>.Failure($"DatabaseServiceAWS->IncrementAttributeAsync: {ex.GetType().Name}: {ex.Message}");
+            return OperationResult<double>.Failure($"DatabaseServiceAWS->IncrementAttributeAsync: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
-    /// <summary>
-    /// Scans a table and returns all items.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
         string tableName,
         string[] keyNames,
         CancellationToken cancellationToken = default)
@@ -945,10 +925,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         return await InternalScanTableAsync(tableName, null, cancellationToken);
     }
 
-    /// <summary>
-    /// Scans a table with pagination support.
-    /// </summary>
-    public async Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
         string tableName,
         string[] keyNames,
         int pageSize,
@@ -960,7 +938,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
             }
 
             var config = new ScanOperationConfig
@@ -997,20 +975,18 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             }
 
             var nextToken = search.IsDone ? null : "next"; // Simplified token logic
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
                 (results.AsReadOnly(), nextToken, null));
         }
         catch (Exception e)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceAWS->ScanTablePaginatedAsync: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Scans a table and returns items that match the specified filter condition.
-    /// </summary>
-    public async Task<DatabaseResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,
@@ -1019,10 +995,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         return await InternalScanTableAsync(tableName, BuildConditionalExpression(filterCondition), cancellationToken);
     }
 
-    /// <summary>
-    /// Scans a table with filtering and pagination support.
-    /// </summary>
-    public async Task<DatabaseResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    /// <inheritdoc />
+    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
         DatabaseAttributeCondition filterCondition,
@@ -1035,7 +1009,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
             }
 
             var config = new ScanOperationConfig
@@ -1057,12 +1031,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             }
 
             var nextToken = search.IsDone ? null : "next"; // Simplified token logic
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
                 (results.AsReadOnly(), nextToken, null));
         }
         catch (Exception e)
         {
-            return DatabaseResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceAWS->ScanTableWithFilterPaginatedAsync: {e.Message}");
         }
     }
@@ -1077,7 +1051,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         UpdateItem
     }
 
-    private async Task<DatabaseResult<JObject?>> PutOrUpdateItemAsync(
+    private async Task<OperationResult<JObject?>> PutOrUpdateItemAsync(
         PutOrUpdateItemType putOrUpdateItemType,
         string tableName,
         string keyName,
@@ -1093,7 +1067,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table");
             }
 
             var item = new JObject(newItem);
@@ -1129,14 +1103,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
                 if (returnBehavior == ReturnItemBehavior.DoNotReturn)
                 {
-                    return DatabaseResult<JObject?>.Success(null);
+                    return OperationResult<JObject?>.Success(null);
                 }
 
                 if (document != null)
                 {
                     var result = JObject.Parse(document.ToJson());
                     ApplyOptions(result);
-                    return DatabaseResult<JObject?>.Success(result);
+                    return OperationResult<JObject?>.Success(result);
                 }
             }
             else // UpdateItem
@@ -1161,30 +1135,30 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
                 if (returnBehavior == ReturnItemBehavior.DoNotReturn)
                 {
-                    return DatabaseResult<JObject?>.Success(null);
+                    return OperationResult<JObject?>.Success(null);
                 }
 
                 if (document != null)
                 {
                     var result = JObject.Parse(document.ToJson());
                     ApplyOptions(result);
-                    return DatabaseResult<JObject?>.Success(result);
+                    return OperationResult<JObject?>.Success(result);
                 }
             }
 
-            return DatabaseResult<JObject?>.Success(null);
+            return OperationResult<JObject?>.Success(null);
         }
         catch (ConditionalCheckFailedException)
         {
-            return DatabaseResult<JObject?>.Failure("Condition check failed");
+            return OperationResult<JObject?>.Failure("Condition check failed");
         }
         catch (Exception ex)
         {
-            return DatabaseResult<JObject?>.Failure($"DatabaseServiceAWS->PutOrUpdateItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceAWS->PutOrUpdateItemAsync: {ex.Message}");
         }
     }
 
-    private async Task<DatabaseResult<IReadOnlyList<JObject>>> InternalScanTableAsync(
+    private async Task<OperationResult<IReadOnlyList<JObject>>> InternalScanTableAsync(
         string tableName,
         Expression? conditionalExpression = null,
         CancellationToken cancellationToken = default)
@@ -1194,7 +1168,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return DatabaseResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
             }
 
             var config = new ScanOperationConfig
@@ -1222,11 +1196,11 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             }
             while (!search.IsDone);
 
-            return DatabaseResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
         }
         catch (Exception e)
         {
-            return DatabaseResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceAWS->InternalScanTableAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceAWS->InternalScanTableAsync: {e.Message}");
         }
     }
 
@@ -1460,8 +1434,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     /// </summary>
     private new static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
     {
-        ArgumentNullException.ThrowIfNull(destination);
-
         // For DynamoDB compatibility, always store keys as strings since DynamoDB tables
         // are created with string key schemas for maximum flexibility
         destination[keyName] = keyValue.ToString();

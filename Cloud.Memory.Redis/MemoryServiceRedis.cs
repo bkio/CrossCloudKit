@@ -1,1441 +1,428 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Collections.ObjectModel;
 using Cloud.Interfaces;
 using Cloud.Memory.Redis.Common;
-using Newtonsoft.Json.Linq;
 using StackExchange.Redis;
 using Utilities.Common;
 
 namespace Cloud.Memory.Redis;
 
-public class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryService
+/// <summary>
+/// Modern Redis-based implementation of IMemoryService with async patterns and proper error handling.
+/// </summary>
+public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryService
 {
-    /// <summary>
-    /// 
-    /// <para>MemoryServiceRedis: Parametered Constructor</para>
-    /// 
-    /// <para>Parameters:</para>
-    /// <para><paramref name="_RedisHost"/>               Redis Host (without Port)</para>
-    /// <para><paramref name="_RedisPort"/>               Redis Endpoint Port</para>
-    /// <para><paramref name="_RedisUser"/>               Redis User</para>
-    /// <para><paramref name="_RedisPassword"/>           Redis Server Password</para>
-    /// <para><paramref name="_RedisSslEnabled"/>         Redis Server SSL Connection Enabled/Disabled</para>
-    /// <para><paramref name="_PubSubService"/>           Pub/Sub Service Instance</para>
-    /// 
-    /// </summary>
-    public MemoryServiceRedis(
-        string _RedisHost,
-        int _RedisPort,
-        string _RedisUser,
-        string _RedisPassword,
-        bool _RedisSslEnabled,
-        bool _bFailoverMechanismEnabled = true,
-        IPubSubService _PubSubService = null,
-        Action<string> _ErrorMessageAction = null) : base("MemoryServiceRedis", _RedisHost, _RedisPort, _RedisUser, _RedisPassword, _RedisSslEnabled, _bFailoverMechanismEnabled, _ErrorMessageAction)
-    {
-        PubSubService = _PubSubService;
-    }
-
-    private IPubSubService PubSubService = null;
+    private readonly IPubSubService? _pubSubService;
 
     /// <summary>
-    ///
-    /// <para>HasInitializationSucceed:</para>
-    /// 
-    /// <para>Check <seealso cref="IMemoryService.HasInitializationSucceed"/> for detailed documentation</para>
-    ///
+    /// Initializes a new instance of the MemoryServiceRedis class.
     /// </summary>
-    public bool HasInitializationSucceed()
+    /// <param name="connectionOptions">Redis connection configuration options.</param>
+    /// <param name="pubSubService">Optional pub/sub service for change notifications.</param>
+    public MemoryServiceRedis(RedisConnectionOptions connectionOptions, IPubSubService? pubSubService = null) : base(connectionOptions)
     {
-        return bInitializationSucceed;
+        _pubSubService = pubSubService;
     }
 
-    private PrimitiveType ConvertRedisValueToPrimitiveType(RedisValue _Input)
-    {
-        if (_Input.IsNullOrEmpty) return null;
-        if (_Input.IsInteger &&
-            _Input.TryParse(out long AsInteger))
-        {
-            return new PrimitiveType(AsInteger);
-        }
+    public bool IsInitialized => Initialized;
 
-        string AsString = _Input.ToString();
-        if (double.TryParse(AsString, out double AsDouble))
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetKeyExpireTimeAsync(
+        IMemoryServiceScope memoryScope,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default)
+    {
+        return await ExecuteRedisOperationAsync(async database =>
         {
-            if (AsDouble % 1 == 0)
-            {
-                return new PrimitiveType((long)AsDouble);
-            }
-            return new PrimitiveType(AsDouble);
-        }
-        return new PrimitiveType(AsString);
+            var scope = memoryScope.Compile();
+
+            var exists = await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false);
+            if (exists) return true;
+
+            // Create the key if it doesn't exist
+            await database.SetAddAsync(scope, "").ConfigureAwait(false);
+            return await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>SetKeyExpireTime:</para>
-    ///
-    /// <para>Sets given namespace's expire time</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.SetKeyExpireTime"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool SetKeyExpireTime(
-         string _MemoryScopeKey,
-         TimeSpan _TTL,
-         Action<string> _ErrorMessageAction = null)
+    /// <inheritdoc />
+    public async Task<OperationResult<TimeSpan?>> GetKeyExpireTimeAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default)
     {
-        try
+        var scope = memoryScope.Compile();
+        return await ExecuteRedisOperationAsync(async database => await database.KeyTimeToLiveAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<KeyValuePair<string, PrimitiveType>> keyValues,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        var keyValueArray = keyValues.ToArray();
+        if (keyValueArray.Length == 0)
+            return OperationResult<bool>.Failure("Key values are empty.");
+
+        var hashEntries = keyValueArray
+            .Select(kv => new HashEntry(kv.Key, ConvertPrimitiveTypeToRedisValue(kv.Value)))
+            .ToArray();
+
+        if (hashEntries.Length == 0)
+            return OperationResult<bool>.Failure("Hash entries are empty.");
+
+        var scope = memoryScope.Compile();
+
+        var result = await ExecuteRedisOperationAsync(async database =>
         {
-            var bDoesKeyExist = RedisConnection.GetDatabase().KeyExpire(_MemoryScopeKey, _TTL);
-            if (!bDoesKeyExist)
-            {
-                RedisConnection.GetDatabase().SetAdd(_MemoryScopeKey, "");
-                return RedisConnection.GetDatabase().KeyExpire(_MemoryScopeKey, _TTL);
-            }
+            await database.HashSetAsync(scope, hashEntries).ConfigureAwait(false);
             return true;
-        }
-        catch (Exception e)
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return SetKeyExpireTime(_MemoryScopeKey, _TTL, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->SetKeyExpireTime: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken).ConfigureAwait(false);
         }
+
+        return OperationResult<bool>.Success(true);
     }
 
-    /// <summary>
-    ///
-    /// <para>GetKeyExpireTime:</para>
-    ///
-    /// <para>Gets given namespace's expire time</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetKeyExpireTime"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool GetKeyExpireTime(
-        string _MemoryScopeKey,
-        out TimeSpan _TTL,
-        Action<string> _ErrorMessageAction = null)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> SetKeyValueConditionallyAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        PrimitiveType value,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        _TTL = TimeSpan.Zero;
+        const string script = """
+          if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
+              return redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
+          else
+              return nil
+          end
+          """;
 
-        TimeSpan? TTL;
-        try
+        var redisValue = ConvertPrimitiveTypeToRedisValue(value);
+
+        var scope = memoryScope.Compile();
+
+        var result = await ExecuteRedisOperationAsync(async database =>
         {
-            TTL = RedisConnection.GetDatabase().KeyTimeToLive(_MemoryScopeKey);
-        }
-        catch (Exception e)
+            var scriptResult = await database.ScriptEvaluateAsync(script,
+                [scope],
+                [key, redisValue]).ConfigureAwait(false);
+
+            return !scriptResult.IsNull;
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetKeyExpireTime(_MemoryScopeKey, out _TTL, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetKeyExpireTime: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
         }
 
-        if (TTL.HasValue)
-        {
-            _TTL = TTL.Value;
-            return true;
-        }
-        return false;
+        return result;
     }
 
-    /// <summary>
-    ///
-    /// <para>SetKeyValue:</para>
-    ///
-    /// <para>Sets given keys' values within given namespace and publishes message to [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain] topic</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.SetKeyValue"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool SetKeyValue(
-        string _MemoryScopeKey,
-        Tuple<string, PrimitiveType>[] _KeyValues,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<PrimitiveType?>> GetKeyValueAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        CancellationToken cancellationToken = default)
     {
-        if (_KeyValues.Length == 0) return false;
+        var scope = memoryScope.Compile();
 
-        HashEntry[] ArrayAsHashEntries = new HashEntry[_KeyValues.Length];
-
-        JObject ChangesObject = new JObject();
-
-        int i = 0;
-        foreach (Tuple<string, PrimitiveType> KeyValue in _KeyValues)
+        return await ExecuteRedisOperationAsync(async database =>
         {
-            if (KeyValue.Item2 != null)
-            {
-                if (KeyValue.Item2.Kind == PrimitiveTypeKind.Double)
-                {
-                    ArrayAsHashEntries[i++] = new HashEntry(KeyValue.Item1, KeyValue.Item2.AsDouble.ToString());
-                    ChangesObject[KeyValue.Item1] = KeyValue.Item2.AsDouble;
-                }
-                else if (KeyValue.Item2.Kind == PrimitiveTypeKind.Integer)
-                {
-                    ArrayAsHashEntries[i++] = new HashEntry(KeyValue.Item1, KeyValue.Item2.AsInteger);
-                    ChangesObject[KeyValue.Item1] = KeyValue.Item2.AsInteger;
-                }
-                else if (KeyValue.Item2.Kind == PrimitiveTypeKind.String)
-                {
-                    ArrayAsHashEntries[i++] = new HashEntry(KeyValue.Item1, KeyValue.Item2.AsString);
-                    ChangesObject[KeyValue.Item1] = KeyValue.Item2.AsString;
-                }
-                else if (KeyValue.Item2.Kind == PrimitiveTypeKind.ByteArray)
-                {
-                    ArrayAsHashEntries[i++] = new HashEntry(KeyValue.Item1, KeyValue.Item2.AsByteArray);
-                    ChangesObject[KeyValue.Item1] = KeyValue.Item2.ToString();
-                }
-            }
-        }
-
-        if (i == 0) return false;
-        if (i != _KeyValues.Length)
-        {
-            HashEntry[] ShrankArray = new HashEntry[i];
-            for (int k = 0; k < i; k++)
-            {
-                ShrankArray[k] = ArrayAsHashEntries[k];
-            }
-            ArrayAsHashEntries = ShrankArray;
-        }
-
-        JObject PublishObject = new JObject
-        {
-            ["operation"] = "SetKeyValue",
-            ["changes"] = ChangesObject
-        };
-
-        FailoverCheck();
-        try
-        {
-            RedisConnection.GetDatabase().HashSet(_MemoryScopeKey, ArrayAsHashEntries);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return SetKeyValue(_MemoryScopeKey, _KeyValues, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->SetKeyValue: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
-        }
-        if (PubSubService == null || !_bPublishChange) return true; //Means PubSubService is not needed and memory set has succeed.
-        var t = PubSubService.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-        t.Wait();
-        return t.Result;
+            var value = await database.HashGetAsync(scope, key).ConfigureAwait(false);
+            return ConvertRedisValueToPrimitiveType(value);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>SetKeyValue:</para>
-    ///
-    /// <para>Sets given keys' values within given namespace and publishes message to [_Domain]:[_SubDomain] topic;</para>
-    /// <para>With a condition; if key does not exist.</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.SetKeyValueConditionally"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool SetKeyValueConditionally(
-        string _MemoryScopeKey,
-        Tuple<string, PrimitiveType> _KeyValue,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<Dictionary<string, PrimitiveType>>> GetKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<string> keys,
+        CancellationToken cancellationToken = default)
     {
-        if (_KeyValue == null) return false;
+        var keyArray = keys.ToArray();
+        if (keyArray.Length == 0)
+            return OperationResult<Dictionary<string, PrimitiveType>>.Failure("Keys are empty.");
 
-        JObject ChangesObject = new JObject();
+        var scope = memoryScope.Compile();
 
-        HashEntry Entry = new HashEntry();
-        if (_KeyValue.Item2 != null)
+        return await ExecuteRedisOperationAsync(async database =>
         {
-            if (_KeyValue.Item2.Kind == PrimitiveTypeKind.Double)
-            {
-                Entry = new HashEntry(_KeyValue.Item1, _KeyValue.Item2.AsDouble.ToString());
-                ChangesObject[_KeyValue.Item1] = _KeyValue.Item2.AsDouble;
-            }
-            else if (_KeyValue.Item2.Kind == PrimitiveTypeKind.Integer)
-            {
-                Entry = new HashEntry(_KeyValue.Item1, _KeyValue.Item2.AsInteger);
-                ChangesObject[_KeyValue.Item1] = _KeyValue.Item2.AsInteger;
-            }
-            else if (_KeyValue.Item2.Kind == PrimitiveTypeKind.String)
-            {
-                Entry = new HashEntry(_KeyValue.Item1, _KeyValue.Item2.AsString);
-                ChangesObject[_KeyValue.Item1] = _KeyValue.Item2.AsString;
-            }
-            else if (_KeyValue.Item2.Kind == PrimitiveTypeKind.ByteArray)
-            {
-                Entry = new HashEntry(_KeyValue.Item1, _KeyValue.Item2.AsByteArray);
-                ChangesObject[_KeyValue.Item1] = _KeyValue.Item2.ToString();
-            }
-        }
+            var values = await database.HashGetAsync(scope, keyArray.Select(k => (RedisValue)k).ToArray()).ConfigureAwait(false);
 
-        JObject PublishObject = new JObject
-        {
-            ["operation"] = "SetKeyValue", //Identical with SetKeyValue
-            ["changes"] = ChangesObject
-        };
-
-        var RedisValues = new RedisValue[]
-        {
-                Entry.Name,
-                Entry.Value
-        };
-        var Script = @"
-                if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
-                return redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
-                else
-                return nil
-                end";
-
-        FailoverCheck();
-        try
-        {
-            var Result = (RedisValue)RedisConnection.GetDatabase().ScriptEvaluate(Script,
-                new RedisKey[]
+            var result = new Dictionary<string, PrimitiveType>(keyArray.Length);
+            for (var i = 0; i < keyArray.Length; i++)
+            {
+                var primitiveValue = ConvertRedisValueToPrimitiveType(values[i]);
+                if (primitiveValue is not null)
                 {
-                        _MemoryScopeKey
-                },
-                RedisValues);
-            if (Result.IsNull) return false;
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                var Result = (RedisValue)RedisConnection.GetDatabase().ScriptEvaluate(Script,
-                    new RedisKey[]
-                    {
-                            _MemoryScopeKey
-                    },
-                    RedisValues);
-                if (Result.IsNull) return false;
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->SetKeyValue: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
-        }
-
-        if (PubSubService == null || !_bPublishChange) return true; //Means PubSubService is not needed and memory set has succeed.
-        var t = PubSubService.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-        t.Wait();
-        return t.Result;
-    }
-
-    /// <summary>
-    ///
-    /// <para>GetKeyValue:</para>
-    ///
-    /// <para>Gets given key's value within given namespace [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain]</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetKeyValue"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public PrimitiveType GetKeyValue(
-        string _MemoryScopeKey,
-        string _Key,
-        Action<string> _ErrorMessageAction = null)
-    {
-        RedisValue ReturnedValue;
-
-        FailoverCheck();
-        try
-        {
-            ReturnedValue = RedisConnection.GetDatabase().HashGet(_MemoryScopeKey, _Key);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetKeyValue(_MemoryScopeKey, _Key, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetKeyValue: {e.Message}, Trace: {e.StackTrace}");
-                return null;
-            }
-        }
-        return ConvertRedisValueToPrimitiveType(ReturnedValue);
-    }
-
-    /// <summary>
-    ///
-    /// <para>GetKeysValues:</para>
-    ///
-    /// <para>Gets given keys' values' within given namespace [_Domain]:[_SubDomain]</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetKeysValues"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public Dictionary<string, PrimitiveType> GetKeysValues(
-        string _MemoryScopeKey,
-        List<string> _Keys,
-        Action<string> _ErrorMessageAction = null)
-    {
-        if (_Keys == null || _Keys.Count == 0) return null;
-
-        Dictionary<string, PrimitiveType> Results = new Dictionary<string, PrimitiveType>();
-
-        RedisValue[] KeysAsRedisValues = new RedisValue[_Keys.Count];
-
-        string Script = "return redis.call('hmget',KEYS[1]";
-
-        int i = 0;
-        foreach (var _Key in _Keys)
-        {
-            Script += $",ARGV[{(i + 1)}]";
-            KeysAsRedisValues[i] = _Keys[i];
-            i++;
-        }
-        Script += ")";
-
-        RedisValue[] ScriptEvaluationResult;
-
-        FailoverCheck();
-        try
-        {
-            ScriptEvaluationResult = (RedisValue[])RedisConnection.GetDatabase().ScriptEvaluate(Script,
-                new RedisKey[]
-                {
-                        _MemoryScopeKey
-                },
-                KeysAsRedisValues);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetKeysValues(_MemoryScopeKey, _Keys, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetKeysValues: {e.Message}, Trace: {e.StackTrace}");
-                return null;
-            }
-        }
-
-        bool bNonNullValueFound = false;
-        if (ScriptEvaluationResult != null &&
-            ScriptEvaluationResult.Length == _Keys.Count)
-        {
-            int j = 0;
-            foreach (var _Key in _Keys)
-            {
-                var AsPrimitive = ConvertRedisValueToPrimitiveType(ScriptEvaluationResult[j++]);
-                Results[_Key] = AsPrimitive;
-                if (AsPrimitive != null)
-                {
-                    bNonNullValueFound = true;
-                }
-            }
-        }
-        else
-        {
-            _ErrorMessageAction?.Invoke("MemoryServiceRedis->GetKeysValues: redis.call returned null or result length is not equal to keys length.");
-            return null;
-        }
-        return bNonNullValueFound ? Results : null;
-    }
-
-    /// <summary>
-    ///
-    /// <para>GetAllKeyValues:</para>
-    ///
-    /// <para>Gets all keys and keys' values of given namespace [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain]</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetAllKeyValues"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public Tuple<string, PrimitiveType>[] GetAllKeyValues(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null)
-    {
-        HashEntry[] ReturnedKeyValues;
-
-        FailoverCheck();
-        try
-        {
-            ReturnedKeyValues = RedisConnection.GetDatabase().HashGetAll(_MemoryScopeKey);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetAllKeyValues(_MemoryScopeKey, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetAllKeyValues: {e.Message}, Trace: {e.StackTrace}");
-                return null;
-            }
-        }
-
-        if (ReturnedKeyValues.Length == 0) return null;
-
-        Tuple<string, PrimitiveType>[] Result = new Tuple<string, PrimitiveType>[ReturnedKeyValues.Length];
-
-        int i = 0;
-        foreach (HashEntry Entry in ReturnedKeyValues)
-        {
-            if (Entry != null)
-            {
-                var AsPrimitive = ConvertRedisValueToPrimitiveType(Entry.Value);
-                if (AsPrimitive != null)
-                {
-                    Result[i++] = new Tuple<string, PrimitiveType>(Entry.Name.ToString(), AsPrimitive);
-                }
-            }
-        }
-
-        if (i == 0) return null;
-        if (i != ReturnedKeyValues.Length)
-        {
-            Tuple<string, PrimitiveType>[] ShrankArray = new Tuple<string, PrimitiveType>[i];
-            for (int k = 0; k < i; k++)
-            {
-                ShrankArray[k] = Result[k];
-            }
-            Result = ShrankArray;
-        }
-
-        return Result;
-    }
-
-    /// <summary>
-    ///
-    /// <para>DeleteKey:</para>
-    ///
-    /// <para>Deletes given key within given namespace [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain] and publishes message to [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain] topic</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.DeleteKey"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool DeleteKey(
-        string _MemoryScopeKey,
-        string _Key,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
-    {
-        bool bResult;
-
-        FailoverCheck();
-        try
-        {
-            bResult = RedisConnection.GetDatabase().HashDelete(_MemoryScopeKey, _Key);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return DeleteKey(_MemoryScopeKey, _Key, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->DeleteKey->HashDelete: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
-        }
-
-        if (_bPublishChange && bResult)
-        {
-            JObject PublishObject = new JObject
-            {
-                ["operation"] = "DeleteKey",
-                ["changes"] = _Key
-            };
-
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-
-        return bResult;
-    }
-
-    /// <summary>
-    ///
-    /// <para>DeleteAllKeys:</para>
-    ///
-    /// <para>Deletes all keys for given namespace and publishes message to [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain] topic</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.DeleteAllKeys"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool DeleteAllKeys(
-        string _MemoryScopeKey,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
-    {
-        bool bResult;
-
-        FailoverCheck();
-        try
-        {
-            bResult = RedisConnection.GetDatabase().KeyDelete(_MemoryScopeKey, (_bWaitUntilCompletion ? CommandFlags.None : CommandFlags.FireAndForget));
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return DeleteAllKeys(_MemoryScopeKey, _bWaitUntilCompletion, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->DeleteAllKeys: {e.Message}, Trace: {e.StackTrace}");
-                return false;
-            }
-        }
-
-        if (bResult && _bPublishChange)
-        {
-            JObject PublishObject = new JObject
-            {
-                ["operation"] = "DeleteAllKeys"
-            };
-
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-
-        return bResult;
-    }
-
-    /// <summary>
-    ///
-    /// <para>GetKeys:</para>
-    ///
-    /// <para>Gets all keys of given workspace [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain]</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetKeys"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public string[] GetKeys(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null)
-    {
-        RedisValue[] Results;
-
-        FailoverCheck();
-        try
-        {
-            Results = RedisConnection.GetDatabase().HashKeys(_MemoryScopeKey);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetKeys(_MemoryScopeKey, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetKeys: {e.Message}, Trace: {e.StackTrace}");
-                return null;
-            }
-        }
-
-        if (Results.Length == 0) return null;
-
-        string[] ResultsAsStrings = new string[Results.Length];
-
-        int i = 0;
-        foreach (RedisValue Current in Results)
-        {
-            if (!Current.IsNullOrEmpty)
-            {
-                ResultsAsStrings[i++] = Current.ToString();
-            }
-        }
-
-        if (i == 0) return null;
-        if (i != Results.Length)
-        {
-            string[] ShrankArray = new string[i];
-            for (int k = 0; k < i; k++)
-            {
-                ShrankArray[k] = ResultsAsStrings[k];
-            }
-            ResultsAsStrings = ShrankArray;
-        }
-
-        return ResultsAsStrings;
-    }
-
-    /// <summary>
-    ///
-    /// <para>GetKeysCount:</para>
-    ///
-    /// <para>Returns number of keys of given workspace [_MemoryScopeKey.Domain]:[_MemoryScopeKey.SubDomain]</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetKeysCount"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public long GetKeysCount(
-        string _MemoryScopeKey,
-        Action<string> _ErrorMessageAction = null)
-    {
-        long Count;
-
-        FailoverCheck();
-        try
-        {
-            Count = RedisConnection.GetDatabase().HashLength(_MemoryScopeKey);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetKeysCount(_MemoryScopeKey, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetKeysCount: {e.Message}, Trace: {e.StackTrace}");
-                return 0;
-            }
-        }
-        return Count;
-    }
-
-    /// <summary>
-    ///
-    /// <para>IncrementKeyValues:</para>
-    ///
-    /// <para>Increments given keys' by given values within given namespace and publishes message to [_Domain]:[_SubDomain] topic</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.IncrementKeyValues"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public void IncrementKeyValues(
-        string _MemoryScopeKey,
-        Tuple<string, long>[] _KeysAndIncrementByValues,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
-    {
-        if (_KeysAndIncrementByValues == null || _KeysAndIncrementByValues.Length == 0) return;
-
-        RedisValue[] ArgumentsAsRedisValues = new RedisValue[_KeysAndIncrementByValues.Length * 2];
-
-        string Script = "";
-        string ScriptReturn = "return ";
-
-        int i = 0;
-        foreach (var _KeyIncrBy in _KeysAndIncrementByValues)
-        {
-            Script += $"local r{(i + 1)}=redis.call('hincrby',KEYS[1],ARGV[{(i + 1)}],ARGV[{(i + 2)}]){Environment.NewLine}";
-            ScriptReturn += (i > 0 ? ("..\" \".. r") : "r") + (i + 1);
-            ArgumentsAsRedisValues[i] = _KeyIncrBy.Item1;
-            ArgumentsAsRedisValues[i + 1] = _KeyIncrBy.Item2;
-            i += 2;
-        }
-        Script += ScriptReturn;
-
-        string ScriptEvaluationResult;
-
-        FailoverCheck();
-        try
-        {
-            ScriptEvaluationResult = (string)RedisConnection.GetDatabase().ScriptEvaluate(Script,
-                new RedisKey[]
-                {
-                        _MemoryScopeKey
-                },
-                ArgumentsAsRedisValues);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                IncrementKeyValues(_MemoryScopeKey, _KeysAndIncrementByValues, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->IncrementKeyValues: {e.Message}, Trace: {e.StackTrace}");
-            }
-            return;
-        }
-
-        if (_bPublishChange)
-        {
-            string[] ScriptEvaluationResults = ScriptEvaluationResult.Split(' ');
-
-            JObject ChangesObject = new JObject();
-
-            if (ScriptEvaluationResults != null &&
-                ScriptEvaluationResults.Length == _KeysAndIncrementByValues.Length)
-            {
-                int j = 0;
-                foreach (Tuple<string, long> Entry in _KeysAndIncrementByValues)
-                {
-                    if (Entry != null)
-                    {
-                        if (int.TryParse(ScriptEvaluationResults[j], out int NewValue))
-                        {
-                            ChangesObject[Entry.Item1] = NewValue;
-                        }
-                    }
-                    j++;
-                }
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke("MemoryServiceRedis->IncrementKeyValues: redis.call returned null or result length is not equal to keys length.");
-                return;
-            }
-
-            if (ChangesObject.Count == 0) return;
-
-            JObject PublishObject = new JObject
-            {
-                ["operation"] = "SetKeyValue", //We publish the results, therefore for listeners, this action is identical with SetKeyValue
-                ["changes"] = ChangesObject
-            };
-
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-    }
-
-    /// <summary>
-    ///
-    /// <para>IncrementKeyByValueAndGet:</para>
-    ///
-    /// <para>Increments given key by given value within given namespace, publishes message to [_Domain]:[_SubDomain] topic and returns new value</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.IncrementKeyByValueAndGet"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public long IncrementKeyByValueAndGet(
-        string _MemoryScopeKey,
-        Tuple<string, long> _KeyValue,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
-    {
-        if (_KeyValue == null) return 0;
-
-        long Result = 0;
-
-        FailoverCheck();
-        try
-        {
-            Result = RedisConnection.GetDatabase().HashIncrement(_MemoryScopeKey, _KeyValue.Item1, _KeyValue.Item2);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return IncrementKeyByValueAndGet(_MemoryScopeKey, _KeyValue, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->IncrementKeyByValueAndGet: {e.Message}, Trace: {e.StackTrace}");
-                return 0;
-            }
-        }
-
-        if (_bPublishChange)
-        {
-            JObject ChangesObject = new JObject
-            {
-                [_KeyValue.Item1] = Result
-            };
-
-            JObject PublishObject = new JObject
-            {
-                ["operation"] = "SetKeyValue", //We publish the results, therefore for listeners, this action is identical with SetKeyValue
-                ["changes"] = ChangesObject
-            };
-
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-        return Result;
-    }
-
-    private bool PushToList(
-        bool _bToTail,
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType[] _Values,
-        bool _bPushIfListExists = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bAsync = false,
-        bool _bPublishChange = true)
-    {
-        if (_Values.Length == 0) return false;
-
-        var Transaction = RedisConnection.GetDatabase().CreateTransaction();
-
-        if (_bPushIfListExists)
-        {
-            Transaction.AddCondition(Condition.KeyExists($"{_MemoryScopeKey}:{_ListName}"));
-        }
-
-        RedisValue[] AsRedisValues = new RedisValue[_Values.Length];
-        JArray ChangesArray = new JArray();
-
-        int i = 0;
-        foreach (PrimitiveType _Value in _Values)
-        {
-            if (_Value.Kind == PrimitiveTypeKind.Double)
-            {
-                AsRedisValues[i++] = _Value.AsDouble;
-                ChangesArray.Add(_Value.AsDouble);
-            }
-            else if (_Value.Kind == PrimitiveTypeKind.Integer)
-            {
-                AsRedisValues[i++] = _Value.AsInteger;
-                ChangesArray.Add(_Value.AsInteger);
-            }
-            else if (_Value.Kind == PrimitiveTypeKind.String)
-            {
-                AsRedisValues[i++] = _Value.AsString;
-                ChangesArray.Add(_Value.AsString);
-            }
-            else if (_Value.Kind == PrimitiveTypeKind.ByteArray)
-            {
-                AsRedisValues[i++] = _Value.AsByteArray;
-                ChangesArray.Add(_Value.ToString());
-            }
-        }
-
-        var ChangesObject = new JObject
-        {
-            ["List"] = _ListName,
-            ["Pushed"] = ChangesArray
-        };
-
-        var PublishObject = new JObject
-        {
-            ["operation"] = _bToTail ? "PushToListTail" : "PushToListHead",
-            ["changes"] = ChangesObject
-        };
-
-        Task CreatedTask = null;
-        if (_bToTail)
-        {
-            CreatedTask = Transaction.ListRightPushAsync($"{_MemoryScopeKey}:{_ListName}", AsRedisValues);
-        }
-        else
-        {
-            CreatedTask = Transaction.ListLeftPushAsync($"{_MemoryScopeKey}:{_ListName}", AsRedisValues);
-        }
-
-        if (_bAsync)
-        {
-            FailoverCheck();
-            try
-            {
-                Transaction.Execute();
-                try
-                {
-                    CreatedTask?.Dispose();
-                }
-                catch (Exception) { }
-            }
-            catch (Exception e)
-            {
-                if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-                {
-                    OnFailoverDetected(_ErrorMessageAction);
-                    return PushToList(_bToTail, _MemoryScopeKey, _ListName, _Values, _bPushIfListExists, _ErrorMessageAction, _bAsync, _bPublishChange);
-                }
-                else
-                {
-                    _ErrorMessageAction?.Invoke($"MemoryServiceRedis->PushToList: {e.Message}, Trace: {e.StackTrace}");
-                }
-            }
-            if (_bPublishChange)
-            {
-                var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-                t?.Wait();
-            }
-            return true;
-        }
-        else
-        {
-            bool Committed = false;
-
-            FailoverCheck();
-            try
-            {
-                Committed = Transaction.Execute();
-                try
-                {
-                    CreatedTask?.Dispose();
-                }
-                catch (Exception) { }
-            }
-            catch (Exception e)
-            {
-                if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-                {
-                    OnFailoverDetected(_ErrorMessageAction);
-                    return PushToList(_bToTail, _MemoryScopeKey, _ListName, _Values, _bPushIfListExists, _ErrorMessageAction, _bAsync, _bPublishChange);
-                }
-                else
-                {
-                    _ErrorMessageAction?.Invoke($"MemoryServiceRedis->PushToList: {e.Message}, Trace: {e.StackTrace}");
+                    result[keyArray[i]] = primitiveValue;
                 }
             }
 
-            if (Committed)
+            return result;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<Dictionary<string, PrimitiveType>>> GetAllKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = memoryScope.Compile();
+
+        return await ExecuteRedisOperationAsync(async database =>
+        {
+            var hashEntries = await database.HashGetAllAsync(scope).ConfigureAwait(false);
+
+            var result = new Dictionary<string, PrimitiveType>(hashEntries.Length);
+            foreach (var entry in hashEntries)
             {
-                if (_bPublishChange)
+                var primitiveValue = ConvertRedisValueToPrimitiveType(entry.Value);
+                if (primitiveValue is not null)
                 {
-                    var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-                    t?.Wait();
+                    result[entry.Name.ToString()] = primitiveValue;
                 }
-                return true;
             }
-        }
 
-        return false;
+            return result;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>PushToListTail:</para>
-    ///
-    /// <para>Pushes the value(s) to the tail of given list, returns if push succeeds (If _bAsync is true, after execution order point, always returns true).</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.PushToListTail"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool PushToListTail(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType[] _Values,
-        bool _bPushIfListExists = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bAsync = false,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteKeyAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        return PushToList(
-            true,
-            _MemoryScopeKey,
-            _ListName,
-            _Values,
-            _bPushIfListExists,
-            _ErrorMessageAction,
-            _bAsync,
-            _bPublishChange);
+        var scope = memoryScope.Compile();
+
+        var result = await ExecuteRedisOperationAsync(async database => await database.HashDeleteAsync(scope, key).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+        if (result.IsSuccessful && publishChange && _pubSubService is not null)
+        {
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 
-    /// <summary>
-    ///
-    /// <para>PushToListHead:</para>
-    ///
-    /// <para>Pushes the value(s) to the head of given list, returns if push succeeds (If _bAsync is true, after execution order point, always returns true).</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.PushToListHead"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool PushToListHead(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType[] _Values,
-        bool _bPushIfListExists = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bAsync = false,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteAllKeysAsync(
+        IMemoryServiceScope memoryScope,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        return PushToList(
-            false,
-            _MemoryScopeKey,
-            _ListName,
-            _Values,
-            _bPushIfListExists,
-            _ErrorMessageAction,
-            _bAsync,
-            _bPublishChange);
+        var scope = memoryScope.Compile();
+
+        var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+        if (result.IsSuccessful && publishChange && _pubSubService is not null)
+        {
+            await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 
-    private PrimitiveType PopFromList(
-        bool _bFromTail,
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<ReadOnlyCollection<string>>> GetKeysAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default)
     {
-        PrimitiveType PoppedAsPrimitive = null;
+        var scope = memoryScope.Compile();
 
-        RedisValue PoppedValue;
-
-        FailoverCheck();
-        try
+        return await ExecuteRedisOperationAsync(async database =>
         {
-            if (_bFromTail)
-            {
-                PoppedValue = RedisConnection.GetDatabase().ListRightPop($"{_MemoryScopeKey}:{_ListName}");
-            }
-            else
-            {
-                PoppedValue = RedisConnection.GetDatabase().ListLeftPop($"{_MemoryScopeKey}:{_ListName}");
-            }
-
-            if (PoppedValue.IsNullOrEmpty)
-            {
-                return null;
-            }
-            PoppedAsPrimitive = ConvertRedisValueToPrimitiveType(PoppedValue);
-            if (PoppedAsPrimitive == null) return null;
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return PopFromList(_bFromTail, _MemoryScopeKey, _ListName, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->PopFromList: {e.Message}, Trace: {e.StackTrace}");
-                return null;
-            }
-        }
-
-        if (_bPublishChange)
-        {
-            JObject ChangesObject = new JObject
-            {
-                ["List"] = _ListName
-            };
-
-            if (PoppedAsPrimitive.Kind == PrimitiveTypeKind.Double)
-            {
-                ChangesObject["Popped"] = PoppedAsPrimitive.AsDouble;
-            }
-            else if (PoppedAsPrimitive.Kind == PrimitiveTypeKind.Integer)
-            {
-                ChangesObject["Popped"] = PoppedAsPrimitive.AsInteger;
-            }
-            else if (PoppedAsPrimitive.Kind == PrimitiveTypeKind.String)
-            {
-                ChangesObject["Popped"] = PoppedAsPrimitive.AsString;
-            }
-            else if (PoppedAsPrimitive.Kind == PrimitiveTypeKind.ByteArray)
-            {
-                ChangesObject["Popped"] = PoppedAsPrimitive.ToString();
-            }
-            else return null;
-
-            JObject PublishObject = new JObject
-            {
-                ["operation"] = _bFromTail ? "PopLastElementOfList" : "PopFirstElementOfList",
-                ["changes"] = ChangesObject
-            };
-
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-
-        return PoppedAsPrimitive;
+            var keys = await database.HashKeysAsync(scope).ConfigureAwait(false);
+            return keys.Where(k => !k.IsNullOrEmpty)
+                .Select(k => k.ToString())
+                .ToList()
+                .AsReadOnly();
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>PopLastElementOfList:</para>
-    ///
-    /// <para>Pops the value from the tail of given list</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.PopLastElementOfList"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public PrimitiveType PopLastElementOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> GetKeysCountAsync(
+        IMemoryServiceScope memoryScope,
+        CancellationToken cancellationToken = default)
     {
-        return PopFromList(
-            true,
-            _MemoryScopeKey,
-            _ListName,
-            _ErrorMessageAction,
-            _bPublishChange);
+        var scope = memoryScope.Compile();
+
+        return await ExecuteRedisOperationAsync(async database => await database.HashLengthAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>PopFirstElementOfList:</para>
-    ///
-    /// <para>Pops the value from the head of given list</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.PopFirstElementOfList"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public PrimitiveType PopFirstElementOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<Dictionary<string, long>>> IncrementKeyValuesAsync(
+        IMemoryServiceScope memoryScope,
+        IEnumerable<KeyValuePair<string, long>> keyIncrements,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        return PopFromList(
-            false,
-            _MemoryScopeKey,
-            _ListName,
-            _ErrorMessageAction,
-            _bPublishChange);
+        var incrementArray = keyIncrements.ToArray();
+        if (incrementArray.Length == 0)
+            return OperationResult<Dictionary<string, long>>.Failure("Key increments array is empty.");
+
+        var scope = memoryScope.Compile();
+
+        var result = await ExecuteRedisOperationAsync(async database =>
+        {
+            var resultDict = new Dictionary<string, long>(incrementArray.Length);
+
+            foreach (var (key, increment) in incrementArray)
+            {
+                var newValue = await database.HashIncrementAsync(scope, key, increment).ConfigureAwait(false);
+                resultDict[key] = newValue;
+            }
+
+            return resultDict;
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (result is { IsSuccessful: true, Data.Count: > 0 } && publishChange && _pubSubService is not null)
+        {
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                result.Data.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 
-    /// <summary>
-    ///
-    /// <para>GetAllElementsOfList:</para>
-    ///
-    /// <para>Gets all values from the given list</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.GetAllElementsOfList"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public PrimitiveType[] GetAllElementsOfList(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null)
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> IncrementKeyByValueAndGetAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        long incrementBy,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        RedisValue[] ReturnedValues = null;
+        var scope = memoryScope.Compile();
 
-        FailoverCheck();
-        try
+        var result = await ExecuteRedisOperationAsync(async database => await database.HashIncrementAsync(scope, key, incrementBy).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+        if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
-            ReturnedValues = RedisConnection.GetDatabase().ListRange(_MemoryScopeKey);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return GetAllElementsOfList(_MemoryScopeKey, _ListName, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->GetAllElementsOfList: {e.Message}, Trace: {e.StackTrace}");
-            }
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                new Dictionary<string, PrimitiveType> { [key] = new(result.Data) }, cancellationToken).ConfigureAwait(false);
         }
 
-        if (ReturnedValues == null || ReturnedValues.Length == 0) return null;
-
-        PrimitiveType[] Result = new PrimitiveType[ReturnedValues.Length];
-        int i = 0;
-        foreach (RedisValue Value in ReturnedValues)
-        {
-            var AsPrimitive = ConvertRedisValueToPrimitiveType(Value);
-            if (AsPrimitive != null)
-            {
-                Result[i++] = AsPrimitive;
-            }
-        }
-
-        return Result;
+        return result;
     }
 
-    /// <summary>
-    ///
-    /// <para>EmptyList:</para>
-    ///
-    /// <para>Empties the list</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.EmptyList"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool EmptyList(
-        string _MemoryScopeKey,
-        string _ListName,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    // List Operations
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> PushToListTailAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool onlyIfExists = false,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        bool bResult = false;
-
-        JObject PublishObject = new JObject
-        {
-            ["operation"] = "EmptyList"
-        };
-
-        FailoverCheck();
-        try
-        {
-            bResult = RedisConnection.GetDatabase().KeyDelete($"{_MemoryScopeKey}:{_ListName}", (_bWaitUntilCompletion ? CommandFlags.None : CommandFlags.FireAndForget));
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return EmptyList(_MemoryScopeKey, _ListName, _bWaitUntilCompletion, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->EmptyList: {e.Message}, Trace: {e.StackTrace}");
-            }
-        }
-
-        if (_bPublishChange)
-        {
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
-
-        return bResult;
+        return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>EmptyListAndSublists:</para>
-    ///
-    /// <para>Fetches all elements in _ListName, iterates and empties all sublists (_SublistPrefix + Returned SublistName)</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.EmptyListAndSublists"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public void EmptyListAndSublists(
-        string _MemoryScopeKey,
-        string _ListName,
-        string _SublistPrefix,
-        bool _bWaitUntilCompletion = false,
-        Action<string> _ErrorMessageAction = null,
-        bool _bPublishChange = true)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> PushToListHeadAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool onlyIfExists = false,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        JObject PublishObject = new JObject
-        {
-            ["operation"] = "EmptyListAndSublists"
-        };
-
-        string Script = @"
-                local results=redis.call('lrange',KEYS[1],0,-1)
-                for _,key in ipairs(results) do 
-                    redis.call('del',ARGV[1] .. key)
-                end
-                redis.call('del',KEYS[1])";
-
-        FailoverCheck();
-        try
-        {
-            RedisConnection.GetDatabase().ScriptEvaluate(Script,
-                new RedisKey[]
-                {
-                        $"{_MemoryScopeKey}:{_ListName}"
-                },
-                new RedisValue[]
-                {
-                        $"{_MemoryScopeKey}:{_SublistPrefix}"
-                },
-                (_bWaitUntilCompletion ? CommandFlags.None : CommandFlags.FireAndForget));
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                EmptyListAndSublists(_MemoryScopeKey, _ListName, _SublistPrefix, _bWaitUntilCompletion, _ErrorMessageAction, _bPublishChange);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->EmptyListAndSublists: {e.Message}, Trace: {e.StackTrace}");
-            }
-            return;
-        }
-
-        if (_bPublishChange)
-        {
-            var t = PubSubService?.PublishAsync(_MemoryScopeKey, PublishObject.ToString(), _ErrorMessageAction);
-            t?.Wait();
-        }
+        return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>ListSize:</para>
-    ///
-    /// <para>Returns number of elements of the given list</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.ListSize"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public long ListSize(
-        string _MemoryScopeKey,
-        string _ListName,
-        Action<string> _ErrorMessageAction = null)
-    {
-        long Result = 0;
 
-        FailoverCheck();
-        try
-        {
-            Result = RedisConnection.GetDatabase().ListLength(_MemoryScopeKey);
-        }
-        catch (Exception e)
-        {
-            if (bFailoverMechanismEnabled && (e is RedisException || e is TimeoutException))
-            {
-                OnFailoverDetected(_ErrorMessageAction);
-                return ListSize(_MemoryScopeKey, _ListName, _ErrorMessageAction);
-            }
-            else
-            {
-                _ErrorMessageAction?.Invoke($"MemoryServiceRedis->ListSize: {e.Message}, Trace: {e.StackTrace}");
-            }
-        }
-        return Result;
+    /// <inheritdoc />
+    public async Task<OperationResult<PrimitiveType?>> PopLastElementOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_PopFromListAsync(memoryScope, listName, true, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///
-    /// <para>ListContains:</para>
-    ///
-    /// <para>Returns if given list contains given value or not</para>
-    ///
-    /// <para>Check <seealso cref="IMemoryService.ListContains"/> for detailed documentation</para>
-    ///
-    /// </summary>
-    public bool ListContains(
-        string _MemoryScopeKey,
-        string _ListName,
-        PrimitiveType _Value,
-        Action<string> _ErrorMessageAction = null)
+    /// <inheritdoc />
+    public async Task<OperationResult<PrimitiveType?>> PopFirstElementOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
     {
-        PrimitiveType[] Elements = GetAllElementsOfList(
-            _MemoryScopeKey,
-            _ListName,
-            _ErrorMessageAction);
+        return await Common_PopFromListAsync(memoryScope, listName, false, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+    }
 
-        if (Elements == null || Elements.Length == 0) return false;
-        foreach (PrimitiveType Primitive in Elements)
-        {
-            if (Primitive.Equals(_Value))
-            {
-                return true;
-            }
-        }
-        return false;
+    /// <inheritdoc />
+    public async Task<OperationResult<IEnumerable<PrimitiveType?>>> RemoveElementsFromListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_RemoveElementsFromListAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> GetAllElementsOfListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> EmptyListAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_EmptyListAsync(memoryScope, listName, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> EmptyListAndSublistsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        string sublistPrefix,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_EmptyListAndSublistsAsync(memoryScope, listName, sublistPrefix, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<long>> GetListSizeAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_GetListSizeAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> ListContainsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        PrimitiveType value,
+        CancellationToken cancellationToken = default)
+    {
+        return await Common_ListContainsAsync(memoryScope, listName, value, cancellationToken).ConfigureAwait(false);
     }
 }

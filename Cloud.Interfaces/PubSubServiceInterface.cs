@@ -20,12 +20,10 @@ public interface IPubSubService
     /// Ensures that the given topic exists.
     /// </summary>
     /// <param name="topic">Topic to be ensured on.</param>
-    /// <param name="errorMessageAction">Optional error callback.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if ensuring succeeded; otherwise, false.</returns>
-    Task<bool> EnsureTopicExistsAsync(
+    Task<OperationResult<bool>> EnsureTopicExistsAsync(
         string topic,
-        Action<string>? errorMessageAction = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -33,13 +31,13 @@ public interface IPubSubService
     /// </summary>
     /// <param name="topic">Topic to be subscribed to.</param>
     /// <param name="onMessage">Action invoked for each received message (topic, message).</param>
-    /// <param name="errorMessageAction">Optional error callback.</param>
+    /// <param name="onError">Action invoked for each error during pooling.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if subscription succeeded; otherwise, false.</returns>
-    Task<bool> SubscribeAsync(
+    Task<OperationResult<bool>> SubscribeAsync(
         string topic,
         Func<string, string, Task> onMessage,
-        Action<string>? errorMessageAction = null,
+        Action<Exception>? onError = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -47,25 +45,21 @@ public interface IPubSubService
     /// </summary>
     /// <param name="topic">Topic to publish to.</param>
     /// <param name="message">Message to be sent.</param>
-    /// <param name="errorMessageAction">Optional error callback.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if publish succeeded; otherwise, false.</returns>
-    Task<bool> PublishAsync(
+    Task<OperationResult<bool>> PublishAsync(
         string topic,
         string message,
-        Action<string>? errorMessageAction = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes all messages and the topic of the given workspace.
     /// </summary>
     /// <param name="topic">Topic to be deleted.</param>
-    /// <param name="errorMessageAction">Optional error callback.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if publish succeeded; otherwise, false.</returns>
-    Task<bool> DeleteTopicAsync(
+    Task<OperationResult<bool>> DeleteTopicAsync(
         string topic,
-        Action<string>? errorMessageAction = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -74,7 +68,7 @@ public interface IPubSubService
     /// <param name="cancellationToken">Cancellation token</param>
     /// </summary>
     /// <returns>True if succeeded; otherwise, false.</returns>
-    Task<bool> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
+    Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Used by file services to unmark files as used on bucket events. No need to call it explicit.
@@ -82,13 +76,12 @@ public interface IPubSubService
     /// <param name="cancellationToken">Cancellation token</param>
     /// </summary>
     /// <returns>True if succeeded; otherwise, false.</returns>
-    Task<bool> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
+    Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get all topics used on bucket events.
     /// </summary>
-    /// <param name="errorMessageAction">Optional error callback.</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    Task<List<string>?> GetTopicsUsedOnBucketEventAsync(Action<string>? errorMessageAction = null, CancellationToken cancellationToken = default);
+    Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default);
 }

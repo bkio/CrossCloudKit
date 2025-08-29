@@ -325,18 +325,10 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
             return;
         }
 
-        writer.WriteStartObject();
-
-        // Write the kind as a string
-        writer.WritePropertyName("kind");
-        writer.WriteValue(value.Kind.ToString());
-
-        // Write the value according to the kind
-        writer.WritePropertyName("value");
         switch (value.Kind)
         {
             case PrimitiveTypeKind.String:
-                writer.WriteValue(value.AsString);
+                writer.WriteValue($"s-{value.AsString}");
                 break;
 
             case PrimitiveTypeKind.Integer:
@@ -348,67 +340,39 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
                 break;
 
             case PrimitiveTypeKind.ByteArray:
-                writer.WriteValue(Convert.ToBase64String(value.AsByteArray));
+                writer.WriteValue($"b-{Convert.ToBase64String(value.AsByteArray)}");
                 break;
 
             default:
                 throw new JsonSerializationException($"Unsupported kind {value.Kind}");
         }
-
-        writer.WriteEndObject();
     }
 
     /// <summary>
     /// Reads JSON back into a PrimitiveType.
-    /// Expects JSON in the { "kind": ..., "value": ... } format.
+    /// Detects the JSON token type and reconstructs the appropriate PrimitiveType.
     /// </summary>
     public override PrimitiveType ReadJson(JsonReader reader, Type objectType, PrimitiveType? existingValue, bool hasExistingValue, JsonSerializer serializer)
     {
         if (reader.TokenType == JsonToken.Null)
             return null!;
 
-        if (reader.TokenType != JsonToken.StartObject)
-            throw new JsonSerializationException($"Expected StartObject but got {reader.TokenType}");
-
-        // Temporary variables to hold parsed values
-        PrimitiveTypeKind? kind = null;
-        object? value = null;
-
-        // Read the properties
-        while (reader.Read())
+        if (reader.TokenType == JsonToken.String)
         {
-            if (reader.TokenType == JsonToken.EndObject)
-                break;
-
-            if (reader.TokenType != JsonToken.PropertyName)
-                continue;
-
-            var propertyName = (string)reader.Value!;
-            reader.Read(); // Move to property value
-
-            switch (propertyName)
+            var str = (string)reader.Value!;
+            if (str.StartsWith("b-"))
             {
-                case "kind":
-                    kind = Enum.Parse<PrimitiveTypeKind>((string)reader.Value!, ignoreCase: true);
-                    break;
-
-                case "value":
-                    value = reader.Value;
-                    break;
+                return new PrimitiveType(Convert.FromBase64String(str[2..]));
             }
+
+            return str.StartsWith("s-") ? new PrimitiveType(str[2..]) : new PrimitiveType(str);
         }
 
-        if (kind == null)
-            throw new JsonSerializationException("Missing 'kind' property");
+        if (reader.TokenType == JsonToken.Integer) return new PrimitiveType(Convert.ToInt64(reader.Value));
 
-        // Construct PrimitiveType based on kind
-        return kind.Value switch
-        {
-            PrimitiveTypeKind.String => new PrimitiveType((string)value!),
-            PrimitiveTypeKind.Integer => new PrimitiveType(Convert.ToInt64(value!)),
-            PrimitiveTypeKind.Double => new PrimitiveType(Convert.ToDouble(value!)),
-            PrimitiveTypeKind.ByteArray => new PrimitiveType(Convert.FromBase64String((string)value!)),
-            _ => throw new JsonSerializationException($"Unsupported kind {kind}")
-        };
+        if (reader.TokenType == JsonToken.Float) return new PrimitiveType(Convert.ToDouble(reader.Value));
+
+        throw new JsonSerializationException(
+            $"Unexpected token {reader.TokenType} when parsing PrimitiveType");
     }
 }

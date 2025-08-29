@@ -36,7 +36,7 @@ public interface IPubSubService
     /// <returns>True if subscription succeeded; otherwise, false.</returns>
     Task<OperationResult<bool>> SubscribeAsync(
         string topic,
-        Func<string, string, Task> onMessage,
+        Func<string, string, Task>? onMessage,
         Action<Exception>? onError = null,
         CancellationToken cancellationToken = default);
 

@@ -34,16 +34,36 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         TimeSpan timeToLive,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized");
+
         return await ExecuteRedisOperationAsync(async database =>
         {
             var scope = memoryScope.Compile();
 
             var exists = await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false);
-            if (exists) return true;
+            if (!exists)
+            {
+                // Create the key as a hash if it doesn't exist (since we use hash operations for key-value storage)
+                if (!await database.HashSetAsync(scope, "Cloud.Memory.Redis.MemoryServiceRedis.SetKeyExpireTimeAsync", ""))
+                    return false;
+                if (!await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false))
+                    return false;
+            }
 
-            // Create the key if it doesn't exist
-            await database.SetAddAsync(scope, "").ConfigureAwait(false);
-            return await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false);
+            var listPattern = $"{scope}:*";
+
+            var server = RedisConnection!.GetServer(RedisConnection.GetEndPoints().First());
+
+            await foreach (var key in server.KeysAsync(database: database.Database, pattern: listPattern, pageSize: 1000).WithCancellation(cancellationToken))
+            {
+                if (await database.KeyTypeAsync(key) != RedisType.List) continue;
+                if (!await database.KeyExpireAsync(key, timeToLive).ConfigureAwait(false))
+                {
+                    return false;
+                }
+            }
+            return true;
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -52,6 +72,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<TimeSpan?>.Failure("Redis connection is not initialized");
+
         var scope = memoryScope.Compile();
         return await ExecuteRedisOperationAsync(async database => await database.KeyTimeToLiveAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
@@ -63,6 +86,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized");
+
         var keyValueArray = keyValues.ToArray();
         if (keyValueArray.Length == 0)
             return OperationResult<bool>.Failure("Key values are empty.");
@@ -99,6 +125,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized");
+
         const string script = """
           if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
               return redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
@@ -135,6 +164,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         string key,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<PrimitiveType?>.Failure("Redis connection is not initialized");
+
         var scope = memoryScope.Compile();
 
         return await ExecuteRedisOperationAsync(async database =>
@@ -150,6 +182,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IEnumerable<string> keys,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<Dictionary<string, PrimitiveType>>.Failure("Redis connection is not initialized.");
+
         var keyArray = keys.ToArray();
         if (keyArray.Length == 0)
             return OperationResult<Dictionary<string, PrimitiveType>>.Failure("Keys are empty.");
@@ -179,6 +214,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<Dictionary<string, PrimitiveType>>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         return await ExecuteRedisOperationAsync(async database =>
@@ -206,6 +244,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         var result = await ExecuteRedisOperationAsync(async database => await database.HashDeleteAsync(scope, key).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
@@ -224,6 +265,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
@@ -241,6 +285,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<ReadOnlyCollection<string>>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         return await ExecuteRedisOperationAsync(async database =>
@@ -258,6 +305,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<long>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         return await ExecuteRedisOperationAsync(async database => await database.HashLengthAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
@@ -270,6 +320,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<Dictionary<string, long>>.Failure("Redis connection is not initialized.");
+
         var incrementArray = keyIncrements.ToArray();
         if (incrementArray.Length == 0)
             return OperationResult<Dictionary<string, long>>.Failure("Key increments array is empty.");
@@ -306,6 +359,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<long>.Failure("Redis connection is not initialized.");
+
         var scope = memoryScope.Compile();
 
         var result = await ExecuteRedisOperationAsync(async database => await database.HashIncrementAsync(scope, key, incrementBy).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
@@ -330,6 +386,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
         return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -342,6 +400,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
         return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -353,6 +413,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<PrimitiveType?>.Failure("Redis connection is not initialized.");
         return await Common_PopFromListAsync(memoryScope, listName, true, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -363,6 +425,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<PrimitiveType?>.Failure("Redis connection is not initialized.");
         return await Common_PopFromListAsync(memoryScope, listName, false, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -374,6 +438,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Redis connection is not initialized.");
         return await Common_RemoveElementsFromListAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -383,6 +449,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         string listName,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure("Redis connection is not initialized.");
         return await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
     }
 
@@ -393,6 +461,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
         return await Common_EmptyListAsync(memoryScope, listName, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -404,6 +474,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
         return await Common_EmptyListAndSublistsAsync(memoryScope, listName, sublistPrefix, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
@@ -413,6 +485,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         string listName,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<long>.Failure("Redis connection is not initialized.");
         return await Common_GetListSizeAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
     }
 
@@ -423,6 +497,8 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         PrimitiveType value,
         CancellationToken cancellationToken = default)
     {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized.");
         return await Common_ListContainsAsync(memoryScope, listName, value, cancellationToken).ConfigureAwait(false);
     }
 }

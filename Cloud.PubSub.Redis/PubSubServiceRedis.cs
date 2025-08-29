@@ -8,8 +8,10 @@ using Utilities.Common;
 
 namespace Cloud.PubSub.Redis
 {
-    public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService
+    public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService, IAsyncDisposable
     {
+        private bool _disposed;
+
         /// <summary>
         ///
         /// <para>PubSubServiceRedis: Parameterized Constructor</para>
@@ -26,6 +28,10 @@ namespace Cloud.PubSub.Redis
         /// <inheritdoc />
         public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<bool>.Success(true); // Already disposed, consider topic deleted
+            if (!IsInitialized)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
             if (string.IsNullOrEmpty(topic))
                 return OperationResult<bool>.Failure("Topic cannot be empty.");
             if (RedisConnection == null)
@@ -43,12 +49,16 @@ namespace Cloud.PubSub.Redis
         /// <inheritdoc />
         public Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(OperationResult<bool>.Success(true));
+            return Task.FromResult(!IsInitialized ? OperationResult<bool>.Failure("Redis connection is not initialized") : OperationResult<bool>.Success(true));
         }
 
         /// <inheritdoc />
         public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<bool>.Failure("Service has been disposed");
+            if (!IsInitialized)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
             if (string.IsNullOrEmpty(topic)
                 || string.IsNullOrEmpty(message))
                 return OperationResult<bool>.Failure("Topic and message cannot be empty.");
@@ -63,10 +73,16 @@ namespace Cloud.PubSub.Redis
         }
 
         /// <inheritdoc />
-        public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task> onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
+        public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<bool>.Failure("Service has been disposed");
+            if (!IsInitialized)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
             if (string.IsNullOrEmpty(topic))
                 return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+            if (onMessage == null)
+                return OperationResult<bool>.Failure("Callback cannot be null.");
             if (RedisConnection == null)
                 return OperationResult<bool>.Failure("Redis connection is not initialized");
 
@@ -85,6 +101,12 @@ namespace Cloud.PubSub.Redis
         /// <inheritdoc />
         public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<bool>.Failure("Service has been disposed");
+            if (string.IsNullOrEmpty(topic))
+                return OperationResult<bool>.Failure("Topic cannot be empty.");
+            if (!IsInitialized)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
             return await Common_PushToListAsync(
                 _systemMemoryScope,
                 UsedOnBucketEventListName,
@@ -101,6 +123,12 @@ namespace Cloud.PubSub.Redis
         /// <inheritdoc />
         public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<bool>.Failure("Service has been disposed");
+            if (string.IsNullOrEmpty(topic))
+                return OperationResult<bool>.Failure("Topic cannot be empty.");
+            if (!IsInitialized)
+                return OperationResult<bool>.Failure("Redis connection is not initialized");
             var result = await Common_RemoveElementsFromListAsync(
                 _systemMemoryScope,
                 UsedOnBucketEventListName,
@@ -116,12 +144,30 @@ namespace Cloud.PubSub.Redis
         /// <inheritdoc />
         public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
         {
+            if (_disposed)
+                return OperationResult<List<string>>.Failure("Service has been disposed");
+            if (!IsInitialized)
+                return OperationResult<List<string>>.Failure("Redis connection is not initialized");
             var result = await Common_GetAllElementsOfListAsync(
                 _systemMemoryScope,
                 UsedOnBucketEventListName,
                 cancellationToken).ConfigureAwait(false);
             if (!result.IsSuccessful || result.Data == null) return OperationResult<List<string>>.Failure(result.ErrorMessage ?? string.Empty);
             return OperationResult<List<string>>.Success(result.Data.Select(x => x.ToString()).ToList());
+        }
+
+        /// <summary>
+        /// Dispose the service asynchronously
+        /// </summary>
+        public new async ValueTask DisposeAsync()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            await base.DisposeAsync().ConfigureAwait(false);
+
+            GC.SuppressFinalize(this);
         }
 
         private class SystemMemoryScope : IMemoryServiceScope

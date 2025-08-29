@@ -2,7 +2,6 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Collections.ObjectModel;
-using System.Globalization;
 using Cloud.Interfaces;
 using Newtonsoft.Json;
 using StackExchange.Redis;
@@ -83,7 +82,6 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
     private async Task InitializeConnectionAsync()
     {
-        await _connectionSemaphore.WaitAsync().ConfigureAwait(false);
         try
         {
             if (Initialized)
@@ -111,10 +109,6 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             _errorMessageAction?.Invoke($"Error initializing Redis connection: {ex.Message}, Trace: {ex.StackTrace}");
             Initialized = false;
-        }
-        finally
-        {
-            _connectionSemaphore.Release();
         }
     }
 
@@ -232,35 +226,14 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
     protected static RedisValue ConvertPrimitiveTypeToRedisValue(PrimitiveType value)
     {
-        return value.Kind switch
-        {
-            PrimitiveTypeKind.Integer => value.AsInteger,
-            PrimitiveTypeKind.Double => value.AsDouble.ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.String => value.AsString,
-            PrimitiveTypeKind.ByteArray => value.AsByteArray,
-            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported primitive type kind")
-        };
+        return JsonConvert.SerializeObject(value);
     }
     protected static PrimitiveType? ConvertRedisValueToPrimitiveType(RedisValue input)
     {
-        if (input.IsNullOrEmpty)
-            return null;
-
-        if (input.IsInteger && input.TryParse(out long asInteger))
-        {
-            return new PrimitiveType(asInteger);
-        }
-
-        var asString = input.ToString();
-        if (double.TryParse(asString, out var asDouble))
-        {
-            return asDouble % 1 == 0 ? new PrimitiveType((long)asDouble) : new PrimitiveType(asDouble);
-        }
-
-        return new PrimitiveType(asString);
+        return input.IsNullOrEmpty ? null : JsonConvert.DeserializeObject<PrimitiveType>(input.ToString());
     }
     // ReSharper disable once UnusedMethodReturnValue.Local
-    protected async Task<OperationResult<bool>> PublishChangeNotificationAsync<T>(
+    protected static async Task<OperationResult<bool>> PublishChangeNotificationAsync<T>(
         IPubSubService? pubSubService,
         IMemoryServiceScope memoryScope,
         string operation,
@@ -302,11 +275,14 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (valueArray.Length == 0)
             return OperationResult<bool>.Failure("Value array is empty.");
 
-        var listKey = $"{memoryScope}:{listName}";
+        var scope = memoryScope.Compile();
+        var listKey = $"{scope}:{listName}";
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
+            bool success;
+
             if (onlyIfExists)
             {
                 var transaction = database.CreateTransaction();
@@ -317,13 +293,25 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                     : transaction.ListLeftPushAsync(listKey, redisValues);
 
                 var committed = await transaction.ExecuteAsync().ConfigureAwait(false);
-                return committed;
+                success = committed;
+            }
+            else
+            {
+                var count = toTail
+                    ? await database.ListRightPushAsync(listKey, redisValues).ConfigureAwait(false)
+                    : await database.ListLeftPushAsync(listKey, redisValues).ConfigureAwait(false);
+                success = count > 0;
             }
 
-            var count = toTail
-                ? await database.ListRightPushAsync(listKey, redisValues).ConfigureAwait(false)
-                : await database.ListLeftPushAsync(listKey, redisValues).ConfigureAwait(false);
-            return count > 0;
+            if (!success) return false;
+
+            var ttl = await database.KeyTimeToLiveAsync(scope).ConfigureAwait(false);
+            if (ttl.HasValue)
+            {
+                await database.KeyExpireAsync(listKey, ttl.Value).ConfigureAwait(false);
+            }
+            return true;
+
         }, cancellationToken).ConfigureAwait(false);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null)
@@ -343,7 +331,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         IPubSubService? pubSubService,
         CancellationToken cancellationToken)
     {
-        var listKey = $"{memoryScope}:{listName}";
+        var listKey = $"{memoryScope.Compile()}:{listName}";
 
         var poppedValue = await ExecuteRedisOperationAsync(async database => fromTail
             ? await database.ListRightPopAsync(listKey).ConfigureAwait(false)
@@ -377,7 +365,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (valueArray.Length == 0)
             return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Value array is empty.");
 
-        var listKey = $"{memoryScope}:{listName}";
+        var listKey = $"{memoryScope.Compile()}:{listName}";
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
@@ -406,7 +394,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         string listName,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope}:{listName}";
+        var listKey = $"{memoryScope.Compile()}:{listName}";
 
         return await ExecuteRedisOperationAsync(async database =>
         {
@@ -427,7 +415,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         IPubSubService? pubSubService = null,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope}:{listName}";
+        var listKey = $"{memoryScope.Compile()}:{listName}";
 
         var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 
@@ -454,11 +442,12 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
           redis.call('del', KEYS[1])
           """;
 
+        var scope = memoryScope.Compile();
         var result = await ExecuteRedisOperationAsync(async database =>
         {
             await database.ScriptEvaluateAsync(script,
-                [$"{memoryScope}:{listName}"],
-                [$"{memoryScope}:{sublistPrefix}"]).ConfigureAwait(false);
+                [$"{scope}:{listName}"],
+                [$"{scope}:{sublistPrefix}"]).ConfigureAwait(false);
 
             return ValueTask.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
@@ -479,7 +468,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         string listName,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope}:{listName}";
+        var listKey = $"{memoryScope.Compile()}:{listName}";
 
         return await ExecuteRedisOperationAsync(async database => await database.ListLengthAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }

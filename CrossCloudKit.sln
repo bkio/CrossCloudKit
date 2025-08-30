@@ -62,6 +62,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Orchestration", "Orchestration", "{9D492D31-2695-42F5-B2BF-092B8BA297D7}"
 	ProjectSection(SolutionItems) = preProject
 		README.md = README.md
+		.github\workflows\tests.yml = .github\workflows\tests.yml
 	EndProjectSection
 EndProject
 Global

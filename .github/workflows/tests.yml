@@ -1,0 +1,142 @@
+name: Update Test Badge
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC to keep badge updated
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  test-and-badge:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+        dotnet-quality: 'preview'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore dependencies
+      run: dotnet restore CrossCloudKit.sln
+
+    - name: Build solution
+      run: dotnet build CrossCloudKit.sln --no-restore --configuration Release
+
+    - name: Run tests and generate report
+      run: |
+        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx;LogFileName=TestResults.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
+      env:
+        # AWS Configuration
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
+        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+
+        # Google Cloud Configuration
+        GOOGLE_APPLICATION_CREDENTIALS_BASE64: ${{ secrets.GOOGLE_BASE64_CREDENTIALS }}
+        GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        GOOGLE_CLOUD_TEST_BUCKET: ${{ secrets.GOOGLE_CLOUD_TEST_BUCKET }}
+
+        # MongoDB Configuration
+        MONGODB_HOST: ${{ secrets.MONGODB_HOST }}
+        MONGODB_USER: ${{ secrets.MONGODB_USER }}
+        MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}
+
+        # Redis Configuration
+        REDIS_HOST: ${{ secrets.REDIS_HOST }}
+        REDIS_PORT: ${{ secrets.REDIS_PORT }}
+        REDIS_USER: ${{ secrets.REDIS_USER }}
+        REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+
+        # S3 Compatible Storage Configuration
+        S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+        S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+        S3_REGION: ${{ secrets.S3_REGION }}
+        S3_SERVER_ADDRESS: ${{ secrets.S3_SERVER_ADDRESS }}
+      continue-on-error: true
+
+    - name: Parse test results and create badge
+      run: |
+        # Install xmlstarlet for XML parsing
+        sudo apt-get update && sudo apt-get install -y xmlstarlet
+
+        # Parse the TRX file to extract test results
+        trx_file="TestResults/TestResults.trx"
+
+        if [ -f "$trx_file" ]; then
+          # Extract test counts from TRX file
+          total_tests=$(xmlstarlet sel -t -v "//Counters/@total" "$trx_file" 2>/dev/null || echo "0")
+          passed_tests=$(xmlstarlet sel -t -v "//Counters/@passed" "$trx_file" 2>/dev/null || echo "0")
+          failed_tests=$(xmlstarlet sel -t -v "//Counters/@failed" "$trx_file" 2>/dev/null || echo "0")
+
+          echo "Total tests: $total_tests"
+          echo "Passed tests: $passed_tests"
+          echo "Failed tests: $failed_tests"
+
+          # Determine badge color
+          if [ "$failed_tests" -eq "0" ] && [ "$total_tests" -gt "0" ]; then
+            color="brightgreen"
+            status="passing"
+          elif [ "$total_tests" -eq "0" ]; then
+            color="lightgrey"
+            status="no tests"
+            passed_tests="0"
+            total_tests="0"
+          else
+            color="red"
+            status="failing"
+          fi
+
+          # Create badge URL
+          badge_text="${passed_tests}%2F${total_tests}%20tests%20${status}"
+          badge_url="https://img.shields.io/badge/Tests-${badge_text}-${color}"
+
+          echo "BADGE_URL=$badge_url" >> $GITHUB_ENV
+          echo "TEST_STATUS=${passed_tests}/${total_tests} tests $status" >> $GITHUB_ENV
+
+        else
+          echo "No test results file found"
+          echo "BADGE_URL=https://img.shields.io/badge/Tests-unknown-lightgrey" >> $GITHUB_ENV
+          echo "TEST_STATUS=unknown" >> $GITHUB_ENV
+        fi
+
+    - name: Update README with test badge
+      run: |
+        # Create or update the test badge in README
+        sed -i 's|!\[Tests\]([^)]*)|![Tests]('"$BADGE_URL"')|g' README.md
+
+        # If no test badge exists, add it after the .NET badge
+        if ! grep -q "!\[Tests\]" README.md; then
+          sed -i '/!\[\.NET 10\]/a ![Tests]('"$BADGE_URL"')' README.md
+        fi
+
+        echo "Updated README with test status: $TEST_STATUS"
+
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+        if git diff --quiet; then
+          echo "No changes to commit"
+        else
+          git add README.md
+          git commit -m "Update test status badge: $TEST_STATUS"
+          git push
+        fi

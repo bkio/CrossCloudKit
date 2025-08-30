@@ -650,9 +650,9 @@ REDIS_PASSWORD=your-redis-password
 ```csharp
 // Switch between providers seamlessly
 IDatabaseService dbService = useAws
- ? new DatabaseServiceAWS(awsKey, awsSecret, "us-east-1") : new DatabaseServiceMongoDB("mongodb://localhost", "myapp");
+ ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/));
 IFileService fileService = useGcp
- ? new FileServiceGC(projectId, serviceAccountPath) : new FileServiceAWS(awsKey, awsSecret, "us-east-1");
+ ? new FileServiceGC(/*Parameters*/)) : new FileServiceAWS(/*Parameters*/));
 ```
 
 
@@ -697,17 +697,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-Made with ❤️ by the CrossCloudKit team
-```
-This updated README now provides:
-
-1. **Complete Architecture Overview**: Shows all four service types (Database, File, PubSub, Memory) with their implementations
-2. **Comprehensive Examples**: Includes working examples for all service types, not just databases
-3. **Detailed Feature Coverage**: Documents advanced features like signed URLs, file notifications, distributed locking, message subscriptions, etc.
-4. **Updated Package List**: Reflects the actual packages available
-5. **Service-Specific Details**: Explains the unique characteristics and capabilities of each implementation
-6. **Advanced Use Cases**: Shows real-world scenarios like multi-cloud deployment, microservices, and event-driven architecture
-7. **Complete Testing Information**: Covers all service types and their test configurations
-
-The README now accurately represents the full scope and capabilities of CrossCloudKit as a comprehensive multi-cloud service library.
-```
+Made with ❤️ by the Burak Kara

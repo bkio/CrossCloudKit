@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-	<!-- Configure test runner to use the runsettings file for environment variables -->
-	<RunSettingsFilePath>$(MSBuildProjectDirectory)\test.runsettings</RunSettingsFilePath>
+    <!-- Configure test runner to use the runsettings file for environment variables -->
+    <RunSettingsFilePath Condition="Exists('$(MSBuildProjectDirectory)\test.runsettings')">$(MSBuildProjectDirectory)\test.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>

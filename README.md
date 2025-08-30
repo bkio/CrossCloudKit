@@ -18,6 +18,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - File operations with signed URLs, metadata, notifications, and streaming
   - Message queuing with topic management, subscriptions, and error handling
   - Distributed memory operations with mutex locking and data structures
+  - Pub/Sub integration with file services for file event notifications
 - **Cloud-Agnostic Design**: Write once, deploy anywhere across cloud providers
 - **Comprehensive Testing**: Extensive integration test suites for all services
 - **.NET 10 Ready**: Built for the latest .NET platform with nullable reference types
@@ -490,33 +491,6 @@ dotnet test Cloud.Memory.Redis.Tests
 
 Tests support environment variables for real cloud service integration:
 
-**AWS Services (DynamoDB, S3, SNS/SQS):**
-```bash
-AWS_ACCESS_KEY=your-key
-AWS_SECRET_KEY=your-secret
-AWS_REGION=us-east-1
-```
-
-**MongoDB:**
-```bash
-MONGODB_HOST=your-host
-MONGODB_USER=your-user
-MONGODB_PASSWORD=your-password
-```
-
-**Google Cloud Services (Datastore, Storage, Pub/Sub):**
-```bash
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_BASE64_CREDENTIALS=your-base64-encoded-service-account
-```
-
-**Redis (Memory & PubSub):**
-```
-
-
-### Test Configuration
-
-Tests support environment variables for real cloud service integration:
 
 **AWS Services (DynamoDB, S3, SNS/SQS):**
 ```shell script
@@ -537,13 +511,16 @@ MONGODB_PASSWORD=your-password
 **Google Cloud Services (Datastore, Storage, Pub/Sub):**
 ```shell script
 GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_BASE64_CREDENTIALS=your-base64-encoded-service-account
+GOOGLE_APPLICATION_CREDENTIALS_BASE64=your-base64-encoded-service-account
+GOOGLE_CLOUD_TEST_BUCKET=test-bucket-name
 ```
 
 
 **Redis (Memory & PubSub):**
 ```shell script
-REDIS_ENDPOINT=localhost:6379
+REDIS_ENDPOINT=localhost
+REDIS_PORT=6379
+REDIS_USER=your-redis-user
 REDIS_PASSWORD=your-redis-password
 ```
 
@@ -599,19 +576,20 @@ REDIS_PASSWORD=your-redis-password
 - Support for multipart uploads for large files
 - S3 event notifications integration with SNS/SQS
 - Proper IAM role and policy management
-- Support for S3-compatible endpoints
 
 #### Google Cloud Storage
 - Native integration with Google Cloud IAM
 - Support for signed URLs with custom expiration
 - Automatic retry logic for transient errors
 - Efficient streaming uploads and downloads
+- Google Pub/Sub integration for file notifications
 
 #### S3-Compatible Storage
 - Generic S3 API compatibility layer
 - Support for custom endpoints (MinIO, Wasabi, etc.)
 - Path-style and virtual-hosted-style URL support
 - Flexible authentication mechanisms
+- Redis Pub/Sub integration for file notifications
 
 ### PubSub Services
 
@@ -633,6 +611,7 @@ REDIS_PASSWORD=your-redis-password
 - Pattern-based subscriptions
 - Cluster support for high availability
 - Integration with Redis memory operations
+- Integration with all file service notifications (polling-based) (tested with MinIO)
 
 ### Memory Services
 
@@ -650,9 +629,9 @@ REDIS_PASSWORD=your-redis-password
 ```csharp
 // Switch between providers seamlessly
 IDatabaseService dbService = useAws
- ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/));
+    ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/));
 IFileService fileService = useGcp
- ? new FileServiceGC(/*Parameters*/)) : new FileServiceAWS(/*Parameters*/));
+    ? new FileServiceGC(/*Parameters*/)) : new FileServiceAWS(/*Parameters*/));
 ```
 
 
@@ -662,8 +641,18 @@ IFileService fileService = useGcp
 // Service registry pattern
 public class CloudServiceRegistry
 {
- public IDatabaseService Database { get; } public IFileService FileStorage { get; } public IPubSubService Messaging { get; } public IMemoryService Cache { get; }
- public CloudServiceRegistry(IConfiguration config) { Database = CreateDatabaseService(config); FileStorage = CreateFileService(config); Messaging = CreatePubSubService(config); Cache = CreateMemoryService(config); }}
+    public IDatabaseService Database { get; }
+    public IFileService FileStorage { get; }
+    public IPubSubService Messaging { get; }
+    public IMemoryService Cache { get; }
+    public CloudServiceRegistry(IConfiguration config)
+    {
+        Database = CreateDatabaseService(config);
+        FileStorage = CreateFileService(config);
+        Messaging = CreatePubSubService(config);
+        Cache = CreateMemoryService(config);
+    }
+}
 ```
 
 
@@ -673,27 +662,32 @@ public class CloudServiceRegistry
 // Complete event-driven workflow
 public class OrderProcessingService
 {
- private readonly IDatabaseService _db; private readonly IFileService _files; private readonly IPubSubService _pubsub; private readonly IMemoryService _cache;
- public async Task ProcessOrderAsync(Order order) { // Store order in database await _db.PutItemAsync("orders", "id", new PrimitiveType(order.Id), JObject.FromObject(order));
- // Generate receipt and store in file storage var receipt = GenerateReceipt(order); await _files.UploadFileAsync(receipt, "receipts", $"{order.Id}.pdf");
- // Cache order status var cacheScope = new LambdaMemoryServiceScope(() => $"order:{order.Id}"); await _cache.SetKeyValuesAsync(cacheScope, new[] { new KeyValuePair<string, PrimitiveType>("status", new PrimitiveType("processing")) });
- // Publish order event await _pubsub.PublishAsync("order-events", JsonConvert.SerializeObject(new { OrderId = order.Id, Status = "processing" })); }}
+    private readonly IDatabaseService _db;
+    private readonly IFileService _files;
+    private readonly IPubSubService _pubsub;
+    private readonly IMemoryService _cache;
+    public async Task ProcessOrderAsync(Order order) {
+        // Store order in database
+        await _db.PutItemAsync("orders", "id", new PrimitiveType(order.Id), JObject.FromObject(order));
+
+        // Generate receipt and store in file storage
+        var receipt = GenerateReceipt(order); await _files.UploadFileAsync(receipt, "receipts", $"{order.Id}.pdf");
+
+        // Cache order status
+        var cacheScope = new LambdaMemoryServiceScope(() => $"order:{order.Id}");
+
+        await _cache.SetKeyValuesAsync(cacheScope, new[]
+        {
+            new KeyValuePair<string, PrimitiveType>("status", new PrimitiveType("processing"))
+        });
+
+        // Publish order event await
+        _pubsub.PublishAsync("order-events", JsonConvert.SerializeObject(new { OrderId = order.Id, Status = "processing" })); }}
 ```
-
-
-## 📝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to submit pull requests, report issues, and improve the library.
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙋‍♂️ Support
-
-- 📖 [Documentation](https://github.com/CrossCloudKit/CrossCloudKit/wiki)
-- 🐛 [Issue Tracker](https://github.com/CrossCloudKit/CrossCloudKit/issues)
-- 💬 [Discussions](https://github.com/CrossCloudKit/CrossCloudKit/discussions)
 
 ---
 

@@ -39,13 +39,12 @@ jobs:
         dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity quiet --logger:"trx;LogFileName=TestResults.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
       env:
         # AWS Configuration
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+        AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
         AWS_REGION: ${{ secrets.AWS_REGION }}
 
         # Google Cloud Configuration
-        GOOGLE_APPLICATION_CREDENTIALS_BASE64: ${{ secrets.GOOGLE_BASE64_CREDENTIALS }}
+        GOOGLE_BASE64_CREDENTIALS: ${{ secrets.GOOGLE_BASE64_CREDENTIALS }}
         GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
         GOOGLE_CLOUD_TEST_BUCKET: ${{ secrets.GOOGLE_CLOUD_TEST_BUCKET }}
 

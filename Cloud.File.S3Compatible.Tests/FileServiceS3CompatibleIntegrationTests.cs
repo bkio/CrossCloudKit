@@ -3,6 +3,7 @@
 
 using Cloud.File.Tests.Common;
 using Cloud.Interfaces;
+using Cloud.Memory.Redis;
 using Cloud.Memory.Redis.Common;
 using Cloud.PubSub.Redis;
 using Xunit.Abstractions;
@@ -37,12 +38,17 @@ public class FileServiceS3CompatibleIntegrationTests(ITestOutputHelper testOutpu
         var accessKey = GetS3AccessKey();
         var secretKey = GetS3SecretKey();
         var region = GetS3Region();
-        return new FileServiceS3Compatible(serverAddress, accessKey, secretKey, region);
+        return new FileServiceS3Compatible(serverAddress, accessKey, secretKey, region, CreateMemoryService(), CreatePubSubService());
     }
 
     protected override IPubSubService CreatePubSubService()
     {
         return new PubSubServiceRedis(RedisCommonFunctionalities.GetRedisConnectionOptionsFromEnvironmentForTesting());
+    }
+
+    private IMemoryService CreateMemoryService()
+    {
+        return new MemoryServiceRedis(RedisCommonFunctionalities.GetRedisConnectionOptionsFromEnvironmentForTesting());
     }
 
     protected override string GetTestBucketName()

@@ -151,7 +151,7 @@ public abstract class DatabaseServiceTestBase
             // Assert
             result.Should().NotBeNull();
             result.IsSuccessful.Should().BeTrue();
-            result.ErrorMessage.Should().BeNull();
+            result.ErrorMessage.Should().Be("");
         }
         finally
         {

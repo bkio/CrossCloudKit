@@ -29,6 +29,94 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     public bool IsInitialized => Initialized;
 
     /// <inheritdoc />
+    public async Task<OperationResult<string?>> MemoryMutexLock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<string?>.Failure("Redis connection is not initialized");
+
+        if (string.IsNullOrEmpty(mutexValue))
+            return OperationResult<string?>.Failure("Mutex value is empty");
+
+        if (timeToLive <= TimeSpan.Zero)
+            return OperationResult<string?>.Failure("Time to live must be positive");
+
+        // Use a prefixed key to avoid conflicts with regular memory operations
+        var lockKey = $"Cloud.Memory.Redis.MemoryServiceRedis.Mutex:{mutexValue}";
+
+        // Generate a unique lock ID to identify the lock holder
+        var lockId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
+
+        return await ExecuteRedisOperationAsync(async database =>
+        {
+            // Use Lua script for atomic hash field set with expiry
+            const string lockScript = """
+                if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
+                    redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
+                    redis.call('expire', KEYS[1], ARGV[3])
+                    return ARGV[2]
+                else
+                    return nil
+                end
+                """;
+
+            var result = await database.ScriptEvaluateAsync(
+                lockScript,
+                [memoryScope.Compile()],
+                [lockKey, lockId, (int)timeToLive.TotalSeconds]).ConfigureAwait(false);
+
+            // Return the lock ID if acquired, null if not acquired
+            return result.IsNull ? null : (string)result!;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> MemoryMutexUnlock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        string lockId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<bool>.Failure("Redis connection is not initialized");
+
+        if (string.IsNullOrEmpty(mutexValue))
+            return OperationResult<bool>.Failure("Mutex value is empty");
+
+        if (string.IsNullOrEmpty(lockId))
+            return OperationResult<bool>.Failure("Lock ID is required");
+
+        // Use the same prefixed key format as in lock
+        var lockKey = $"Cloud.Memory.Redis.MemoryServiceRedis.Mutex:{mutexValue}";
+
+        // Use Lua script to ensure atomic check-and-delete operation on hash field
+        // This verifies the lock ID matches before deleting, ensuring only the lock holder can unlock
+        const string unlockScript = """
+            if redis.call("hget", KEYS[1], ARGV[1]) == ARGV[2] then
+                redis.call("hdel", KEYS[1], ARGV[1])
+                return 1
+            else
+                return 0
+            end
+            """;
+
+        return await ExecuteRedisOperationAsync(async database =>
+        {
+            var result = await database.ScriptEvaluateAsync(
+                unlockScript,
+                [memoryScope.Compile()],
+                [lockKey, lockId]).ConfigureAwait(false);
+
+            // Return true if the hash field was deleted (lock was released by the correct holder)
+            // Return false if the field didn't exist or had a different value (not our lock)
+            return (bool)result;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<OperationResult<bool>> SetKeyExpireTimeAsync(
         IMemoryServiceScope memoryScope,
         TimeSpan timeToLive,
@@ -125,15 +213,29 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
+        var result = await SetKeyValueConditionallyAndReturnValueRegardlessAsync(memoryScope, key, value, publishChange, cancellationToken);
+        return result.IsSuccessful ? OperationResult<bool>.Success(result.Data.Item1) : OperationResult<bool>.Failure(result.ErrorMessage!);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<(bool newlySet, PrimitiveType? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
+        IMemoryServiceScope memoryScope,
+        string key,
+        PrimitiveType value,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
         if (!IsInitialized)
-            return OperationResult<bool>.Failure("Redis connection is not initialized");
+            return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure("Redis connection is not initialized");
 
         const string script = """
-          if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
-              return redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
-          else
-              return nil
-          end
+              local val = redis.call('hget', KEYS[1], ARGV[1])
+              if not val then
+                  redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
+                  return {true, ARGV[2]}
+              else
+                  return {false, val}
+              end
           """;
 
         var redisValue = ConvertPrimitiveTypeToRedisValue(value);
@@ -146,10 +248,11 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
                 [scope],
                 [key, redisValue]).ConfigureAwait(false);
 
-            return !scriptResult.IsNull;
+            var res = (RedisResult[])scriptResult!;
+            return ((bool)res[0], ConvertRedisValueToPrimitiveType((RedisValue)res[1]));
         }, cancellationToken).ConfigureAwait(false);
 
-        if (result.IsSuccessful && publishChange && _pubSubService is not null)
+        if (result.IsSuccessful && publishChange && result.Data.Item1 && _pubSubService is not null)
         {
             await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
                 new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
@@ -382,13 +485,13 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
-        bool onlyIfExists = false,
+        bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfListExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -396,15 +499,27 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         IMemoryServiceScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
-        bool onlyIfExists = false,
+        bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfListExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<OperationResult<PrimitiveType[]>> PushToListTailIfValuesNotExistsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<PrimitiveType[]>.Failure("Redis connection is not initialized.");
+        return await Common_PushToListTailIfValuesNotExistsAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public async Task<OperationResult<PrimitiveType?>> PopLastElementOfListAsync(

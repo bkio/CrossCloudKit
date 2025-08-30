@@ -7,11 +7,167 @@ using Utilities.Common;
 namespace Cloud.Interfaces;
 
 /// <summary>
-/// Extend this interface to define a memory scope.
+/// Extend this interface to define a memory scope or use <see cref="LambdaMemoryServiceScope"/>
 /// </summary>
 public interface IMemoryServiceScope
 {
     public string Compile();
+}
+
+/// <summary>
+/// A flexible implementation of IMemoryServiceScope that allows defining memory scopes
+/// using lambda functions or precompiled strings. This enables dynamic scope generation
+/// at runtime or simple static scope definitions.
+/// </summary>
+public class LambdaMemoryServiceScope : IMemoryServiceScope
+{
+    private readonly Func<string> _compile;
+    public LambdaMemoryServiceScope(Func<string> compile)
+    {
+        _compile = compile;
+    }
+    public LambdaMemoryServiceScope(string precompiled)
+    {
+        _compile = () => precompiled;
+    }
+    public string Compile() => _compile();
+}
+
+/// <summary>
+/// A scope-based mutex wrapper around <see cref="IMemoryService"/>.
+///
+/// Usage pattern:
+///
+/// Async:
+/// <code>
+/// await using (var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
+/// {
+///     // Critical section (async-safe)
+///     await DoSomethingAsync();
+/// }
+/// // Mutex is released here
+/// </code>
+///
+/// Sync:
+/// <code>
+/// using (var mutex = MemoryServiceScopeMutex.Create(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
+/// {
+///     // Critical section (sync-safe)
+///     DoSomething();
+/// }
+/// // Mutex is released here
+/// </code>
+///
+/// Notes:
+/// - TTL ensures stale locks eventually expire if not released.
+/// - Use <c>await using</c> whenever possible to avoid blocking threads.
+/// - If unlock fails during Dispose/DisposeAsync, an exception is thrown (you may want to log instead).
+/// </summary>
+public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
+{
+    private readonly IMemoryService _memoryService;
+    private readonly IMemoryServiceScope _memoryScope;
+    private readonly string _mutexValue;
+    private readonly TimeSpan _timeToLive;
+    private readonly CancellationToken _cancellationToken;
+    private string? _lockId;
+
+    private MemoryServiceScopeMutex(
+        IMemoryService memoryService,
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken)
+    {
+        _memoryService = memoryService;
+        _memoryScope = memoryScope;
+        _mutexValue = mutexValue;
+        _timeToLive = timeToLive;
+        _cancellationToken = cancellationToken;
+    }
+
+    /// <summary>
+    /// Creates and acquires a mutex asynchronously.
+    /// Recommended in async code with <c>await using</c>.
+    /// NOTE: <see cref="timeToLive"/> will affect the entire <see cref="memoryScope"/>! Consider creating a separate scope for this operation.
+    /// </summary>
+    // ReSharper disable once MemberCanBePrivate.Global
+    public static async Task<MemoryServiceScopeMutex> CreateScopeAsync(
+        IMemoryService memoryService,
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(memoryService);
+
+        var scopeMutex = new MemoryServiceScopeMutex(memoryService, memoryScope, mutexValue, timeToLive, cancellationToken);
+        await scopeMutex.LockAsync();
+        return scopeMutex;
+    }
+
+    /// <summary>
+    /// Creates and acquires a mutex synchronously.
+    /// Avoid it in async contexts (may block threads).
+    /// NOTE: <see cref="timeToLive"/> will affect the entire <see cref="memoryScope"/>! Consider creating a separate scope for this operation.
+    /// </summary>
+    public static MemoryServiceScopeMutex CreateScope(
+        IMemoryService memoryService,
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive)
+        => CreateScopeAsync(memoryService, memoryScope, mutexValue, timeToLive).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Attempts to acquire the lock, retrying until successful or canceled.
+    /// </summary>
+    private async Task LockAsync()
+    {
+        string? lockId;
+        do
+        {
+            var lockResult = await _memoryService.MemoryMutexLock(_memoryScope, _mutexValue, _timeToLive, _cancellationToken);
+            if (!lockResult.IsSuccessful)
+                throw new Exception($"Memory service - Lock failed with: {lockResult.ErrorMessage}");
+
+            lockId = lockResult.Data;
+            if (lockId != null)
+            {
+                _lockId = lockId;
+                break;
+            }
+
+            // Backoff before retrying
+            await Task.Delay(100, _cancellationToken);
+        } while (!_cancellationToken.IsCancellationRequested && lockId == null);
+    }
+
+    /// <summary>
+    /// Releases the mutex asynchronously.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_lockId == null)
+            return; // No lock to release
+
+        var unlockResult = await _memoryService.MemoryMutexUnlock(_memoryScope, _mutexValue, _lockId, _cancellationToken);
+        if (!unlockResult.IsSuccessful)
+        {
+            // Consider logging instead of throwing here
+            throw new Exception($"Memory service - Unlock failed with: {unlockResult.ErrorMessage}");
+        }
+
+        _lockId = null;
+    }
+
+    /// <summary>
+    /// Releases the mutex synchronously.
+    /// Use only in non-async contexts (blocks until released).
+    /// </summary>
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
 }
 
 /// <summary>
@@ -24,6 +180,76 @@ public interface IMemoryService : IAsyncDisposable
     /// Gets a value indicating whether the memory service has been successfully initialized.
     /// </summary>
     bool IsInitialized { get; }
+
+    /// <summary>
+    /// Method for acquiring a distributed mutex lock with time-to-live expiration.
+    /// Note: Consider using <see cref="MemoryServiceScopeMutex"/> which is a wrapper for lock/unlock based on the scope.
+    /// This method is used internally by MemoryServiceScopeMutex to implement thread-safe operations
+    /// across distributed systems. The mutex prevents concurrent access to shared resources
+    /// by multiple processes or application instances.
+    /// </summary>
+    /// <param name="memoryScope">
+    /// The memory scope key for the operation.
+    /// NOTE: <see cref="timeToLive"/> will affect the entire scope!
+    /// </param>
+    /// <param name="mutexValue">
+    /// The unique identifier for the mutex lock. This value should be consistent across
+    /// all processes that need to coordinate access to the same resource.
+    /// </param>
+    /// <param name="timeToLive">
+    /// NOTE: timeToLive will affect entire <see cref="memoryScope"/>!
+    /// The maximum duration of the lock should be held before automatically expiring.
+    /// This prevents deadlocks in case the lock holder crashes or fails to release the lock.
+    /// Should be set longer than the expected operation duration but not too long to avoid
+    /// unnecessary blocking of other processes.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancellation token to allow early termination of the lock acquisition attempt.
+    /// </param>
+    /// <returns>
+    /// An OperationResult containing a string value:
+    /// - Non-null string containing the unique lock ID if the lock was successfully acquired
+    /// - Null if the lock is already held by another process
+    /// - Failure result if an error occurred during the operation
+    /// The returned lock ID uniquely identifies this lock acquisition and must be used
+    /// when releasing the lock to ensure only the lock holder can unlock it.
+    /// </returns>
+    Task<OperationResult<string?>> MemoryMutexLock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Method for releasing a previously acquired distributed mutex lock.
+    /// Note: Consider using <see cref="MemoryServiceScopeMutex"/> which is a wrapper for lock/unlock based on the scope.
+    /// This method is used internally by MemoryServiceScopeMutex to clean up locks
+    /// and allow other processes to acquire the mutex. Should only be called by
+    /// the same process that successfully acquired the lock.
+    /// </summary>
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="mutexValue">
+    /// The unique identifier for the mutex lock that was previously acquired.
+    /// This must match the mutexValue used in the corresponding MemoryMutexLock call.
+    /// </param>
+    /// <param name="lockId">
+    /// The unique lock ID that was returned by MemoryMutexLock when the lock was acquired.
+    /// This ensures only the process that acquired the lock can release it.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancellation token to allow early termination of the unlock operation.
+    /// </param>
+    /// <returns>
+    /// An OperationResult containing a boolean value:
+    /// - True if the lock was successfully released by the correct lock holder
+    /// - False if the lock was not found, already expired, or held by a different process
+    /// - Failure result if an error occurred during the unlock operation
+    /// </returns>
+    Task<OperationResult<bool>> MemoryMutexUnlock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        string lockId,
+        CancellationToken cancellationToken = default);
 
     // Key-Value Operations
 
@@ -78,6 +304,22 @@ public interface IMemoryService : IAsyncDisposable
         PrimitiveType value,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets a key-value pair conditionally (only if the key does not exist) and gets the value after this operation.
+    /// </summary>
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="key">The key to set.</param>
+    /// <param name="value">The value to set.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Pair of "True if the key was set; false if it already existed" and "value of the key after this operation"</returns>
+    public Task<OperationResult<(bool newlySet, PrimitiveType? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
+            IMemoryServiceScope memoryScope,
+            string key,
+            PrimitiveType value,
+            bool publishChange = true,
+            CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the value for the specified key within the given namespace.
@@ -197,7 +439,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="listName">The name of the list.</param>
     /// <param name="values">Values to push to the list.</param>
-    /// <param name="onlyIfExists">Only push if the list already exists.</param>
+    /// <param name="onlyIfListExists">Only push if the list already exists.</param>
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
@@ -205,7 +447,24 @@ public interface IMemoryService : IAsyncDisposable
         IMemoryServiceScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
-        bool onlyIfExists = false,
+        bool onlyIfListExists = false,
+        bool publishChange = true,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pushes values to the tail of the specified list only if they these values do not already exist in the list.
+    /// Each value given is individually checked for existence.
+    /// </summary>
+    /// <param name="memoryScope">The memory scope key for the operation.</param>
+    /// <param name="listName">The name of the list.</param>
+    /// <param name="values">Values to push to the list if they don't exist.</param>
+    /// <param name="publishChange">Whether to publish change notifications.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>Array of values that were successfully pushed</returns>
+    Task<OperationResult<PrimitiveType[]>> PushToListTailIfValuesNotExistsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 
@@ -215,7 +474,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="listName">The name of the list.</param>
     /// <param name="values">Values to push to the list.</param>
-    /// <param name="onlyIfExists">Only push if the list already exists.</param>
+    /// <param name="onlyIfListExists">Only push if the list already exists.</param>
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
@@ -223,7 +482,7 @@ public interface IMemoryService : IAsyncDisposable
         IMemoryServiceScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
-        bool onlyIfExists = false,
+        bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 

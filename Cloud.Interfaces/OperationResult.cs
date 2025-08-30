@@ -36,7 +36,7 @@ public class OperationResult<T>
     /// </summary>
     /// <param name="data">The operation result data</param>
     /// <returns>A successful OperationResult</returns>
-    public static OperationResult<T> Success(T data) => new(true, data, null);
+    public static OperationResult<T> Success(T data) => new(true, data, "");
 
     /// <summary>
     /// Creates a failed result with an error message.

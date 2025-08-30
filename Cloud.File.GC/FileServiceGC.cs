@@ -806,8 +806,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                     return OperationResult<string>.Failure($"Notification could not be created: {ensureResult.ErrorMessage}");
                 }
 
-                var created = await _gsClient.CreateNotificationAsync(bucketName, notification, new CreateNotificationOptions(), cancellationToken);
-                return created?.Id == null ? OperationResult<string>.Failure("Notification could not be created after topic creation") : OperationResult<string>.Success(created.Id);
+                return await CreateNotificationAsync(bucketName, topicName, pathPrefix, eventTypes, pubSubService, cancellationToken);
             }
         }
         catch (Exception e)

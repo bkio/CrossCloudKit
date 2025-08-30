@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Diagnostics.CodeAnalysis;
 using Cloud.Interfaces;
 using FluentAssertions;
 using Utilities.Common;
@@ -297,6 +298,570 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             await SafeCleanupAsync();
         }
     }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_WithNewKey_ShouldReturnTrueAndNewValue()
+    {
+        try
+        {
+            // Arrange
+            var key = "new-conditional-key";
+            var value = new PrimitiveType("new-conditional-value");
+
+            // Act
+            var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.newlySet.Should().BeTrue();
+            result.Data.value.Should().Be(value);
+
+            // Verify the key was actually set
+            var getValue = await MemoryService.GetKeyValueAsync(TestScope, key);
+            getValue.Data.Should().Be(value);
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_WithExistingKey_ShouldReturnFalseAndExistingValue()
+    {
+        try
+        {
+            // Arrange
+            var key = "existing-conditional-key";
+            var originalValue = new PrimitiveType("original-conditional-value");
+            var newValue = new PrimitiveType("new-conditional-value");
+
+            await MemoryService.SetKeyValuesAsync(TestScope, [new(key, originalValue)]);
+
+            // Act
+            var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, newValue);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.newlySet.Should().BeFalse();
+            result.Data.value.Should().Be(originalValue);
+
+            // Verify original value is unchanged
+            var getValue = await MemoryService.GetKeyValueAsync(TestScope, key);
+            getValue.Data.Should().Be(originalValue);
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeTrue_AndNewKey_ShouldPublishNotification()
+    {
+        try
+        {
+            // Arrange
+            var key = "publish-conditional-key";
+            var value = new PrimitiveType("publish-conditional-value");
+
+            // Act & Assert
+            var messages = await CapturePublishedMessagesAsync(async () =>
+            {
+                var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value, publishChange: true);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.newlySet.Should().BeTrue();
+                result.Data.value.Should().Be(value);
+            });
+
+            // Verify change notification was published only for newly set key
+            messages.Should().HaveCount(1, "Expected one change notification when key is newly set");
+            messages[0].Should().Contain("SetKeyValue", "Expected operation type in notification");
+            messages[0].Should().Contain(key, "Expected key in notification");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeTrue_AndExistingKey_ShouldNotPublishNotification()
+    {
+        try
+        {
+            // Arrange
+            var key = "existing-no-publish-conditional-key";
+            var originalValue = new PrimitiveType("original-conditional-value");
+            var newValue = new PrimitiveType("new-conditional-value");
+
+            await MemoryService.SetKeyValuesAsync(TestScope, [new(key, originalValue)], publishChange: false);
+
+            // Act & Assert
+            var messages = await CapturePublishedMessagesAsync(async () =>
+            {
+                var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, newValue, publishChange: true);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.newlySet.Should().BeFalse();
+                result.Data.value.Should().Be(originalValue);
+            }, TimeSpan.FromSeconds(2)); // Shorter timeout since we expect no messages
+
+            // Verify no change notification was published for existing key
+            messages.Should().BeEmpty("Expected no change notifications when key already exists");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeFalse_ShouldNotPublishNotification()
+    {
+        try
+        {
+            // Arrange
+            var key = "no-publish-conditional-key";
+            var value = new PrimitiveType("no-publish-conditional-value");
+
+            // Act & Assert
+            var messages = await CapturePublishedMessagesAsync(async () =>
+            {
+                var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value, publishChange: false);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.newlySet.Should().BeTrue();
+                result.Data.value.Should().Be(value);
+            }, TimeSpan.FromSeconds(2));
+
+            // Verify no change notification was published
+            messages.Should().BeEmpty("Expected no change notifications when publishChange is false");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SetKeyValueConditionallyGetValueRegardless_CompleteWorkflow_ShouldWorkCorrectly()
+    {
+        try
+        {
+            // Complete workflow test combining multiple scenarios
+            var key = "workflow-conditional-key";
+
+            // 1. First attempt on non-existing key should succeed
+            var value1 = new PrimitiveType("first-value");
+            var result1 = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value1);
+
+            result1.IsSuccessful.Should().BeTrue();
+            result1.Data.newlySet.Should().BeTrue();
+            result1.Data.value.Should().Be(value1);
+
+            // 2. Second attempt with different value should fail but return existing value
+            var value2 = new PrimitiveType("second-value");
+            var result2 = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value2);
+
+            result2.IsSuccessful.Should().BeTrue();
+            result2.Data.newlySet.Should().BeFalse();
+            result2.Data.value.Should().Be(value1); // Should return the first value, not the second
+
+            // 3. Third attempt with same original value should still fail but return the value
+            var result3 = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value1);
+
+            result3.IsSuccessful.Should().BeTrue();
+            result3.Data.newlySet.Should().BeFalse();
+            result3.Data.value.Should().Be(value1);
+
+            // 4. Verify final state
+            var finalCheck = await MemoryService.GetKeyValueAsync(TestScope, key);
+            finalCheck.IsSuccessful.Should().BeTrue();
+            finalCheck.Data.Should().Be(value1, "Final value should be the originally set value");
+
+            // 5. Test with different data types
+            var intKey = "workflow-int-key";
+            var intValue = new PrimitiveType(42L);
+            var intResult = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, intKey, intValue);
+
+            intResult.IsSuccessful.Should().BeTrue();
+            intResult.Data.newlySet.Should().BeTrue();
+            intResult.Data.value.Should().Be(intValue);
+
+            var doubleKey = "workflow-double-key";
+            var doubleValue = new PrimitiveType(3.14);
+            var doubleResult = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, doubleKey, doubleValue);
+
+            doubleResult.IsSuccessful.Should().BeTrue();
+            doubleResult.Data.newlySet.Should().BeTrue();
+            doubleResult.Data.value.Should().Be(doubleValue);
+
+            // 6. Verify all keys exist with correct values
+            var allValues = await MemoryService.GetAllKeyValuesAsync(TestScope);
+            allValues.IsSuccessful.Should().BeTrue();
+            allValues.Data.Should().HaveCount(3);
+            allValues.Data![key].Should().Be(value1);
+            allValues.Data![intKey].Should().Be(intValue);
+            allValues.Data![doubleKey].Should().Be(doubleValue);
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    #region Mutex Tests
+
+    [Fact]
+    public async Task Mutex_BasicLockAndUnlock_ShouldWorkCorrectly()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-basic";
+            var lockDuration = TimeSpan.FromSeconds(10);
+
+            // Act & Assert - Acquire lock
+            await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration);
+
+            // The fact that we got here means the lock was acquired successfully
+            mutex.Should().NotBeNull();
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_MultipleLockAttempts_ShouldBlockSecondAttempt()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-blocking";
+            var lockDuration = TimeSpan.FromSeconds(5);
+            var firstLockAcquired = false;
+            var secondLockAcquired = false;
+            var secondLockBlocked = true;
+
+            // Act - First lock
+            await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration);
+            firstLockAcquired = true;
+
+            // Try to acquire second lock (should be blocked)
+            var secondLockTask = Task.Run(async () =>
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                        MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
+                    secondLockAcquired = true;
+                    secondLockBlocked = false;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected - second lock should be blocked
+                    secondLockBlocked = true;
+                }
+            });
+
+            await secondLockTask;
+
+            // Assert
+            firstLockAcquired.Should().BeTrue("First lock should be acquired");
+            secondLockAcquired.Should().BeFalse("Second lock should not be acquired while first is held");
+            secondLockBlocked.Should().BeTrue("Second lock attempt should be blocked");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_SequentialLocks_ShouldAllowSecondAfterFirstReleased()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-sequential";
+            var lockDuration = TimeSpan.FromSeconds(10);
+            var firstLockCompleted = false;
+            var secondLockAcquired = false;
+
+            // Act - First lock and release
+            {
+                await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey, lockDuration);
+
+                // Simulate some work
+                await Task.Delay(100);
+                firstLockCompleted = true;
+            } // First mutex is disposed here, releasing the lock
+
+            // Second lock should now be able to acquire
+            await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration);
+            secondLockAcquired = true;
+
+            // Assert
+            firstLockCompleted.Should().BeTrue("First lock should complete");
+            secondLockAcquired.Should().BeTrue("Second lock should be acquired after first is released");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Mutex_ConcurrentAccess_ShouldSerializeExecution()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-concurrent";
+            var lockDuration = TimeSpan.FromSeconds(10);
+            var counter = 0;
+            var executionOrder = new List<int>();
+            var tasks = new List<Task>();
+
+            // Create multiple concurrent tasks that try to access the same resource
+            for (int i = 0; i < 5; i++)
+            {
+                var taskId = i;
+                var task = Task.Run(async () =>
+                {
+                    await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                        MemoryService, TestScope, mutexKey, lockDuration);
+
+                    // Critical section - increment counter
+                    var currentValue = counter;
+                    await Task.Delay(50); // Simulate some work
+                    counter = currentValue + 1;
+
+                    lock (executionOrder)
+                    {
+                        executionOrder.Add(taskId);
+                    }
+                });
+                tasks.Add(task);
+            }
+
+            // Act
+            await Task.WhenAll(tasks);
+
+            // Assert
+            counter.Should().Be(5, "Counter should be incremented exactly 5 times");
+            executionOrder.Should().HaveCount(5, "All tasks should complete");
+            executionOrder.Should().OnlyHaveUniqueItems("Each task should execute exactly once");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Mutex_WithDifferentKeys_ShouldAllowConcurrentLocks()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey1 = "test-mutex-key1";
+            var mutexKey2 = "test-mutex-key2";
+            var lockDuration = TimeSpan.FromSeconds(10);
+            var lock1Acquired = false;
+            var lock2Acquired = false;
+
+            // Act - Try to acquire two different mutex keys concurrently
+            var task1 = Task.Run(async () =>
+            {
+                await using var mutex1 = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey1, lockDuration);
+                lock1Acquired = true;
+                await Task.Delay(200); // Hold lock for a bit
+            });
+
+            var task2 = Task.Run(async () =>
+            {
+                await using var mutex2 = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey2, lockDuration);
+                lock2Acquired = true;
+                await Task.Delay(200); // Hold lock for a bit
+            });
+
+            await Task.WhenAll(task1, task2);
+
+            // Assert
+            lock1Acquired.Should().BeTrue("First mutex should be acquired");
+            lock2Acquired.Should().BeTrue("Second mutex should be acquired");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "UseAwaitUsing")]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_SynchronousCreation_ShouldWork()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-sync";
+            var lockDuration = TimeSpan.FromSeconds(5);
+
+            // Act - Use synchronous creation method
+            // ReSharper disable once MethodHasAsyncOverload
+            using var mutex = MemoryServiceScopeMutex.CreateScope(
+                MemoryService, TestScope, mutexKey, lockDuration);
+
+            // Assert
+            mutex.Should().NotBeNull("Mutex should be created successfully");
+
+            // Verify the lock is actually held by trying to acquire it again with a timeout
+            // Since the sync version doesn't have cancellation, we'll test this with an async version with a short timeout
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+            var secondLockBlocked = false;
+
+            try
+            {
+                await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
+                // If we get here, the second lock was acquired (which shouldn't happen)
+                secondLockBlocked = false;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected - second lock should be blocked and timeout
+                secondLockBlocked = true;
+            }
+
+            secondLockBlocked.Should().BeTrue("Second lock should be blocked by the first lock");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_LockExpiration_ShouldAllowReacquisition()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-expiration";
+            var shortLockDuration = TimeSpan.FromMilliseconds(500); // Very short TTL
+            var firstLockAcquired = false;
+            var secondLockAcquired = false;
+
+            // Act - Acquire lock with short TTL and let it expire
+            {
+                await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey, shortLockDuration);
+                firstLockAcquired = true;
+
+                // Wait longer than the TTL to let it expire
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+
+            // The lock should have expired, so we should be able to acquire it again
+            await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, TimeSpan.FromSeconds(5));
+            secondLockAcquired = true;
+
+            // Assert
+            firstLockAcquired.Should().BeTrue("First lock should be acquired");
+            secondLockAcquired.Should().BeTrue("Second lock should be acquired after first expires");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "AccessToDisposedClosure")]
+    public async Task Mutex_CancellationDuringAcquisition_ShouldThrowOperationCanceledException()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-cancellation";
+            var lockDuration = TimeSpan.FromSeconds(10);
+
+            // First, acquire the lock
+            await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration);
+
+            // Act & Assert - Try to acquire the same lock with cancellation
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+
+            var act = async () => await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
+
+            await act.Should().ThrowAsync<OperationCanceledException>(
+                "Lock acquisition should be cancelled when cancellation token is triggered");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [Fact]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_ExceptionInCriticalSection_ShouldReleaseLock()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey = "test-mutex-exception";
+            var lockDuration = TimeSpan.FromSeconds(10);
+            var lockReleasedAfterException = false;
+
+            // Act - Simulate exception in critical section
+            try
+            {
+                await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    MemoryService, TestScope, mutexKey, lockDuration);
+
+                // Simulate work that throws an exception
+                throw new InvalidOperationException("Simulated error in critical section");
+            }
+            catch (InvalidOperationException)
+            {
+                // Expected exception - ignore
+            }
+
+            // The lock should be released even though an exception occurred
+            // Try to acquire it again - should succeed immediately
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            await using var newMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
+            lockReleasedAfterException = true;
+
+            // Assert
+            lockReleasedAfterException.Should().BeTrue(
+                "Lock should be released even when exception occurs in critical section");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    #endregion
 
     [Fact]
     public async Task GetKeyValue_WithExistingKey_ShouldReturnValue()
@@ -873,7 +1438,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var values = new[] { new PrimitiveType("item1") };
 
             // Act
-            var result = await MemoryService.PushToListTailAsync(TestScope, listName, values, onlyIfExists: true);
+            var result = await MemoryService.PushToListTailAsync(TestScope, listName, values, onlyIfListExists: true);
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -898,7 +1463,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             await MemoryService.PushToListTailAsync(TestScope, listName, initialValues);
 
             // Act
-            var result = await MemoryService.PushToListTailAsync(TestScope, listName, additionalValues, onlyIfExists: true);
+            var result = await MemoryService.PushToListTailAsync(TestScope, listName, additionalValues, onlyIfListExists: true);
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -1299,6 +1864,389 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Assert
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().BeFalse();
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithNewValues_ShouldAddAllValues()
+    {
+        const string listName = "if-not-exists-new-list";
+        try
+        {
+            // Arrange
+            var values = new[]
+            {
+                new PrimitiveType("new-item1"),
+                new PrimitiveType("new-item2"),
+                new PrimitiveType("new-item3")
+            };
+
+            // Act
+            var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, values);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3);
+            result.Data.Should().BeEquivalentTo(values, options => options.WithStrictOrdering());
+
+            // Verify all values were added to the list
+            var listResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            listResult.IsSuccessful.Should().BeTrue();
+            listResult.Data.Should().HaveCount(3);
+            listResult.Data.Should().BeEquivalentTo(values, options => options.WithStrictOrdering());
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithAllExistingValues_ShouldAddNothing()
+    {
+        const string listName = "if-not-exists-existing-list";
+        try
+        {
+            // Arrange - First add some values
+            var existingValues = new[]
+            {
+                new PrimitiveType("existing1"),
+                new PrimitiveType("existing2")
+            };
+
+            await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
+
+            // Act - Try to add the same values again
+            var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, existingValues);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().BeEmpty("No values should be added since all already exist");
+
+            // Verify list size hasn't changed
+            var sizeResult = await MemoryService.GetListSizeAsync(TestScope, listName);
+            sizeResult.IsSuccessful.Should().BeTrue();
+            sizeResult.Data.Should().Be(2);
+
+            // Verify values are still the same
+            var listResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            listResult.IsSuccessful.Should().BeTrue();
+            listResult.Data.Should().HaveCount(2);
+            listResult.Data.Should().BeEquivalentTo(existingValues, options => options.WithStrictOrdering());
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithMixedExistingAndNewValues_ShouldAddOnlyNewValues()
+    {
+        const string listName = "if-not-exists-mixed-list";
+        try
+        {
+            // Arrange - First add some values
+            var existingValues = new[]
+            {
+                new PrimitiveType("existing1"),
+                new PrimitiveType("existing2")
+            };
+
+            await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
+
+            // Act - Try to add a mix of existing and new values
+            var mixedValues = new[]
+            {
+                new PrimitiveType("existing1"), // Already exists
+                new PrimitiveType("new1"),      // New value
+                new PrimitiveType("existing2"), // Already exists
+                new PrimitiveType("new2"),      // New value
+                new PrimitiveType("new3")       // New value
+            };
+
+            var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, mixedValues);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3, "Only the 3 new values should be returned");
+
+            var expectedPushedValues = new[]
+            {
+                new PrimitiveType("new1"),
+                new PrimitiveType("new2"),
+                new PrimitiveType("new3")
+            };
+            result.Data.Should().BeEquivalentTo(expectedPushedValues, options => options.WithStrictOrdering());
+
+            // Verify only new values were added
+            var listResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            listResult.IsSuccessful.Should().BeTrue();
+            listResult.Data.Should().HaveCount(5); // 2 existing + 3 new
+
+            var expectedValues = new[]
+            {
+                new PrimitiveType("existing1"),
+                new PrimitiveType("existing2"),
+                new PrimitiveType("new1"),
+                new PrimitiveType("new2"),
+                new PrimitiveType("new3")
+            };
+
+            listResult.Data.Should().BeEquivalentTo(expectedValues, options => options.WithStrictOrdering());
+
+            // Verify that new values were added to the tail
+            var lastThreeItems = listResult.Data!.Skip(2).ToArray();
+            lastThreeItems.Should().BeEquivalentTo(expectedPushedValues, options => options.WithStrictOrdering());
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithEmptyValues_ShouldFail()
+    {
+        const string listName = "if-not-exists-empty-values-list";
+        try
+        {
+            // Act
+            var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, []);
+
+            // Assert
+            result.IsSuccessful.Should().BeFalse();
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithPublishChangeTrue_ShouldPublishOnlyAddedValues()
+    {
+        const string listName = "if-not-exists-publish-list";
+        try
+        {
+            // Arrange - First add some values
+            var existingValues = new[]
+            {
+                new PrimitiveType("existing1"),
+                new PrimitiveType("existing2")
+            };
+
+            await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
+
+            // Act & Assert - Try to add mixed values and capture notifications
+            var mixedValues = new[]
+            {
+                new PrimitiveType("existing1"), // Already exists - should not be published
+                new PrimitiveType("new1"),      // New value - should be published
+                new PrimitiveType("existing2"), // Already exists - should not be published
+                new PrimitiveType("new2")       // New value - should be published
+            };
+
+            var expectedPushedValues = new[]
+            {
+                new PrimitiveType("new1"),
+                new PrimitiveType("new2")
+            };
+
+            var messages = await CapturePublishedMessagesAsync(async () =>
+            {
+                var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, mixedValues, publishChange: true);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.Should().NotBeNull();
+                result.Data.Should().HaveCount(2, "Only 2 new values should be added");
+                result.Data.Should().BeEquivalentTo(expectedPushedValues, options => options.WithStrictOrdering());
+            });
+
+            // Verify change notification was published
+            messages.Should().HaveCount(1, "Expected one change notification to be published");
+            messages[0].Should().Contain("PushToListTailIfNotExists", "Expected operation type in notification");
+            messages[0].Should().Contain(listName, "Expected list name in notification");
+
+            // Verify the notification contains only the actually added values
+            messages[0].Should().Contain("new1", "Expected new1 in notification (was added)");
+            messages[0].Should().Contain("new2", "Expected new2 in notification (was added)");
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithPublishChangeFalse_ShouldNotPublishNotification()
+    {
+        const string listName = "if-not-exists-no-publish-list";
+        try
+        {
+            // Arrange
+            var values = new[]
+            {
+                new PrimitiveType("no-publish-item1"),
+                new PrimitiveType("no-publish-item2")
+            };
+
+            // Act & Assert
+            var messages = await CapturePublishedMessagesAsync(async () =>
+            {
+                var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, values, publishChange: false);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.Should().NotBeNull();
+                result.Data.Should().HaveCount(2);
+                result.Data.Should().BeEquivalentTo(values, options => options.WithStrictOrdering());
+            }, TimeSpan.FromSeconds(2)); // Shorter timeout since we expect no messages
+
+            // Verify no change notification was published
+            messages.Should().BeEmpty("Expected no change notifications when publishChange is false");
+
+            // Verify values were still added
+            var listResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            listResult.IsSuccessful.Should().BeTrue();
+            listResult.Data.Should().HaveCount(2);
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_WithDuplicateValuesInInput_ShouldAddOnlyOncePerUniqueValue()
+    {
+        const string listName = "if-not-exists-duplicates-list";
+        try
+        {
+            // Arrange - Values with duplicates
+            var valuesWithDuplicates = new[]
+            {
+                new PrimitiveType("item1"),
+                new PrimitiveType("item2"),
+                new PrimitiveType("item1"), // Duplicate
+                new PrimitiveType("item3"),
+                new PrimitiveType("item2"), // Duplicate
+                new PrimitiveType("item4")
+            };
+
+            // Act
+            var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, valuesWithDuplicates);
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+
+            // Verify behavior - this depends on implementation
+            // The Lua script should handle duplicates appropriately
+            var listResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            listResult.IsSuccessful.Should().BeTrue();
+
+            // Each unique value should appear at least once, but exact behavior may vary
+            listResult.Data.Should().Contain(new PrimitiveType("item1"));
+            listResult.Data.Should().Contain(new PrimitiveType("item2"));
+            listResult.Data.Should().Contain(new PrimitiveType("item3"));
+            listResult.Data.Should().Contain(new PrimitiveType("item4"));
+
+            // The returned array should contain the values that were actually pushed
+            result.Data.Should().Contain(new PrimitiveType("item1"));
+            result.Data.Should().Contain(new PrimitiveType("item2"));
+            result.Data.Should().Contain(new PrimitiveType("item3"));
+            result.Data.Should().Contain(new PrimitiveType("item4"));
+        }
+        finally
+        {
+            await SafeCleanupAsync(listName);
+        }
+    }
+
+    [Fact]
+    public async Task PushToListTailIfValuesNotExists_CompleteWorkflow_ShouldWorkCorrectly()
+    {
+        const string listName = "if-not-exists-workflow-list";
+        try
+        {
+            // Complete workflow test combining multiple scenarios
+
+            // 1. Add initial values to empty list
+            var initialValues = new[]
+            {
+                new PrimitiveType("alpha"),
+                new PrimitiveType("beta")
+            };
+
+            var result1 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, initialValues);
+            result1.IsSuccessful.Should().BeTrue();
+            result1.Data.Should().NotBeNull();
+            result1.Data.Should().HaveCount(2);
+            result1.Data.Should().BeEquivalentTo(initialValues, options => options.WithStrictOrdering());
+
+            var size1 = await MemoryService.GetListSizeAsync(TestScope, listName);
+            size1.Data.Should().Be(2);
+
+            // 2. Try to add some existing and some new values
+            var mixedValues = new[]
+            {
+                new PrimitiveType("alpha"),   // Exists
+                new PrimitiveType("gamma"),   // New
+                new PrimitiveType("beta"),    // Exists
+                new PrimitiveType("delta")    // New
+            };
+
+            var expectedNewValues = new[]
+            {
+                new PrimitiveType("gamma"),
+                new PrimitiveType("delta")
+            };
+
+            var result2 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, mixedValues);
+            result2.IsSuccessful.Should().BeTrue();
+            result2.Data.Should().NotBeNull();
+            result2.Data.Should().HaveCount(2, "Only gamma and delta should be added");
+            result2.Data.Should().BeEquivalentTo(expectedNewValues, options => options.WithStrictOrdering());
+
+            var size2 = await MemoryService.GetListSizeAsync(TestScope, listName);
+            size2.Data.Should().Be(4); // 2 original + 2 new
+
+            // 3. Try to add all existing values
+            var allExistingValues = new[]
+            {
+                new PrimitiveType("alpha"),
+                new PrimitiveType("beta"),
+                new PrimitiveType("gamma"),
+                new PrimitiveType("delta")
+            };
+
+            var result3 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, allExistingValues);
+            result3.IsSuccessful.Should().BeTrue();
+            result3.Data.Should().NotBeNull();
+            result3.Data.Should().BeEmpty("No new values should be added since all already exist");
+
+            var size3 = await MemoryService.GetListSizeAsync(TestScope, listName);
+            size3.Data.Should().Be(4); // Size unchanged
+
+            // 4. Verify final list contents
+            var finalList = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
+            finalList.IsSuccessful.Should().BeTrue();
+            finalList.Data.Should().HaveCount(4);
+
+            var expectedFinalValues = new[]
+            {
+                new PrimitiveType("alpha"),
+                new PrimitiveType("beta"),
+                new PrimitiveType("gamma"),
+                new PrimitiveType("delta")
+            };
+
+            finalList.Data.Should().BeEquivalentTo(expectedFinalValues, options => options.WithStrictOrdering());
         }
         finally
         {

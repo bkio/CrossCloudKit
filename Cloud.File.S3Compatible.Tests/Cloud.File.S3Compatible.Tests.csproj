@@ -28,6 +28,7 @@
 	<ItemGroup>
 	  <ProjectReference Include="..\Cloud.File.S3Compatible\Cloud.File.S3Compatible.csproj" />
 	  <ProjectReference Include="..\Cloud.File.Tests.Common\Cloud.File.Tests.Common.csproj" />
+	  <ProjectReference Include="..\Cloud.Memory.Redis\Cloud.Memory.Redis.csproj" />
 	  <ProjectReference Include="..\Cloud.PubSub.Redis\Cloud.PubSub.Redis.csproj" />
 	  <ProjectReference Include="..\Utilities.Common\Utilities.Common.csproj" />
 	</ItemGroup>

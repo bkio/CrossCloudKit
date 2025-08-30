@@ -398,7 +398,7 @@ public interface IFileService
     /// </summary>
     /// <param name="bucketName">The name of the bucket</param>
     /// <param name="topicName">The pub/sub topic name</param>
-    /// <param name="pathPrefix">The path prefix to listen for events</param>
+    /// <param name="pathPrefix">The path prefix to listen for events. This is mandatory, wildcards are not accepted.</param>
     /// <param name="eventTypes">The types of events to listen for</param>
     /// <param name="pubSubService">Pub/Sub service instance</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>

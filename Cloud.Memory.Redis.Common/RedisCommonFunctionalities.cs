@@ -266,7 +266,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         string listName,
         IEnumerable<PrimitiveType> values,
         bool toTail,
-        bool onlyIfExists,
+        bool onlyIfListExists,
         bool publishChange,
         IPubSubService? pubSubService,
         CancellationToken cancellationToken)
@@ -283,7 +283,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             bool success;
 
-            if (onlyIfExists)
+            if (onlyIfListExists)
             {
                 var transaction = database.CreateTransaction();
                 transaction.AddCondition(Condition.KeyExists(listKey));
@@ -319,6 +319,78 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             var operation = toTail ? "PushToListTail" : "PushToListHead";
             await PublishChangeNotificationAsync(pubSubService, memoryScope, operation,
                 new { List = listName, Pushed = valueArray }, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    protected async Task<OperationResult<PrimitiveType[]>> Common_PushToListTailIfValuesNotExistsAsync(
+        IMemoryServiceScope memoryScope,
+        string listName,
+        IEnumerable<PrimitiveType> values,
+        bool publishChange = true,
+        IPubSubService? pubSubService = null,
+        CancellationToken cancellationToken = default)
+    {
+        var valueArray = values.ToArray();
+        if (valueArray.Length == 0)
+            return OperationResult<PrimitiveType[]>.Failure("Value array is empty.");
+
+        const string script = """
+            local listKey = KEYS[1]
+            local scopeKey = KEYS[2]
+            local valuesToCheck = ARGV
+            local pushedCount = 0
+
+            -- Get all existing elements from the list
+            local existingElements = redis.call('lrange', listKey, 0, -1)
+            local existingSet = {}
+            for _, element in ipairs(existingElements) do
+                existingSet[element] = true
+            end
+
+            -- Check each value and push if it doesn't exist
+            local pushedValues = {}
+            for _, value in ipairs(valuesToCheck) do
+                if not existingSet[value] then
+                    redis.call('rpush', listKey, value)
+                    pushedCount = pushedCount + 1
+                    table.insert(pushedValues, value)
+                end
+            end
+
+            -- Inherit TTL from scope if it exists
+            if pushedCount > 0 then
+                local scopeTTL = redis.call('ttl', scopeKey)
+                if scopeTTL > 0 then
+                    redis.call('expire', listKey, scopeTTL)
+                end
+            end
+
+            return pushedValues
+            """;
+
+        var scope = memoryScope.Compile();
+        var listKey = $"{scope}:{listName}";
+        var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
+
+        var result = await ExecuteRedisOperationAsync(async database =>
+        {
+            var scriptResult = await database.ScriptEvaluateAsync(script,
+                [listKey, scope],
+                redisValues).ConfigureAwait(false);
+
+            var pushedRedisValues = (RedisValue[])scriptResult!;
+            return pushedRedisValues.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>().ToArray();
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!result.IsSuccessful || result.Data == null)
+            return OperationResult<PrimitiveType[]>.Failure($"Redis operation failed: {result.ErrorMessage}");
+
+        if (result.IsSuccessful && publishChange && pubSubService is not null && result.Data.Length != 0)
+        {
+            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PushToListTailIfNotExists",
+                new { List = listName, Pushed = result.Data }, cancellationToken).ConfigureAwait(false);
         }
 
         return result;
@@ -476,7 +548,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     /// <summary>
     /// Disposes the Redis connection and other resources.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (RedisConnection is not null)
         {

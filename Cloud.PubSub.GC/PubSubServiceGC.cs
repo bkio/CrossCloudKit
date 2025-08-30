@@ -11,6 +11,8 @@ using System.Collections.Concurrent;
 using System.Net;
 using Google.Api.Gax.ResourceNames;
 using Google.Protobuf.WellKnownTypes;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 // ReSharper disable MemberCanBePrivate.Global
 
@@ -186,6 +188,9 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         }
     }
 
+    private static readonly HashSet<string> SupportedFileEventTypes =
+        ["OBJECT_FINALIZE", "OBJECT_METADATA_UPDATE", "OBJECT_DELETE", "OBJECT_ARCHIVE"];
+
     private async Task StartSubscriptionAsync(string originalTopic, string encodedTopic, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
     {
         SubscriberClient? subscriber;
@@ -240,7 +245,41 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             {
                 try
                 {
-                    await onMessage(originalTopic, msg.Data.ToStringUtf8());
+                    var dataRaw = msg.Data.ToStringUtf8();
+
+                    if (msg.Attributes != null && msg.Attributes.TryGetValue("eventType", out var eventType)
+                        && SupportedFileEventTypes.Contains(eventType))
+                    {
+                        //File event
+
+                        var finalMsgObj = new JObject();
+
+                        var attributesObj = new JObject();
+                        finalMsgObj["attributes"] = attributesObj;
+
+                        if (msg.Attributes != null)
+                        {
+                            foreach (var attr in msg.Attributes)
+                            {
+                                attributesObj[attr.Key] = attr.Value;
+                            }
+                        }
+
+                        try
+                        {
+                            var messageParsed = JObject.Parse(dataRaw);
+                            finalMsgObj["data"] = messageParsed;
+                        }
+                        catch (JsonReaderException)
+                        {
+                            finalMsgObj["data"] = dataRaw;
+                        }
+                        await onMessage(originalTopic, finalMsgObj.ToString(Formatting.None));
+                    }
+                    else
+                    {
+                        await onMessage(originalTopic, dataRaw);
+                    }
                     return SubscriberClient.Reply.Ack;
                 }
                 catch (Exception e)

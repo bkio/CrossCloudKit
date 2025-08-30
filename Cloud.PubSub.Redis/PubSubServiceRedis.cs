@@ -8,7 +8,7 @@ using Utilities.Common;
 
 namespace Cloud.PubSub.Redis
 {
-    public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService, IAsyncDisposable
+    public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService
     {
         private bool _disposed;
 
@@ -107,8 +107,15 @@ namespace Cloud.PubSub.Redis
                 return OperationResult<bool>.Failure("Topic cannot be empty.");
             if (!IsInitialized)
                 return OperationResult<bool>.Failure("Redis connection is not initialized");
+
+            var topics = await GetTopicsUsedOnBucketEventAsync(cancellationToken);
+            if (!topics.IsSuccessful || topics.Data == null)
+                return OperationResult<bool>.Failure(topics.ErrorMessage!);
+            if (topics.Data.Contains(topic))
+                return OperationResult<bool>.Success(true);
+
             return await Common_PushToListAsync(
-                _systemMemoryScope,
+                SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 [
                     new PrimitiveType(topic)
@@ -129,8 +136,9 @@ namespace Cloud.PubSub.Redis
                 return OperationResult<bool>.Failure("Topic cannot be empty.");
             if (!IsInitialized)
                 return OperationResult<bool>.Failure("Redis connection is not initialized");
+
             var result = await Common_RemoveElementsFromListAsync(
-                _systemMemoryScope,
+                SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 [
                     new PrimitiveType(topic)
@@ -149,7 +157,7 @@ namespace Cloud.PubSub.Redis
             if (!IsInitialized)
                 return OperationResult<List<string>>.Failure("Redis connection is not initialized");
             var result = await Common_GetAllElementsOfListAsync(
-                _systemMemoryScope,
+                SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 cancellationToken).ConfigureAwait(false);
             if (!result.IsSuccessful || result.Data == null) return OperationResult<List<string>>.Failure(result.ErrorMessage ?? string.Empty);
@@ -159,7 +167,7 @@ namespace Cloud.PubSub.Redis
         /// <summary>
         /// Dispose the service asynchronously
         /// </summary>
-        public new async ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
             if (_disposed)
                 return;
@@ -170,7 +178,7 @@ namespace Cloud.PubSub.Redis
             GC.SuppressFinalize(this);
         }
 
-        private class SystemMemoryScope : IMemoryServiceScope
+        private class SystemClassMemoryScope : IMemoryServiceScope
         {
             public string Compile()
             {
@@ -178,7 +186,7 @@ namespace Cloud.PubSub.Redis
             }
             private const string Scope = "Cloud.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope";
         }
-        private readonly IMemoryServiceScope _systemMemoryScope = new SystemMemoryScope();
+        private static readonly SystemClassMemoryScope SystemClassMemoryScopeInstance = new();
         private const string UsedOnBucketEventListName = "user_on_bucket_event_list";
     }
 }

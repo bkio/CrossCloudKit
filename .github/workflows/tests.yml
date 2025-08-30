@@ -35,8 +35,9 @@ jobs:
       run: dotnet build CrossCloudKit.sln --no-restore --configuration Release
 
     - name: Run tests and generate report
+      id: test
       run: |
-        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity quiet --logger:"trx;LogFileName=TestResults.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
+        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults --collect:"XPlat Code Coverage"
       env:
         # AWS Configuration
         AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
@@ -72,57 +73,91 @@ jobs:
         sudo apt-get update && sudo apt-get install -y xmlstarlet
 
         # Find TRX files
+        echo "Looking for TRX files..."
         find TestResults -name "*.trx" -type f || echo "No TRX files found"
         ls -la TestResults/ || echo "TestResults directory not found"
 
-        # Find the TRX file (it might not be named exactly TestResults.trx)
-        trx_file=$(find TestResults -name "*.trx" -type f | head -1)
+        # Process all TRX files and aggregate results
+        total_tests=0
+        passed_tests=0
+        failed_tests=0
 
-        if [ -n "$trx_file" ] && [ -f "$trx_file" ]; then
-          echo "Processing TRX file: $trx_file"
+        for trx_file in TestResults/*.trx; do
+          if [ -f "$trx_file" ]; then
+            echo "Processing TRX file: $trx_file"
 
-          # Try multiple XPath patterns for different TRX formats
-          total_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@total" "$trx_file" 2>/dev/null || \
-                       xmlstarlet sel -t -v "//Counters/@total" "$trx_file" 2>/dev/null || \
-                       xmlstarlet sel -t -v "count(//UnitTestResult)" "$trx_file" 2>/dev/null || echo "0")
+            # Debug: Show file size and first few lines
+            echo "File size: $(wc -c < "$trx_file") bytes"
+            echo "First 10 lines of TRX file:"
+            head -10 "$trx_file"
+            echo "---"
 
-          passed_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@passed" "$trx_file" 2>/dev/null || \
-                        xmlstarlet sel -t -v "//Counters/@passed" "$trx_file" 2>/dev/null || \
-                        xmlstarlet sel -t -v "count(//UnitTestResult[@outcome='Passed'])" "$trx_file" 2>/dev/null || echo "0")
+            # Try to extract namespace and root element
+            echo "XML structure:"
+            xmlstarlet el "$trx_file" | head -10 || echo "Failed to parse XML structure"
 
-          failed_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@failed" "$trx_file" 2>/dev/null || \
-                        xmlstarlet sel -t -v "//Counters/@failed" "$trx_file" 2>/dev/null || \
-                        xmlstarlet sel -t -v "count(//UnitTestResult[@outcome='Failed'])" "$trx_file" 2>/dev/null || echo "0")
+            # Try different parsing methods
+            file_total=$(xmlstarlet sel -N mstest="http://microsoft.com/schemas/VisualStudio/TeamTest/2010" -t -v "//mstest:Counters/@total" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "//Counters/@total" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "//*[local-name()='Counters']/@total" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "count(//*[local-name()='UnitTestResult'])" "$trx_file" 2>/dev/null || echo "0")
 
-          echo "Total tests: $total_tests"
-          echo "Passed tests: $passed_tests"
-          echo "Failed tests: $failed_tests"
+            file_passed=$(xmlstarlet sel -N mstest="http://microsoft.com/schemas/VisualStudio/TeamTest/2010" -t -v "//mstest:Counters/@passed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "//Counters/@passed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "//*[local-name()='Counters']/@passed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "count(//*[local-name()='UnitTestResult'][@outcome='Passed'])" "$trx_file" 2>/dev/null || echo "0")
 
-          # Determine badge color and message
-          if [ "$total_tests" -gt "0" ] && [ "$failed_tests" -eq "0" ]; then
-            color="brightgreen"
-            message="${passed_tests}%2F${total_tests}%20passing"
-          elif [ "$total_tests" -gt "0" ] && [ "$failed_tests" -gt "0" ]; then
-            color="red"
-            message="${passed_tests}%2F${total_tests}%20failing"
-          else
-            color="orange"
-            message="no%20tests"
+            file_failed=$(xmlstarlet sel -N mstest="http://microsoft.com/schemas/VisualStudio/TeamTest/2010" -t -v "//mstest:Counters/@failed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "//Counters/@failed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "//*[local-name()='Counters']/@failed" "$trx_file" 2>/dev/null || \
+                         xmlstarlet sel -t -v "count(//*[local-name()='UnitTestResult'][@outcome='Failed'])" "$trx_file" 2>/dev/null || echo "0")
+
+            echo "File results - Total: $file_total, Passed: $file_passed, Failed: $file_failed"
+
+            # Add to totals
+            total_tests=$((total_tests + file_total))
+            passed_tests=$((passed_tests + file_passed))
+            failed_tests=$((failed_tests + file_failed))
+
+            echo "Running totals - Total: $total_tests, Passed: $passed_tests, Failed: $failed_tests"
+            echo "---"
           fi
+        done
 
-          # Create badge URL
-          badge_url="https://img.shields.io/badge/Tests-${message}-${color}"
+        echo "Final test results:"
+        echo "Total tests: $total_tests"
+        echo "Passed tests: $passed_tests"
+        echo "Failed tests: $failed_tests"
 
-          echo "BADGE_URL=$badge_url" >> $GITHUB_ENV
-          echo "TEST_STATUS=${passed_tests}/${total_tests}" >> $GITHUB_ENV
-
+        # Determine badge color and message
+        if [ "$total_tests" -gt "0" ] && [ "$failed_tests" -eq "0" ]; then
+          color="brightgreen"
+          message="${passed_tests}%2F${total_tests}%20passing"
+        elif [ "$total_tests" -gt "0" ] && [ "$failed_tests" -gt "0" ]; then
+          color="red"
+          message="${passed_tests}%2F${total_tests}%20failing"
         else
-          echo "No test results file found"
-          echo "BADGE_URL=https://img.shields.io/badge/Tests-no%20results-orange" >> $GITHUB_ENV
-          echo "TEST_STATUS=no results" >> $GITHUB_ENV
+          color="orange"
+          message="no%20tests"
         fi
 
-    - name: Update README with test badge
+        # Create badge URL
+        badge_url="https://img.shields.io/badge/Tests-${message}-${color}"
+
+        echo "BADGE_URL=$badge_url" >> $GITHUB_ENV
+        echo "TEST_STATUS=${passed_tests}/${total_tests}" >> $GITHUB_ENV
+        echo "TOTAL_TESTS=$total_tests" >> $GITHUB_ENV
+        echo "PASSED_TESTS=$passed_tests" >> $GITHUB_ENV
+        echo "FAILED_TESTS=$failed_tests" >> $GITHUB_ENV
+
+        # Set flag for publishing decision
+        if [ "$total_tests" -gt "0" ] && [ "$failed_tests" -eq "0" ]; then
+          echo "TESTS_PASSED=true" >> $GITHUB_ENV
+        else
+          echo "TESTS_PASSED=false" >> $GITHUB_ENV
+        fi
+
+    - name: Update README with test badge and results
       run: |
         echo "Badge URL: $BADGE_URL"
 
@@ -132,10 +167,43 @@ jobs:
         # Add the new test badge after the .NET badge line
         sed -i '/!\[\.NET 10\]/a ![Tests]('"$BADGE_URL"')' README.md
 
-        echo "Updated README with test status: $TEST_STATUS"
+        # Create test results section
+        current_date=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-        # Show the updated badge section
-        head -5 README.md
+        # Remove existing test results section if it exists
+        sed -i '/## 🧪 Test Results/,/^## /{ /^## 🧪 Test Results/d; /^## /!d; }' README.md
+
+        # Create test results section using a here-doc
+        cat > test_results.tmp << EOF
+## 🧪 Test Results
+
+**Last Updated:** $current_date
+
+| Metric | Count |
+|--------|-------|
+| ✅ **Tests Passed** | **$PASSED_TESTS** |
+| ❌ **Tests Failed** | **$FAILED_TESTS** |
+| 📊 **Total Tests** | **$TOTAL_TESTS** |
+
+EOF
+
+        # Find where to insert the test results (after the badges but before features)
+        if grep -q "## 🚀 Features" README.md; then
+          # Insert before Features section
+          sed -i '/## 🚀 Features/r test_results.tmp' README.md
+        else
+          # Insert after the description paragraph
+          sed -i '/CrossCloudKit is a comprehensive/r test_results.tmp' README.md
+        fi
+
+        # Clean up temporary file
+        rm test_results.tmp
+
+        echo "Updated README with test status: $TEST_STATUS"
+        echo "Test Results: Passed=$PASSED_TESTS, Failed=$FAILED_TESTS, Total=$TOTAL_TESTS"
+
+        # Show the updated badge and results section
+        head -20 README.md
 
     - name: Commit and push changes
       run: |
@@ -146,6 +214,72 @@ jobs:
           echo "No changes to commit"
         else
           git add README.md
-          git commit -m "Update test status badge: $TEST_STATUS"
+          git commit -m "Update test results: $PASSED_TESTS passed, $FAILED_TESTS failed, $TOTAL_TESTS total"
           git push
         fi
+
+    - name: Generate version number
+      if: env.TESTS_PASSED == 'true'
+      run: |
+        # Generate version based on date and run number
+        DATE_VERSION=$(date +%Y.%m.%d)
+        COMMIT_COUNT=$(git rev-list --count HEAD)
+        PACKAGE_VERSION="${DATE_VERSION}.${COMMIT_COUNT}"
+
+        echo "Generated version: $PACKAGE_VERSION"
+        echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
+
+    - name: Pack NuGet packages
+      if: env.TESTS_PASSED == 'true'
+      run: |
+        echo "All tests passed! Creating NuGet packages with version $PACKAGE_VERSION..."
+
+        # Find all .csproj files and exclude test projects
+        echo "Discovering projects to pack..."
+        projects_to_pack=$(find . -name "*.csproj" -not -path "./.git/*" | grep -v "\.Tests\." | grep -v "Tests\.Common")
+
+        echo "Projects found:"
+        echo "$projects_to_pack"
+        echo ""
+
+        # Pack all non-test projects
+        pack_count=0
+        for project in $projects_to_pack; do
+          echo "Packing: $project"
+          dotnet pack "$project" --configuration Release --output ./nupkgs --no-build -p:PackageVersion=$PACKAGE_VERSION
+          if [ $? -eq 0 ]; then
+            pack_count=$((pack_count + 1))
+            echo "✅ Successfully packed: $project"
+          else
+            echo "❌ Failed to pack: $project"
+          fi
+          echo ""
+        done
+
+        echo "Successfully packed $pack_count packages with version $PACKAGE_VERSION"
+        echo "Created packages:"
+        ls -la ./nupkgs/
+
+    - name: Publish to NuGet
+      if: env.TESTS_PASSED == 'true'
+      run: |
+        echo "Publishing packages to NuGet.org..."
+
+        # Publish all packages
+        for package in ./nupkgs/*.nupkg; do
+          echo "Publishing $package..."
+          dotnet nuget push "$package" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        done
+
+        echo "Successfully published all packages to NuGet!"
+
+    - name: Publish summary
+      if: env.TESTS_PASSED == 'true'
+      run: |
+        echo "✅ Tests passed and packages published to NuGet!"
+        echo "Test Results: $TEST_STATUS"
+        echo "Package Version: $PACKAGE_VERSION"
+        echo "Packages published: $(ls ./nupkgs/*.nupkg | wc -l)"
+        echo ""
+        echo "Published packages:"
+        ls ./nupkgs/*.nupkg | sed 's|./nupkgs/||' | sed 's|\.nupkg||'

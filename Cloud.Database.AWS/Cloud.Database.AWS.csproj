@@ -4,6 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Title>Cloud.Database.AWS</Title>
+    <Authors>Burak Kara</Authors>
+    <Copyright>Copyright (c) 2022- Burak Kara - MIT License</Copyright>
+    <PackageProjectUrl>https://github.com/bkio/CrossCloudKit</PackageProjectUrl>
+    <PackageLicenseUrl>https://raw.githubusercontent.com/bkio/CrossCloudKit/refs/heads/main/LICENSE</PackageLicenseUrl>
+    <RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>

@@ -3,10 +3,6 @@ name: Update Test Badge
 on:
   push:
     branches: [ main ]
-  schedule:
-    # For once a week at 02:00 UTC on Sunday
-    - cron: '0 2 * * 0'
-  workflow_dispatch:
 
 jobs:
   test-and-badge:
@@ -40,7 +36,7 @@ jobs:
 
     - name: Run tests and generate report
       run: |
-        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx;LogFileName=TestResults.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
+        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity quiet --logger:"trx;LogFileName=TestResults.trx" --results-directory TestResults --collect:"XPlat Code Coverage"
       env:
         # AWS Configuration
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
@@ -76,57 +72,71 @@ jobs:
         # Install xmlstarlet for XML parsing
         sudo apt-get update && sudo apt-get install -y xmlstarlet
 
-        # Parse the TRX file to extract test results
-        trx_file="TestResults/TestResults.trx"
+        # Find TRX files
+        find TestResults -name "*.trx" -type f || echo "No TRX files found"
+        ls -la TestResults/ || echo "TestResults directory not found"
 
-        if [ -f "$trx_file" ]; then
-          # Extract test counts from TRX file
-          total_tests=$(xmlstarlet sel -t -v "//Counters/@total" "$trx_file" 2>/dev/null || echo "0")
-          passed_tests=$(xmlstarlet sel -t -v "//Counters/@passed" "$trx_file" 2>/dev/null || echo "0")
-          failed_tests=$(xmlstarlet sel -t -v "//Counters/@failed" "$trx_file" 2>/dev/null || echo "0")
+        # Find the TRX file (it might not be named exactly TestResults.trx)
+        trx_file=$(find TestResults -name "*.trx" -type f | head -1)
+
+        if [ -n "$trx_file" ] && [ -f "$trx_file" ]; then
+          echo "Processing TRX file: $trx_file"
+
+          # Try multiple XPath patterns for different TRX formats
+          total_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@total" "$trx_file" 2>/dev/null || \
+                       xmlstarlet sel -t -v "//Counters/@total" "$trx_file" 2>/dev/null || \
+                       xmlstarlet sel -t -v "count(//UnitTestResult)" "$trx_file" 2>/dev/null || echo "0")
+
+          passed_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@passed" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "//Counters/@passed" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "count(//UnitTestResult[@outcome='Passed'])" "$trx_file" 2>/dev/null || echo "0")
+
+          failed_tests=$(xmlstarlet sel -t -v "//TestRun/ResultSummary/Counters/@failed" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "//Counters/@failed" "$trx_file" 2>/dev/null || \
+                        xmlstarlet sel -t -v "count(//UnitTestResult[@outcome='Failed'])" "$trx_file" 2>/dev/null || echo "0")
 
           echo "Total tests: $total_tests"
           echo "Passed tests: $passed_tests"
           echo "Failed tests: $failed_tests"
 
-          # Determine badge color
-          if [ "$failed_tests" -eq "0" ] && [ "$total_tests" -gt "0" ]; then
+          # Determine badge color and message
+          if [ "$total_tests" -gt "0" ] && [ "$failed_tests" -eq "0" ]; then
             color="brightgreen"
-            status="passing"
-          elif [ "$total_tests" -eq "0" ]; then
-            color="lightgrey"
-            status="no tests"
-            passed_tests="0"
-            total_tests="0"
-          else
+            message="${passed_tests}%2F${total_tests}%20passing"
+          elif [ "$total_tests" -gt "0" ] && [ "$failed_tests" -gt "0" ]; then
             color="red"
-            status="failing"
+            message="${passed_tests}%2F${total_tests}%20failing"
+          else
+            color="orange"
+            message="no%20tests"
           fi
 
           # Create badge URL
-          badge_text="${passed_tests}%2F${total_tests}%20tests%20${status}"
-          badge_url="https://img.shields.io/badge/Tests-${badge_text}-${color}"
+          badge_url="https://img.shields.io/badge/Tests-${message}-${color}"
 
           echo "BADGE_URL=$badge_url" >> $GITHUB_ENV
-          echo "TEST_STATUS=${passed_tests}/${total_tests} tests $status" >> $GITHUB_ENV
+          echo "TEST_STATUS=${passed_tests}/${total_tests}" >> $GITHUB_ENV
 
         else
           echo "No test results file found"
-          echo "BADGE_URL=https://img.shields.io/badge/Tests-unknown-lightgrey" >> $GITHUB_ENV
-          echo "TEST_STATUS=unknown" >> $GITHUB_ENV
+          echo "BADGE_URL=https://img.shields.io/badge/Tests-no%20results-orange" >> $GITHUB_ENV
+          echo "TEST_STATUS=no results" >> $GITHUB_ENV
         fi
 
     - name: Update README with test badge
       run: |
-        # Create or update the test badge in README
-        sed -i 's|!\[Tests\]([^)]*)|![Tests]('"$BADGE_URL"')|g' README.md
+        echo "Badge URL: $BADGE_URL"
 
-        # If no test badge exists, add it after the .NET badge
-        if ! grep -q "!\[Tests\]" README.md; then
-          sed -i '/!\[\.NET 10\]/a ![Tests]('"$BADGE_URL"')' README.md
-        fi
+        # Remove any existing test badge
+        sed -i '/!\[Tests\]/d' README.md
+
+        # Add the new test badge after the .NET badge line
+        sed -i '/!\[\.NET 10\]/a ![Tests]('"$BADGE_URL"')' README.md
 
         echo "Updated README with test status: $TEST_STATUS"
+
+        # Show the updated badge section
+        head -5 README.md
 
     - name: Commit and push changes
       run: |

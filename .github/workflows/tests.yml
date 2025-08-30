@@ -5,7 +5,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test-and-badge:
+  test-and-publish:
     runs-on: ubuntu-latest
 
     steps:
@@ -174,18 +174,18 @@ jobs:
         sed -i '/## 🧪 Test Results/,/^## /{ /^## 🧪 Test Results/d; /^## /!d; }' README.md
 
         # Create test results section using a here-doc
-        cat > test_results.tmp << EOF
-## 🧪 Test Results
+        cat > test_results.tmp << 'EOF'
+        ## 🧪 Test Results
 
-**Last Updated:** $current_date
+        **Last Updated:** $current_date
 
-| Metric | Count |
-|--------|-------|
-| ✅ **Tests Passed** | **$PASSED_TESTS** |
-| ❌ **Tests Failed** | **$FAILED_TESTS** |
-| 📊 **Total Tests** | **$TOTAL_TESTS** |
+        | Metric | Count |
+        |--------|-------|
+        | ✅ **Tests Passed** | **$PASSED_TESTS** |
+        | ❌ **Tests Failed** | **$FAILED_TESTS** |
+        | 📊 **Total Tests** | **$TOTAL_TESTS** |
 
-EOF
+        EOF
 
         # Find where to insert the test results (after the badges but before features)
         if grep -q "## 🚀 Features" README.md; then

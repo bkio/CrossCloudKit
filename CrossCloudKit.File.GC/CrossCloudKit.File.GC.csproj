@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<Title>CrossCloudKit.File.GC</Title>
+		<Authors>Burak Kara</Authors>
+		<Copyright>Copyright (c) 2022- Burak Kara - MIT License</Copyright>
+		<PackageProjectUrl>https://github.com/bkio/CrossCloudKit</PackageProjectUrl>
+		<PackageLicenseUrl>https://raw.githubusercontent.com/bkio/CrossCloudKit/refs/heads/main/LICENSE</PackageLicenseUrl>
+		<RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
+	</PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.PubSub.GC\CrossCloudKit.PubSub.GC.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj" />
+  </ItemGroup>
+
+</Project>

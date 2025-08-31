@@ -5,7 +5,6 @@
 
 CrossCloudKit is a comprehensive .NET library that provides unified interfaces and implementations for working with multiple cloud services. It enables developers to write cloud-agnostic code that can seamlessly work across AWS, Google Cloud, MongoDB, Redis, and S3-compatible storage providers with consistent APIs and behavior.
 
-## 🚀 Features
 ## 🧪 Test Results
 
 **Last Updated:** $current_date
@@ -15,6 +14,8 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | ✅ **Tests Passed** | **$PASSED_TESTS** |
 | ❌ **Tests Failed** | **$FAILED_TESTS** |
 | 📊 **Total Tests** | **$TOTAL_TESTS** |
+
+## 🚀 Features
 
 - **Unified Cloud Interfaces**: Single interfaces for all cloud service categories
 - **Multi-Service Support**:
@@ -36,58 +37,57 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 ## 📦 Packages
 | Package | Description |
 |---------|-------------|
-| `Cloud.Interfaces` | Core interfaces and base classes |
+| `CrossCloudKit.Interfaces` | Core interfaces and base classes |
 | **Database Services** | |
-| `Cloud.Database.AWS` | AWS DynamoDB implementation |
-| `Cloud.Database.Mongo` | MongoDB implementation |
-| `Cloud.Database.GC` | Google Cloud Datastore implementation |
+| `CrossCloudKit.Database.AWS` | AWS DynamoDB implementation |
+| `CrossCloudKit.Database.Mongo` | MongoDB implementation |
+| `CrossCloudKit.Database.GC` | Google Cloud Datastore implementation |
 | **File Storage Services** | |
-| `Cloud.File.AWS` | AWS S3 file storage implementation |
-| `Cloud.File.GC` | Google Cloud Storage implementation |
-| `Cloud.File.S3Compatible` | S3-compatible storage providers |
+| `CrossCloudKit.File.AWS` | AWS S3 file storage implementation |
+| `CrossCloudKit.File.GC` | Google Cloud Storage implementation |
+| `CrossCloudKit.File.S3Compatible` | S3-compatible storage providers |
 | **PubSub Messaging Services** | |
-| `Cloud.PubSub.AWS` | AWS SNS/SQS implementation |
-| `Cloud.PubSub.GC` | Google Cloud Pub/Sub implementation |
-| `Cloud.PubSub.Redis` | Redis Pub/Sub implementation |
+| `CrossCloudKit.PubSub.AWS` | AWS SNS/SQS implementation |
+| `CrossCloudKit.PubSub.GC` | Google Cloud Pub/Sub implementation |
+| `CrossCloudKit.PubSub.Redis` | Redis Pub/Sub implementation |
 | **Memory/Caching Services** | |
-| `Cloud.Memory.Redis` | Redis memory and caching implementation |
+| `CrossCloudKit.Memory.Redis` | Redis memory and caching implementation |
 | **Utilities** | |
-| `Utilities.Common` | Common utilities and primitive types |
-| `Utilities.Cloud` | Cloud-specific utilities and helpers |
-| `Utilities.Windows` | Windows-specific utilities |
+| `CrossCloudKit.Utilities.Common` | Common utilities and primitive types |
+| `CrossCloudKit.Utilities.Windows` | Windows-specific utilities |
 
 ## 🛠️ Installation
 ```bash
 # Choose your cloud provider package(s)
 # Database Services
-dotnet add package Cloud.Database.AWS
-dotnet add package Cloud.Database.Mongo
-dotnet add package Cloud.Database.GC
+dotnet add package CrossCloudKit.Database.AWS
+dotnet add package CrossCloudKit.Database.Mongo
+dotnet add package CrossCloudKit.Database.GC
 
 # File Storage Services
-dotnet add package Cloud.File.AWS
-dotnet add package Cloud.File.GC
-dotnet add package Cloud.File.S3Compatible
+dotnet add package CrossCloudKit.File.AWS
+dotnet add package CrossCloudKit.File.GC
+dotnet add package CrossCloudKit.File.S3Compatible
 
 # PubSub Services
-dotnet add package Cloud.PubSub.AWS
-dotnet add package Cloud.PubSub.GC
-dotnet add package Cloud.PubSub.Redis
+dotnet add package CrossCloudKit.PubSub.AWS
+dotnet add package CrossCloudKit.PubSub.GC
+dotnet add package CrossCloudKit.PubSub.Redis
 
 # Memory Services
-dotnet add package Cloud.Memory.Redis
+dotnet add package CrossCloudKit.Memory.Redis
 
 # Core interfaces (automatically included as dependency)
-dotnet add package Cloud.Interfaces
+dotnet add package CrossCloudKit.Interfaces
 ```
 ## 🏗️ Quick Start
 ### Database Services
 
 #### AWS DynamoDB
 ```csharp
-using Cloud.Database.AWS;
-using Cloud.Interfaces;
-using Utilities.Common;
+using CrossCloudKit.Database.AWS;
+using CrossCloudKit.Interfaces;
+using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json.Linq;
 
 // Initialize service
@@ -115,7 +115,7 @@ if (result.IsSuccessful && result.Data != null)
 ```
 #### MongoDB
 ```csharp
-using Cloud.Database.Mongo;
+using CrossCloudKit.Database.Mongo;
 
 // Initialize with connection string
 var dbService = new DatabaseServiceMongoDB(
@@ -128,7 +128,7 @@ await dbService.PutItemAsync("Users", "Id", keyValue, item);
 ```
 #### Google Cloud Datastore
 ```csharp
-using Cloud.Database.GC;
+using CrossCloudKit.Database.GC;
 
 // Initialize with service account
 var dbService = new DatabaseServiceGC(
@@ -142,8 +142,8 @@ await dbService.PutItemAsync("Users", "Id", keyValue, item);
 
 #### AWS S3
 ```csharp
-using Cloud.File.AWS;
-using Cloud.Interfaces;
+using CrossCloudKit.File.AWS;
+using CrossCloudKit.Interfaces;
 
 // Initialize service
 var fileService = new FileServiceAWS(
@@ -180,7 +180,7 @@ var signedUploadUrl = await fileService.CreateSignedUploadUrlAsync(
 ```
 #### Google Cloud Storage
 ```csharp
-using Cloud.File.GC;
+using CrossCloudKit.File.GC;
 
 // Initialize service
 var fileService = new FileServiceGC(
@@ -192,7 +192,7 @@ await fileService.UploadFileAsync(content, "my-bucket", "files/hello.txt");
 ```
 #### S3-Compatible Storage
 ```csharp
-using Cloud.File.S3Compatible;
+using CrossCloudKit.File.S3Compatible;
 
 // Initialize for MinIO or other S3-compatible storage
 var fileService = new FileServiceS3Compatible(
@@ -206,9 +206,9 @@ await fileService.UploadFileAsync(content, "my-bucket", "files/hello.txt");
 
 #### Redis Memory Service
 ```csharp
-using Cloud.Memory.Redis;
-using Cloud.Interfaces;
-using Utilities.Common;
+using CrossCloudKit.Memory.Redis;
+using CrossCloudKit.Interfaces;
+using CrossCloudKit.Utilities.Common;
 
 // Initialize service
 var memoryService = new MemoryServiceRedis(
@@ -244,8 +244,8 @@ await mutex.LockAsync();
 
 #### AWS SNS/SQS
 ```csharp
-using Cloud.PubSub.AWS;
-using Cloud.Interfaces;
+using CrossCloudKit.PubSub.AWS;
+using CrossCloudKit.Interfaces;
 
 // Initialize service
 var pubSubService = new PubSubServiceAWS(
@@ -273,7 +273,7 @@ await pubSubService.PublishAsync("user-events", "User logged in");
 ```
 #### Google Cloud Pub/Sub
 ```csharp
-using Cloud.PubSub.GC;
+using CrossCloudKit.PubSub.GC;
 
 // Initialize service
 var pubSubService = new PubSubServiceGC(
@@ -286,7 +286,7 @@ await pubSubService.PublishAsync("user-events", "User logged in");
 ```
 #### Redis Pub/Sub
 ```csharp
-using Cloud.PubSub.Redis;
+using CrossCloudKit.PubSub.Redis;
 
 // Initialize service
 var pubSubService = new PubSubServiceRedis(
@@ -482,19 +482,19 @@ The library includes comprehensive integration tests for all providers:
 dotnet test
 
 # Run tests for specific service type
-dotnet test Cloud.Database.AWS.Tests
-dotnet test Cloud.Database.Mongo.Tests
-dotnet test Cloud.Database.GC.Tests
+dotnet test CrossCloudKit.Database.AWS.Tests
+dotnet test CrossCloudKit.Database.Mongo.Tests
+dotnet test CrossCloudKit.Database.GC.Tests
 
-dotnet test Cloud.File.AWS.Tests
-dotnet test Cloud.File.GC.Tests
-dotnet test Cloud.File.S3Compatible.Tests
+dotnet test CrossCloudKit.File.AWS.Tests
+dotnet test CrossCloudKit.File.GC.Tests
+dotnet test CrossCloudKit.File.S3Compatible.Tests
 
-dotnet test Cloud.PubSub.AWS.Tests
-dotnet test Cloud.PubSub.GC.Tests
-dotnet test Cloud.PubSub.Redis.Tests
+dotnet test CrossCloudKit.PubSub.AWS.Tests
+dotnet test CrossCloudKit.PubSub.GC.Tests
+dotnet test CrossCloudKit.PubSub.Redis.Tests
 
-dotnet test Cloud.Memory.Redis.Tests
+dotnet test CrossCloudKit.Memory.Redis.Tests
 ```
 
 ### Test Configuration
@@ -541,7 +541,7 @@ REDIS_PASSWORD=your-redis-password
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                                Application Layer                                    │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
-│                     Cloud.Interfaces (Unified API Layer)                           │
+│                     CrossCloudKit.Interfaces (Unified API Layer)                           │
 │           IDatabaseService | IFileService | IPubSubService | IMemoryService        │
 ├──────────────────┬──────────────────┬──────────────────┬─────────────────────────────┤
 │    Database      │   File Storage   │     PubSub       │        Memory               │
@@ -551,7 +551,7 @@ REDIS_PASSWORD=your-redis-password
 │ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)         │
 │ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │                             │
 ├──────────────────┴──────────────────┴──────────────────┴─────────────────────────────┤
-│                            Utilities.Common                                         │
+│                            CrossCloudKit.Utilities.Common                                         │
 │                   (PrimitiveType, OperationResult, etc.)                           │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```

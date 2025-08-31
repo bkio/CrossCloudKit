@@ -3,61 +3,61 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36408.4
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Utilities.Common", "Utilities.Common\Utilities.Common.csproj", "{33F5F05D-842C-484A-ADE1-163C8271E1BF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Utilities.Common", "CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj", "{33F5F05D-842C-484A-ADE1-163C8271E1BF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Utilities.Windows", "Utilities.Windows\Utilities.Windows.csproj", "{2A59D70C-6D05-47F8-86BD-13F45B46C1F2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Utilities.Windows", "CrossCloudKit.Utilities.Windows\CrossCloudKit.Utilities.Windows.csproj", "{2A59D70C-6D05-47F8-86BD-13F45B46C1F2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Interfaces", "Cloud.Interfaces\Cloud.Interfaces.csproj", "{D65D4913-8A81-4C22-8B5B-EB11F835E5F9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Interfaces", "CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj", "{D65D4913-8A81-4C22-8B5B-EB11F835E5F9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.GC", "Cloud.Database.GC\Cloud.Database.GC.csproj", "{834CFCCD-3352-4E9E-A5F8-0EE436AC1CEF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.GC", "CrossCloudKit.Database.GC\CrossCloudKit.Database.GC.csproj", "{834CFCCD-3352-4E9E-A5F8-0EE436AC1CEF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.AWS", "Cloud.Database.AWS\Cloud.Database.AWS.csproj", "{27F8FF88-C367-4E6F-99BF-D9C0F1FDE0A1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.AWS", "CrossCloudKit.Database.AWS\CrossCloudKit.Database.AWS.csproj", "{27F8FF88-C367-4E6F-99BF-D9C0F1FDE0A1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.Mongo", "Cloud.Database.Mongo\Cloud.Database.Mongo.csproj", "{BF61230F-F34C-4C68-8BA7-F794E6DE4D8B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.Mongo", "CrossCloudKit.Database.Mongo\CrossCloudKit.Database.Mongo.csproj", "{BF61230F-F34C-4C68-8BA7-F794E6DE4D8B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.AWS.Tests", "Cloud.Database.AWS.Tests\Cloud.Database.AWS.Tests.csproj", "{34894BE9-DEE0-9A87-58F3-64E9683DEE29}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.AWS.Tests", "CrossCloudKit.Database.AWS.Tests\CrossCloudKit.Database.AWS.Tests.csproj", "{34894BE9-DEE0-9A87-58F3-64E9683DEE29}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.GC.Tests", "Cloud.Database.GC.Tests\Cloud.Database.GC.Tests.csproj", "{4908FD98-C354-28EE-6EDC-F7CFCD1E6034}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.GC.Tests", "CrossCloudKit.Database.GC.Tests\CrossCloudKit.Database.GC.Tests.csproj", "{4908FD98-C354-28EE-6EDC-F7CFCD1E6034}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.Mongo.Tests", "Cloud.Database.Mongo.Tests\Cloud.Database.Mongo.Tests.csproj", "{46AB9B33-9075-524D-98E0-9FA43CEA7741}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.Mongo.Tests", "CrossCloudKit.Database.Mongo.Tests\CrossCloudKit.Database.Mongo.Tests.csproj", "{46AB9B33-9075-524D-98E0-9FA43CEA7741}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Database.Tests.Common", "Cloud.Database.Tests.Common\Cloud.Database.Tests.Common.csproj", "{3E22BED5-B784-964C-8B2A-836B3C41DC38}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Database.Tests.Common", "CrossCloudKit.Database.Tests.Common\CrossCloudKit.Database.Tests.Common.csproj", "{3E22BED5-B784-964C-8B2A-836B3C41DC38}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.GC", "Cloud.File.GC\Cloud.File.GC.csproj", "{B6B7D755-1EF8-48D2-8A48-DEFC24929F07}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.GC", "CrossCloudKit.File.GC\CrossCloudKit.File.GC.csproj", "{B6B7D755-1EF8-48D2-8A48-DEFC24929F07}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.Tests.Common", "Cloud.File.Tests.Common\Cloud.File.Tests.Common.csproj", "{40D7AF6C-DA53-DC2A-9C7B-876ADA9CF384}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.Tests.Common", "CrossCloudKit.File.Tests.Common\CrossCloudKit.File.Tests.Common.csproj", "{40D7AF6C-DA53-DC2A-9C7B-876ADA9CF384}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.GC.Tests", "Cloud.File.GC.Tests\Cloud.File.GC.Tests.csproj", "{FAAFEE28-A653-7C48-30B2-7A79A6AF5C6F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.GC.Tests", "CrossCloudKit.File.GC.Tests\CrossCloudKit.File.GC.Tests.csproj", "{FAAFEE28-A653-7C48-30B2-7A79A6AF5C6F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.GC", "Cloud.PubSub.GC\Cloud.PubSub.GC.csproj", "{C847EAC1-0CD7-406F-BC18-BB426DB7552D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.GC", "CrossCloudKit.PubSub.GC\CrossCloudKit.PubSub.GC.csproj", "{C847EAC1-0CD7-406F-BC18-BB426DB7552D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Tests.Common", "Cloud.PubSub.Tests.Common\Cloud.PubSub.Tests.Common.csproj", "{6239B55D-66EB-4C7E-A389-65046B8B7F72}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.Tests.Common", "CrossCloudKit.PubSub.Tests.Common\CrossCloudKit.PubSub.Tests.Common.csproj", "{6239B55D-66EB-4C7E-A389-65046B8B7F72}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.GC.Tests", "Cloud.PubSub.GC.Tests\Cloud.PubSub.GC.Tests.csproj", "{A60F291E-FBF6-4688-917F-6C39CD2A65B4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.GC.Tests", "CrossCloudKit.PubSub.GC.Tests\CrossCloudKit.PubSub.GC.Tests.csproj", "{A60F291E-FBF6-4688-917F-6C39CD2A65B4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.AWS", "Cloud.File.AWS\Cloud.File.AWS.csproj", "{CAFBFF0B-915B-40B3-9C44-7A6C609ACBD7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.AWS", "CrossCloudKit.File.AWS\CrossCloudKit.File.AWS.csproj", "{CAFBFF0B-915B-40B3-9C44-7A6C609ACBD7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.AWS.Tests", "Cloud.File.AWS.Tests\Cloud.File.AWS.Tests.csproj", "{6DF2FE0E-0340-4C87-B131-96B9F64BA662}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.AWS.Tests", "CrossCloudKit.File.AWS.Tests\CrossCloudKit.File.AWS.Tests.csproj", "{6DF2FE0E-0340-4C87-B131-96B9F64BA662}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.AWS", "Cloud.PubSub.AWS\Cloud.PubSub.AWS.csproj", "{841AB724-385B-4B13-A733-2C1040EB89AF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.AWS", "CrossCloudKit.PubSub.AWS\CrossCloudKit.PubSub.AWS.csproj", "{841AB724-385B-4B13-A733-2C1040EB89AF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.AWS.Tests", "Cloud.PubSub.AWS.Tests\Cloud.PubSub.AWS.Tests.csproj", "{868E91FF-993F-481F-B0C1-5C2B0E0FE904}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.AWS.Tests", "CrossCloudKit.PubSub.AWS.Tests\CrossCloudKit.PubSub.AWS.Tests.csproj", "{868E91FF-993F-481F-B0C1-5C2B0E0FE904}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis", "Cloud.Memory.Redis\Cloud.Memory.Redis.csproj", "{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Memory.Redis", "CrossCloudKit.Memory.Redis\CrossCloudKit.Memory.Redis.csproj", "{3A28F363-1DFC-46CD-9AA7-1C6AA346266F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis.Tests", "Cloud.Memory.Redis.Tests\Cloud.Memory.Redis.Tests.csproj", "{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Memory.Redis.Tests", "CrossCloudKit.Memory.Redis.Tests\CrossCloudKit.Memory.Redis.Tests.csproj", "{C59CCE6A-1EE6-4A13-B5F6-D1B5BE6E8DB3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Tests.Common", "Cloud.Memory.Tests.Common\Cloud.Memory.Tests.Common.csproj", "{AE748BE5-515E-4260-9F75-6FE9575DE1CD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Memory.Tests.Common", "CrossCloudKit.Memory.Tests.Common\CrossCloudKit.Memory.Tests.Common.csproj", "{AE748BE5-515E-4260-9F75-6FE9575DE1CD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.Memory.Redis.Common", "Cloud.Memory.Redis.Common\Cloud.Memory.Redis.Common.csproj", "{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Memory.Redis.Common", "CrossCloudKit.Memory.Redis.Common\CrossCloudKit.Memory.Redis.Common.csproj", "{6C82A7BF-F9FF-4DE2-B792-E2D12B2B7491}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis", "Cloud.PubSub.Redis\Cloud.PubSub.Redis.csproj", "{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.Redis", "CrossCloudKit.PubSub.Redis\CrossCloudKit.PubSub.Redis.csproj", "{1ADC0BBE-1F73-40C1-8AB0-55985E9832C9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.PubSub.Redis.Tests", "Cloud.PubSub.Redis.Tests\Cloud.PubSub.Redis.Tests.csproj", "{86CEA989-BDB0-48B8-910A-E5FFE33EC855}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.PubSub.Redis.Tests", "CrossCloudKit.PubSub.Redis.Tests\CrossCloudKit.PubSub.Redis.Tests.csproj", "{86CEA989-BDB0-48B8-910A-E5FFE33EC855}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.S3Compatible", "Cloud.File.S3Compatible\Cloud.File.S3Compatible.csproj", "{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.S3Compatible", "CrossCloudKit.File.S3Compatible\CrossCloudKit.File.S3Compatible.csproj", "{EC3130DF-0FEE-4F3D-9F2E-14CA0A1D131B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cloud.File.S3Compatible.Tests", "Cloud.File.S3Compatible.Tests\Cloud.File.S3Compatible.Tests.csproj", "{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.File.S3Compatible.Tests", "CrossCloudKit.File.S3Compatible.Tests\CrossCloudKit.File.S3Compatible.Tests.csproj", "{1A4F927B-CFAA-4B82-8A4D-CC630D16B835}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Orchestration", "Orchestration", "{9D492D31-2695-42F5-B2BF-092B8BA297D7}"
 	ProjectSection(SolutionItems) = preProject

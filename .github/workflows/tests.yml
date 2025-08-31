@@ -37,7 +37,7 @@ jobs:
     - name: Run tests and generate report
       id: test
       run: |
-        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults --collect:"XPlat Code Coverage"
+        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults --collect:"XPlat Code Coverage" -- RunConfiguration.MaxParallelThreads=1
       env:
         # AWS Configuration
         AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
@@ -135,7 +135,7 @@ jobs:
           message="${passed_tests}%2F${total_tests}%20passing"
         elif [ "$total_tests" -gt "0" ] && [ "$failed_tests" -gt "0" ]; then
           color="red"
-          message="${passed_tests}%2F${total_tests}%20failing"
+          message="${$failed_tests}%2F${total_tests}%20failing"
         else
           color="orange"
           message="no%20tests"
@@ -174,7 +174,7 @@ jobs:
         sed -i '/## 🧪 Test Results/,/^## /{ /^## 🧪 Test Results/d; /^## /!d; }' README.md
 
         # Create test results section using a here-doc
-        cat > test_results.tmp << 'EOF'
+        cat > test_results.tmp << EOF
         ## 🧪 Test Results
 
         **Last Updated:** $current_date
@@ -190,7 +190,7 @@ jobs:
         # Find where to insert the test results (after the badges but before features)
         if grep -q "## 🚀 Features" README.md; then
           # Insert before Features section
-          sed -i '/## 🚀 Features/r test_results.tmp' README.md
+          sed -i '/## 🚀 Features/{r test_results.tmp; i\ }' README.md
         else
           # Insert after the description paragraph
           sed -i '/CrossCloudKit is a comprehensive/r test_results.tmp' README.md

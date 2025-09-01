@@ -10,10 +10,12 @@
 		<PackageProjectUrl>https://github.com/bkio/CrossCloudKit</PackageProjectUrl>
 		<PackageLicenseUrl>https://raw.githubusercontent.com/bkio/CrossCloudKit/refs/heads/main/LICENSE</PackageLicenseUrl>
 		<RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
 	</PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CrossCloudKit.File.AWS\CrossCloudKit.File.AWS.csproj" />
+      <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

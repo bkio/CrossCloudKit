@@ -10,6 +10,7 @@
 		<PackageProjectUrl>https://github.com/bkio/CrossCloudKit</PackageProjectUrl>
 		<PackageLicenseUrl>https://raw.githubusercontent.com/bkio/CrossCloudKit/refs/heads/main/LICENSE</PackageLicenseUrl>
 		<RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
 	</PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,7 @@
     <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
     <ProjectReference Include="..\CrossCloudKit.PubSub.GC\CrossCloudKit.PubSub.GC.csproj" />
     <ProjectReference Include="..\CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj" />
+      <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

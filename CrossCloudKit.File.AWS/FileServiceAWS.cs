@@ -23,6 +23,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
     protected TransferUtility? TransferUtil;
     protected Amazon.Runtime.AWSCredentials? AWSCredentials;
     protected RegionEndpoint? RegionEndpoint;
+    protected string? RegionSystemName;
 
     /// <summary>
     /// Gets a value indicating whether the service was initialized successfully
@@ -44,6 +45,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(region);
 
             AWSCredentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
+            RegionSystemName = region;
             RegionEndpoint = RegionEndpoint.GetBySystemName(region);
 
             S3Client = new AmazonS3Client(AWSCredentials, RegionEndpoint);
@@ -700,6 +702,8 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         if (!IsInitialized || S3Client is null)
             return OperationResult<string>.Failure("Service not initialized");
 
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
         try
         {
             var awsEventTypes = new List<EventType>();
@@ -717,45 +721,24 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 }
             }
 
-            var queueArn = topicName;
-
-            // Always fetch account ID using Security Token Service with stored credentials
-            if (AWSCredentials is null)
+            var topicToSnsArnResult = await TopicToSnsArn(topicName, cancellationToken);
+            if (!topicToSnsArnResult.IsSuccessful)
             {
-                return OperationResult<string>.Failure("AWS credentials not available");
+                return topicToSnsArnResult;
             }
+            var topicArn = topicToSnsArnResult.Data!;
 
-            using var stsClient = new AmazonSecurityTokenServiceClient(AWSCredentials, RegionEndpoint);
-            var callerIdentityRequest = new GetCallerIdentityRequest();
-            var callerIdentityResponse = await stsClient.GetCallerIdentityAsync(callerIdentityRequest, cancellationToken).ConfigureAwait(false);
-            var accountId = callerIdentityResponse.Account;
-
-            if (!topicName.StartsWith("arn:aws:sqs:", StringComparison.OrdinalIgnoreCase))
-            {
-                if (RegionEndpoint is null)
-                {
-                    return OperationResult<string>.Failure("AWS region not available for ARN construction");
-                }
-
-                // Get a bucket location to determine region
-                var bucketLocationRequest = new GetBucketLocationRequest { BucketName = bucketName };
-                var bucketLocationResponse = await S3Client.GetBucketLocationAsync(bucketLocationRequest, cancellationToken).ConfigureAwait(false);
-                var region = string.IsNullOrEmpty(bucketLocationResponse.Location?.Value) ? "us-east-1" : bucketLocationResponse.Location.Value;
-
-                queueArn = $"arn:aws:sqs:{region}:{accountId}:{topicName}";
-            }
-
-            // Ensure queue exists (pass queue name, assuming pubSubService expects name not ARN)
+            // Ensure SNS topic exists
             await pubSubService.EnsureTopicExistsAsync(topicName, cancellationToken);
 
             var currentNotifications = await S3Client.GetBucketNotificationAsync(bucketName, cancellationToken);
-            currentNotifications.QueueConfigurations ??= [];
+            currentNotifications.TopicConfigurations ??= [];
 
             var added = false;
 
-            foreach (var config in currentNotifications.QueueConfigurations)
+            foreach (var config in currentNotifications.TopicConfigurations)
             {
-                if (config.Queue != queueArn
+                if (config.Topic != topicArn
                     || config.Filter is not { S3KeyFilter.FilterRules: not null }
                     || !config.Filter.S3KeyFilter.FilterRules.Any(rule =>
                         rule.Name == "prefix" && rule.Value == pathPrefix)) continue;
@@ -777,9 +760,9 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
 
             if (!added)
             {
-                currentNotifications.QueueConfigurations.Add(new QueueConfiguration
+                currentNotifications.TopicConfigurations.Add(new TopicConfiguration
                 {
-                    Queue = queueArn,
+                    Topic = topicArn,
                     Filter = new Filter()
                     {
                         S3KeyFilter = new S3KeyFilter()
@@ -791,15 +774,25 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 });
             }
 
+            var setPolicyResult = await pubSubService.AWSSpecific_AddSnsS3PolicyAsync(topicArn, $"arn:aws:s3:::{bucketName}",
+                cancellationToken);
+            if (!setPolicyResult.IsSuccessful)
+            {
+                return OperationResult<string>.Failure($"Add SNS policy failed: {setPolicyResult.ErrorMessage}");
+            }
+
             var notificationRequest = new PutBucketNotificationRequest
             {
                 BucketName = bucketName,
-                QueueConfigurations = currentNotifications.QueueConfigurations
+                TopicConfigurations = currentNotifications.TopicConfigurations,
+                QueueConfigurations = currentNotifications.QueueConfigurations ?? [],
+                EventBridgeConfiguration = currentNotifications.EventBridgeConfiguration ?? new EventBridgeConfiguration(),
+                LambdaFunctionConfigurations = currentNotifications.LambdaFunctionConfigurations ?? []
             };
 
             await S3Client.PutBucketNotificationAsync(notificationRequest, cancellationToken);
 
-            return !(await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful ? throw new Exception("Unable to mark queue as used on bucket event.") : OperationResult<string>.Success(queueArn);
+            return !(await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful ? throw new Exception("Unable to mark topic as used on bucket event.") : OperationResult<string>.Success(topicArn);
         }
         catch (Exception ex)
         {
@@ -830,13 +823,16 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
 
             if (topicName == null)
             {
-                // Delete all queue notifications
-                deletedCount = response.QueueConfigurations.Count;
+                // Delete all topic notifications
+                deletedCount = response.TopicConfigurations.Count;
 
                 var putRequest = new PutBucketNotificationRequest
                 {
                     BucketName = bucketName,
-                    QueueConfigurations = []
+                    TopicConfigurations = [],
+                    QueueConfigurations = response.QueueConfigurations ?? [],
+                    EventBridgeConfiguration = response.EventBridgeConfiguration ?? new EventBridgeConfiguration(),
+                    LambdaFunctionConfigurations = response.LambdaFunctionConfigurations ?? []
                 };
 
                 await S3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
@@ -849,32 +845,50 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
 
                 foreach (var topic in topicsToDelete.Data)
                 {
+                    var removePolicyResult = await pubSubService.AWSSpecific_RemoveSnsS3PolicyAsync(EncodingUtilities.EncodeTopic(topic)!, $"arn:aws:s3:::{bucketName}",
+                        cancellationToken);
+                    if (!removePolicyResult.IsSuccessful)
+                    {
+                        return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}");
+                    }
                     if (!(await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken)).IsSuccessful)
                     {
-                        return OperationResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                        return OperationResult<int>.Failure("Unable to unmark topic as used on bucket event.");
                     }
                 }
             }
             else
             {
-                // Delete specific queue notifications - check both queue name and ARN
-                var remainingConfigurations = response.QueueConfigurations
-                    .Where(config => !IsQueueMatch(config.Queue, topicName))
+                var encodedTopic = EncodingUtilities.EncodeTopic(topicName)!;
+
+                // Delete specific topic notifications - check both topic name and ARN
+                var remainingConfigurations = response.TopicConfigurations
+                    .Where(config => !IsTopicMatch(config.Topic, encodedTopic))
                     .ToList();
 
-                deletedCount = response.QueueConfigurations.Count - remainingConfigurations.Count;
+                deletedCount = response.TopicConfigurations.Count - remainingConfigurations.Count;
 
                 var putRequest = new PutBucketNotificationRequest
                 {
                     BucketName = bucketName,
-                    QueueConfigurations = remainingConfigurations
+                    TopicConfigurations = remainingConfigurations,
+                    QueueConfigurations = response.QueueConfigurations ?? [],
+                    EventBridgeConfiguration = response.EventBridgeConfiguration ?? new EventBridgeConfiguration(),
+                    LambdaFunctionConfigurations = response.LambdaFunctionConfigurations ?? []
                 };
 
                 await S3Client.PutBucketNotificationAsync(putRequest, cancellationToken).ConfigureAwait(false);
 
+                var removePolicyResult = await pubSubService.AWSSpecific_RemoveSnsS3PolicyAsync(encodedTopic, $"arn:aws:s3:::{bucketName}",
+                    cancellationToken);
+                if (!removePolicyResult.IsSuccessful)
+                {
+                    return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}");
+                }
+
                 if (!(await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful)
                 {
-                    return OperationResult<int>.Failure("Unable to unmark queue as used on bucket event.");
+                    return OperationResult<int>.Failure("Unable to unmark topic as used on bucket event.");
                 }
             }
 
@@ -886,37 +900,29 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
     }
 
-    private static bool IsQueueMatch(string configuredQueue, string targetQueue)
+    public virtual async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
     {
-        // Direct match
-        if (string.Equals(configuredQueue, targetQueue, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // If configured queue is an ARN, extract queue name and compare
-        if (configuredQueue.StartsWith("arn:aws:sqs:", StringComparison.OrdinalIgnoreCase))
+        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+        var success = true;
+        var errorMessages = new List<string>();
+        try
         {
-            var arnParts = configuredQueue.Split(':');
-            if (arnParts.Length >= 6)
+            var listResult = await ListFilesAsync(bucketName, cancellationToken: cancellationToken);
+            if (listResult is { IsSuccessful: true, Data: not null })
             {
-                var queueName = arnParts[5];
-                if (string.Equals(queueName, targetQueue, StringComparison.OrdinalIgnoreCase))
-                    return true;
+                foreach (var key in listResult.Data.FileKeys)
+                {
+                    var deleteFileResult = await DeleteFileAsync(bucketName, key, cancellationToken);
+                    if (!deleteFileResult.IsSuccessful)
+                    {
+                        success = false;
+                        errorMessages.Add(deleteFileResult.ErrorMessage!);
+                    }
+                }
             }
         }
-
-        // If target queue is an ARN, extract queue name and compare with configured queue
-        if (targetQueue.StartsWith("arn:aws:sqs:", StringComparison.OrdinalIgnoreCase))
-        {
-            var arnParts = targetQueue.Split(':');
-            if (arnParts.Length >= 6)
-            {
-                var queueName = arnParts[5];
-                if (string.Equals(configuredQueue, queueName, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-
-        return false;
+        catch { /* Ignore cleanup errors in tests */ }
+        return success ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure($"Cleanup bucket failed: {string.Join(Environment.NewLine, errorMessages)}");
     }
 
     private static S3CannedACL ConvertAccessibilityToAcl(FileAccessibility accessibility) => accessibility switch
@@ -924,6 +930,39 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         FileAccessibility.PublicRead => S3CannedACL.PublicRead,
         _ => S3CannedACL.AuthenticatedRead
     };
+
+    private async Task<OperationResult<string>> TopicToSnsArn(string encodedTopic, CancellationToken cancellationToken)
+    {
+        if (S3Client == null)
+        {
+            return OperationResult<string>.Failure("Service not initialized");
+        }
+
+        using var stsClient = new AmazonSecurityTokenServiceClient(AWSCredentials, RegionEndpoint);
+        var callerIdentityRequest = new GetCallerIdentityRequest();
+        var callerIdentityResponse = await stsClient.GetCallerIdentityAsync(callerIdentityRequest, cancellationToken).ConfigureAwait(false);
+        var accountId = callerIdentityResponse.Account;
+
+        if (encodedTopic.StartsWith("arn:aws:sns:", StringComparison.OrdinalIgnoreCase))
+            return OperationResult<string>.Success(encodedTopic);
+        return RegionSystemName is null ? OperationResult<string>.Failure("AWS region not available for ARN construction") : OperationResult<string>.Success($"arn:aws:sns:{RegionSystemName}:{accountId}:{encodedTopic}");
+    }
+    private static bool IsTopicMatch(string configuredTopic, string targetTopic)
+    {
+        // Direct match
+        if (string.Equals(configuredTopic, targetTopic, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return InternalCompareTopicMatch(configuredTopic, targetTopic) ||
+               InternalCompareTopicMatch(targetTopic, configuredTopic);
+    }
+    private static bool InternalCompareTopicMatch(string first, string second)
+    {
+        if (!first.StartsWith("arn:aws:sns:", StringComparison.OrdinalIgnoreCase)) return false;
+        var arnParts = first.Split(':');
+        if (arnParts.Length < 6) return false;
+        var topicName = arnParts[5];
+        return string.Equals(topicName, second, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Disposes of the resources used by this instance
@@ -935,5 +974,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         S3Client?.Dispose();
 
         await ValueTask.CompletedTask;
+
+        GC.SuppressFinalize(this);
     }
 }

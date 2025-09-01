@@ -111,7 +111,7 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
 
     protected override string GetTestBucketName() => GetTestBucketName(TestBucketName);
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithServiceAccountFilePath_ShouldInitialize()
     {
         // This test demonstrates using a file path (will fail initialization with non-existent file)
@@ -136,7 +136,7 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithDefaultCredentials_ShouldInitialize()
     {
         // This test may succeed if running with proper ADC setup, or fail gracefully
@@ -155,7 +155,7 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithNullProjectId_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -164,14 +164,14 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
         Assert.Throws<ArgumentException>(() => new FileServiceGC("   ", useDefaultCredentials: true));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithDefaultCredentialsFalse_ShouldThrowArgumentException()
     {
         // Act & Assert
         Assert.Throws<ArgumentException>(() => new FileServiceGC(TestProjectId, useDefaultCredentials: false));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithNullServiceAccountPath_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -180,7 +180,7 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
         Assert.Throws<ArgumentException>(() => new FileServiceGC(TestProjectId, "   "));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithNullServiceAccountContent_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -189,7 +189,7 @@ public class FileServiceGCIntegrationTests(ITestOutputHelper testOutputHelper) :
         Assert.Throws<ArgumentException>(() => new FileServiceGC(TestProjectId, "   ", isBase64Encoded: false));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void FileServiceGC_WithInvalidBase64Credentials_ShouldFailGracefully()
     {
         // Arrange

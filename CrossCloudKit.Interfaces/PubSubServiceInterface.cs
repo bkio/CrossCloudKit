@@ -81,7 +81,29 @@ public interface IPubSubService
     /// <summary>
     /// Get all topics used on bucket events.
     /// </summary>
-    /// <param name="cancellationToken"></param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns></returns>
     Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Only for AWS. For other providers, this method does nothing.
+    /// Sets an AWS SNS topic policy to allow a specific S3 bucket to publish messages to the SNS topic.
+    /// This is typically required when you want S3 event notifications (like object creation or deletion) to be sent to an SNS topic.
+    /// </summary>
+    /// <param name="snsTopicArn">The Amazon Resource Name (ARN) of the SNS topic to which the S3 bucket will be allowed to publish.</param>
+    /// <param name="bucketArn">The ARN of the S3 bucket that should be authorized to publish messages to the SNS topic.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns></returns>
+    Task<OperationResult<bool>> AWSSpecific_AddSnsS3PolicyAsync(string snsTopicArn, string bucketArn, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Only for AWS. For other providers, this method does nothing.
+    /// Removes an AWS SNS topic policy that allows a specific S3 bucket to publish messages to the SNS topic.
+    /// This is typically used to stop S3 event notifications from being sent to an SNS topic.
+    /// </summary>
+    /// <param name="encodedTopic">The Amazon Resource Name (ARN) or encoded identifier of the SNS topic from which the bucket's publish permission should be removed.</param>
+    /// <param name="bucketArn">The ARN of the S3 bucket whose publish permission should be removed from the SNS topic.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Returns an OperationResult indicating whether the removal succeeded.</returns>
+    Task<OperationResult<bool>> AWSSpecific_RemoveSnsS3PolicyAsync(string encodedTopic, string bucketArn, CancellationToken cancellationToken = default);
 }

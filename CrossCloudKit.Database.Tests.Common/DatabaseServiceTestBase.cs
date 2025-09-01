@@ -74,7 +74,7 @@ public abstract class DatabaseServiceTestBase
         };
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual void BuildAttributeExistsCondition_ShouldReturnExistenceCondition()
     {
         // Arrange
@@ -98,7 +98,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual void BuildAttributeNotExistsCondition_ShouldReturnExistenceCondition()
     {
         // Arrange
@@ -125,19 +125,11 @@ public abstract class DatabaseServiceTestBase
     /// <summary>
     /// Override the base test to handle the case where service is not initialized due to missing credentials
     /// </summary>
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PutItemAsync_WithNewItem_ShouldSucceed()
     {
         // Arrange
         var service = CreateDatabaseService();
-
-        // Skip the test if service couldn't be initialized (no real credentials)
-        if (!service.IsInitialized)
-        {
-            // In xUnit, we can't dynamically skip, so we just return early
-            // This is the expected behavior when no credentials are available
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -165,17 +157,11 @@ public abstract class DatabaseServiceTestBase
     /// <summary>
     /// Override the base test to handle the case where service is not initialized due to missing credentials
     /// </summary>
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetItemAsync_WhenItemNotExists_ShouldReturnNull()
     {
         // Arrange
         var service = CreateDatabaseService();
-
-        // Skip the test if service couldn't be initialized (no real credentials)
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -202,17 +188,11 @@ public abstract class DatabaseServiceTestBase
     /// <summary>
     /// Override the base test to handle the case where service is not initialized due to missing credentials
     /// </summary>
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ItemExistsAsync_WhenItemNotExists_ShouldReturnFalse()
     {
         // Arrange
         var service = CreateDatabaseService();
-
-        // Skip the test if service couldn't be initialized (no real credentials)
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -236,14 +216,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ValueConditions_InItemExistsAsync_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -307,14 +283,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ExistenceConditions_InUpdateAsync_ShouldPreventOrAllowOperations()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -367,14 +339,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ArrayElementConditions_InDeleteAsync_ShouldWorkWithArrays()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -424,14 +392,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Conditions_InAddElementsToArrayAsync_ShouldControlArrayModification()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -495,14 +459,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ComplexConditions_InRealScenarios_ShouldHandleBusinessLogic()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -566,14 +526,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ArrayOperations_WithRealCredentials_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -637,7 +593,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PutItemAsync_WithComplexNestedDocument_ShouldPreserveStructure()
     {
         // Arrange
@@ -709,7 +665,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task BatchOperations_WithMultipleItems_ShouldHandleEfficiently()
     {
         // Arrange
@@ -758,7 +714,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ConditionalOperations_WithAttributeNotExists_ShouldWorkCorrectly()
     {
         // Arrange
@@ -804,7 +760,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ParallelOperations_ShouldHandleConcurrentRequests()
     {
         // Arrange
@@ -846,7 +802,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task LargeItem_ShouldHandleWithinDynamoDBLimits()
     {
         // Arrange
@@ -888,7 +844,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PutItemAsync_WithObjectId_ShouldHandleMongoDBObjectId()
     {
         // Arrange
@@ -927,7 +883,7 @@ public abstract class DatabaseServiceTestBase
 
     #region Additional Comprehensive Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void BuildValueConditions_ShouldReturnCorrectConditionTypes()
     {
         // Arrange
@@ -976,7 +932,7 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void BuildArrayElementConditions_ShouldReturnCorrectConditionTypes()
     {
         // Arrange
@@ -1007,14 +963,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PrimitiveTypes_IntegerKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1052,14 +1004,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PrimitiveTypes_DoubleKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1092,14 +1040,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PrimitiveTypes_ByteArrayKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1131,14 +1075,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task CrossTypePrimitiveComparisons_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1181,14 +1121,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PutItemAsync_WithConditions_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1222,14 +1158,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ReturnItemBehavior_ShouldWorkCorrectlyAcrossOperations()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1275,14 +1207,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ArrayOperations_WithDifferentPrimitiveTypes_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1356,14 +1284,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task RemoveElementsFromArrayAsync_WithConditions_ShouldControlModification()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1420,14 +1344,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementAttributeAsync_WithDifferentScenarios_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1478,14 +1398,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ScanOperations_WithComplexFilters_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1537,14 +1453,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task EdgeCases_EmptyAndNullScenarios_ShouldBeHandledCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";
@@ -1599,14 +1511,10 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ArrayElementConditions_WithDifferentTypes_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
-        if (!service.IsInitialized)
-        {
-            return;
-        }
 
         var tableName = GetTestTableName();
         var keyName = "Id";

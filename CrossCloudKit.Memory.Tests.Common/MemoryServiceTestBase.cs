@@ -94,13 +94,13 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Initialization Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void MemoryService_ShouldBeInitialized()
     {
         MemoryService.IsInitialized.Should().BeTrue();
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void PubSubService_ShouldBeInitialized()
     {
         PubSubService.IsInitialized.Should().BeTrue();
@@ -110,7 +110,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Key Expiration Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyExpireTime_WithValidTimeToLive_ShouldReturnTrue()
     {
         try
@@ -131,7 +131,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyExpireTime_WithExistingKey_ShouldReturnTrue()
     {
         try
@@ -153,7 +153,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyExpireTime_AfterSettingExpiration_ShouldReturnTimeToLive()
     {
         try
@@ -177,7 +177,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyExpireTime_WithoutExpiration_ShouldReturnNull()
     {
         try
@@ -202,7 +202,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Key-Value Operations Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValues_WithValidKeyValues_ShouldReturnTrue()
     {
         try
@@ -228,7 +228,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValues_WithEmptyKeyValues_ShouldReturnFailure()
     {
         try
@@ -249,7 +249,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionally_WithNewKey_ShouldReturnTrue()
     {
         try
@@ -271,7 +271,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionally_WithExistingKey_ShouldReturnFalse()
     {
         try
@@ -300,7 +300,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_WithNewKey_ShouldReturnTrueAndNewValue()
     {
         try
@@ -327,7 +327,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_WithExistingKey_ShouldReturnFalseAndExistingValue()
     {
         try
@@ -357,7 +357,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeTrue_AndNewKey_ShouldPublishNotification()
     {
         try
@@ -386,7 +386,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeTrue_AndExistingKey_ShouldNotPublishNotification()
     {
         try
@@ -416,7 +416,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_WithPublishChangeFalse_ShouldNotPublishNotification()
     {
         try
@@ -443,7 +443,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionallyGetValueRegardless_CompleteWorkflow_ShouldWorkCorrectly()
     {
         try
@@ -512,7 +512,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Mutex Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Mutex_BasicLockAndUnlock_ShouldWorkCorrectly()
     {
         try
@@ -534,7 +534,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "RedundantAssignment")]
     public async Task Mutex_MultipleLockAttempts_ShouldBlockSecondAttempt()
     {
@@ -583,7 +583,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "RedundantAssignment")]
     public async Task Mutex_SequentialLocks_ShouldAllowSecondAfterFirstReleased()
     {
@@ -620,7 +620,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Mutex_ConcurrentAccess_ShouldSerializeExecution()
     {
         try
@@ -668,7 +668,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Mutex_WithDifferentKeys_ShouldAllowConcurrentLocks()
     {
         try
@@ -709,7 +709,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "UseAwaitUsing")]
     [SuppressMessage("ReSharper", "RedundantAssignment")]
     public async Task Mutex_SynchronousCreation_ShouldWork()
@@ -754,7 +754,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "RedundantAssignment")]
     public async Task Mutex_LockExpiration_ShouldAllowReacquisition()
     {
@@ -791,7 +791,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "AccessToDisposedClosure")]
     public async Task Mutex_CancellationDuringAcquisition_ShouldThrowOperationCanceledException()
     {
@@ -820,7 +820,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     [SuppressMessage("ReSharper", "RedundantAssignment")]
     public async Task Mutex_ExceptionInCriticalSection_ShouldReleaseLock()
     {
@@ -864,7 +864,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #endregion
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyValue_WithExistingKey_ShouldReturnValue()
     {
         try
@@ -887,7 +887,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyValue_WithNonExistingKey_ShouldReturnNull()
     {
         try
@@ -908,7 +908,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyValues_WithValidKeys_ShouldReturnValues()
     {
         try
@@ -938,7 +938,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyValues_WithEmptyKeys_ShouldReturnFailure()
     {
         try
@@ -956,7 +956,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeyValues_WithMixedExistingAndNonExistingKeys_ShouldReturnOnlyExistingValues()
     {
         try
@@ -987,7 +987,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetAllKeyValues_WithExistingKeys_ShouldReturnAllValues()
     {
         try
@@ -1018,7 +1018,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetAllKeyValues_WithEmptyScope_ShouldReturnEmptyDictionary()
     {
         try
@@ -1041,7 +1041,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Key Deletion Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteKey_WithExistingKey_ShouldReturnTrue()
     {
         try
@@ -1068,7 +1068,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteKey_WithNonExistingKey_ShouldReturnFalse()
     {
         try
@@ -1089,7 +1089,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteAllKeys_WithExistingKeys_ShouldReturnTrue()
     {
         try
@@ -1121,7 +1121,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteAllKeys_WithEmptyScope_ShouldReturnTrue_DataFalse()
     {
         try
@@ -1143,7 +1143,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Key Listing Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeys_WithExistingKeys_ShouldReturnAllKeys()
     {
         try
@@ -1173,7 +1173,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeys_WithEmptyScope_ShouldReturnEmptyCollection()
     {
         try
@@ -1192,7 +1192,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeysCount_WithExistingKeys_ShouldReturnCorrectCount()
     {
         try
@@ -1222,7 +1222,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetKeysCount_WithEmptyScope_ShouldReturnZero()
     {
         try
@@ -1244,7 +1244,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Increment Operations Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyValues_WithValidIncrements_ShouldReturnNewValues()
     {
         try
@@ -1280,7 +1280,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyValues_WithNewKeys_ShouldCreateKeysWithIncrements()
     {
         try
@@ -1308,7 +1308,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyValues_WithEmptyIncrements_ShouldReturnFailure()
     {
         try
@@ -1326,7 +1326,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyByValueAndGet_WithExistingKey_ShouldReturnNewValue()
     {
         try
@@ -1351,7 +1351,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyByValueAndGet_WithNewKey_ShouldReturnIncrementValue()
     {
         try
@@ -1373,7 +1373,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyByValueAndGet_WithNegativeIncrement_ShouldDecrement()
     {
         try
@@ -1402,7 +1402,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region List Operations Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTail_WithValidValues_ShouldReturnTrue()
     {
         const string listName = "test-list";
@@ -1429,7 +1429,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTail_WithOnlyIfExistsTrue_AndNonExistingList_ShouldReturnFalse()
     {
         const string listName = "non-existing-list";
@@ -1451,7 +1451,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTail_WithOnlyIfExistsTrue_AndExistingList_ShouldReturnTrue()
     {
         const string listName = "existing-list";
@@ -1476,7 +1476,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListHead_WithValidValues_ShouldReturnTrue()
     {
         const string listName = "head-list";
@@ -1502,7 +1502,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PopLastElementOfList_WithExistingList_ShouldReturnLastElement()
     {
         const string listName = "pop-tail-list";
@@ -1532,7 +1532,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PopLastElementOfList_WithEmptyList_ShouldReturnFailure()
     {
         const string listName = "empty-list";
@@ -1551,7 +1551,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PopFirstElementOfList_WithExistingList_ShouldReturnFirstElement()
     {
         const string listName = "pop-head-list";
@@ -1581,7 +1581,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task RemoveElementsFromList_WithExistingElements_ShouldReturnRemovedElements()
     {
         const string listName = "remove-list";
@@ -1623,7 +1623,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetAllElementsOfList_WithExistingList_ShouldReturnAllElements()
     {
         const string listName = "get-all-list";
@@ -1655,7 +1655,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetAllElementsOfList_WithEmptyList_ShouldReturnEmptyCollection()
     {
         const string listName = "empty-get-all-list";
@@ -1675,7 +1675,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task EmptyList_WithExistingList_ShouldReturnTrue()
     {
         const string listName = "empty-me-list";
@@ -1707,7 +1707,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task EmptyListAndSublists_WithExistingListAndSublists_ShouldReturnTrue()
     {
         const string listName = "parent-list";
@@ -1744,7 +1744,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetListSize_WithExistingList_ShouldReturnCorrectSize()
     {
         const string listName = "size-list";
@@ -1777,7 +1777,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetListSize_WithEmptyList_ShouldReturnZero()
     {
         const string listName = "empty-size-list";
@@ -1796,7 +1796,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ListContains_WithExistingElement_ShouldReturnTrue()
     {
         const string listName = "contains-list";
@@ -1825,7 +1825,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ListContains_WithNonExistingElement_ShouldReturnFalse()
     {
         const string listName = "contains-list-2";
@@ -1853,7 +1853,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ListContains_WithEmptyList_ShouldReturnFalse()
     {
         const string listName = "empty-contains-list";
@@ -1872,7 +1872,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithNewValues_ShouldAddAllValues()
     {
         const string listName = "if-not-exists-new-list";
@@ -1907,7 +1907,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithAllExistingValues_ShouldAddNothing()
     {
         const string listName = "if-not-exists-existing-list";
@@ -1947,7 +1947,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithMixedExistingAndNewValues_ShouldAddOnlyNewValues()
     {
         const string listName = "if-not-exists-mixed-list";
@@ -2013,7 +2013,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithEmptyValues_ShouldFail()
     {
         const string listName = "if-not-exists-empty-values-list";
@@ -2031,7 +2031,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithPublishChangeTrue_ShouldPublishOnlyAddedValues()
     {
         const string listName = "if-not-exists-publish-list";
@@ -2085,7 +2085,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithPublishChangeFalse_ShouldNotPublishNotification()
     {
         const string listName = "if-not-exists-no-publish-list";
@@ -2122,7 +2122,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_WithDuplicateValuesInInput_ShouldAddOnlyOncePerUniqueValue()
     {
         const string listName = "if-not-exists-duplicates-list";
@@ -2169,7 +2169,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTailIfValuesNotExists_CompleteWorkflow_ShouldWorkCorrectly()
     {
         const string listName = "if-not-exists-workflow-list";
@@ -2259,7 +2259,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Integration and Complex Scenarios Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task CompleteWorkflow_KeyValueOperations_ShouldWorkCorrectly()
     {
         try
@@ -2314,7 +2314,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task CompleteWorkflow_ListOperations_ShouldWorkCorrectly()
     {
         const string listName = "workflow-list";
@@ -2380,7 +2380,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PrimitiveTypeCompatibility_AllTypes_ShouldWorkCorrectly()
     {
         try
@@ -2417,7 +2417,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Time-to-Live Expiration Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task TimeToLive_ExpiresAfterShortTime_DataShouldBecomeInaccessible()
     {
         try
@@ -2473,7 +2473,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task TimeToLive_DataAccessibleBeforeExpiration_InaccessibleAfterExpiration()
     {
         try
@@ -2526,7 +2526,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task TimeToLive_ListOperations_ShouldExpireAfterTtl()
     {
         const string listName = "ttl-test-list";
@@ -2580,7 +2580,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Cancellation Token Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Operations_WithCancellationToken_ShouldRespectCancellation()
     {
         try
@@ -2613,7 +2613,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #region Edge Cases and Error Handling Tests
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task Operations_WithPublishChangeFalse_ShouldStillWork()
     {
         try
@@ -2641,7 +2641,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ListOperations_WithEmptyValueArrays_ShouldHandleGracefully()
     {
         const string listName = "empty-values-list";
@@ -2668,7 +2668,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task LargeDataOperations_ShouldHandleCorrectly()
     {
         try
@@ -2768,7 +2768,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         return capturedMessages;
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValues_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         try
@@ -2799,7 +2799,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValues_WithPublishChangeFalse_ShouldNotPublishChangeNotification()
     {
         try
@@ -2826,7 +2826,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionally_WithPublishChangeTrue_AndNewKey_ShouldPublishChangeNotification()
     {
         try
@@ -2854,7 +2854,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task SetKeyValueConditionally_WithPublishChangeFalse_ShouldNotPublishChangeNotification()
     {
         try
@@ -2879,7 +2879,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteKey_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         try
@@ -2908,7 +2908,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteKey_WithPublishChangeFalse_ShouldNotPublishChangeNotification()
     {
         try
@@ -2934,7 +2934,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DeleteAllKeys_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         try
@@ -2965,7 +2965,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyValues_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         try
@@ -3003,7 +3003,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task IncrementKeyByValueAndGet_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         try
@@ -3034,7 +3034,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListTail_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-tail-list";
@@ -3066,7 +3066,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PushToListHead_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-head-list";
@@ -3098,7 +3098,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PopLastElementOfList_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-pop-tail-list";
@@ -3132,7 +3132,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task PopFirstElementOfList_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-pop-head-list";
@@ -3166,7 +3166,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task RemoveElementsFromList_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-remove-list";
@@ -3206,7 +3206,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task EmptyList_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-empty-list";
@@ -3240,7 +3240,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task EmptyListAndSublists_WithPublishChangeTrue_ShouldPublishChangeNotification()
     {
         const string listName = "publish-parent-list";
@@ -3279,7 +3279,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task ListOperations_WithPublishChangeFalse_ShouldNotPublishChangeNotification()
     {
         const string listName = "no-publish-list";
@@ -3314,7 +3314,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task MultipleOperations_WithPublishChangeTrue_ShouldPublishMultipleNotifications()
     {
         const string listName = "multiple-operations-list";

@@ -33,8 +33,10 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     private readonly string _projectId;
     private readonly GoogleCredential _credential = null!;
     private readonly ConcurrentDictionary<string, PublisherServiceApiClient> _publishers = new();
-    private readonly ConcurrentDictionary<string, List<CancellationTokenSource>> _subscriptions = new();
-    private readonly ConcurrentDictionary<string, List<SubscriptionName>> _topicSubscriptions = new();
+    private readonly ConcurrentDictionary<string, ConcurrentBag<CancellationSiblings>> _subscriptions = new();
+    private readonly ConcurrentDictionary<string, ConcurrentBag<SubscriptionName>> _topicSubscriptions = new();
+
+    private record CancellationSiblings(CancellationTokenSource Cts, Func<Task>? OnCancel);
 
     public bool IsInitialized { get; }
 
@@ -94,11 +96,12 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         return GoogleCredential.FromJson(content);
     }
 
-    private static string EncodeTopic(string topic) => WebUtility.UrlEncode(topic);
-
-    private async Task<PublisherServiceApiClient> GetPublisherAsync(string topic, CancellationToken cancellationToken = default, bool addToPublishers = true)
+    private async Task<PublisherServiceApiClient> EnsureTopicExistsAndGetPublisherAsync(
+        string encodedTopic,
+        bool addToPublishers = true,
+        CancellationToken cancellationToken = default)
     {
-        if (_publishers.TryGetValue(topic, out var existing))
+        if (_publishers.TryGetValue(encodedTopic, out var existing))
             return existing;
 
         var client = await new PublisherServiceApiClientBuilder
@@ -106,17 +109,17 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
-        var topicName = new TopicName(_projectId, topic);
-        await EnsureTopicExistsAsync(client, topicName, cancellationToken);
+        var encodedTopicName = new TopicName(_projectId, encodedTopic);
+        await EnsureTopicExistsAsync(client, encodedTopicName, cancellationToken);
 
-        return addToPublishers ? _publishers.GetOrAdd(topic, client) : client;
+        return addToPublishers ? _publishers.GetOrAdd(encodedTopic, client) : client;
     }
 
-    private static async Task EnsureTopicExistsAsync(PublisherServiceApiClient client, TopicName topicName, CancellationToken cancellationToken)
+    private static async Task EnsureTopicExistsAsync(PublisherServiceApiClient client, TopicName encodedTopicName, CancellationToken cancellationToken)
     {
         try
         {
-            await client.CreateTopicAsync(topicName, cancellationToken);
+            await client.CreateTopicAsync(encodedTopicName, cancellationToken);
         }
         catch (RpcException e) when (e.Status.StatusCode == StatusCode.AlreadyExists)
         {
@@ -127,9 +130,10 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
+        topic = EncodingUtilities.EncodeTopic(topic)!;
         try
         {
-            await GetPublisherAsync(topic, cancellationToken, false);
+            await EnsureTopicExistsAndGetPublisherAsync(topic, false, cancellationToken);
             return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
@@ -146,11 +150,12 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
         }
 
+        topic = EncodingUtilities.EncodeTopic(topic)!;
+
         try
         {
-            var encodedTopic = EncodeTopic(topic);
-            var publisher = await GetPublisherAsync(encodedTopic, cancellationToken);
-            var topicName = new TopicName(_projectId, encodedTopic);
+            var publisher = await EnsureTopicExistsAndGetPublisherAsync(topic, true, cancellationToken);
+            var topicName = new TopicName(_projectId, topic);
             var pubsubMessage = new PubsubMessage { Data = ByteString.CopyFromUtf8(message) };
 
             await publisher.PublishAsync(topicName, [pubsubMessage], cancellationToken: cancellationToken);
@@ -168,17 +173,20 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
+        topic = EncodingUtilities.EncodeTopic(topic)!;
+
         try
         {
-            var encodedTopic = EncodeTopic(topic);
-
             var cts = new CancellationTokenSource();
-            _subscriptions.AddOrUpdate(topic,
-                [cts],
-                (_, existing) => { existing.Add(cts); return existing; });
 
             // Start subscription in the background
-            await StartSubscriptionAsync(topic, encodedTopic, onMessage, onError, cts.Token);
+            var onCancel = await StartSubscriptionAsync(topic, onMessage, onError, cts.Token);
+
+            var sib = new CancellationSiblings(cts, onCancel);
+
+            _subscriptions.AddOrUpdate(topic,
+                [sib],
+                (_, existing) => { existing.Add(sib); return existing; });
 
             return OperationResult<bool>.Success(true);
         }
@@ -191,8 +199,9 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     private static readonly HashSet<string> SupportedFileEventTypes =
         ["OBJECT_FINALIZE", "OBJECT_METADATA_UPDATE", "OBJECT_DELETE", "OBJECT_ARCHIVE"];
 
-    private async Task StartSubscriptionAsync(string originalTopic, string encodedTopic, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
+    private async Task<Func<Task>?> StartSubscriptionAsync(string encodedTopic, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
     {
+        Func<Task>? cancelAction = null;
         SubscriberClient? subscriber;
         try
         {
@@ -215,7 +224,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             await subscriberApi.CreateSubscriptionAsync(subscriptionName, topicName, null, 600, cancellationToken);
 
             // Track subscription for cleanup
-            _topicSubscriptions.AddOrUpdate(originalTopic,
+            _topicSubscriptions.AddOrUpdate(encodedTopic,
                 [subscriptionName],
                 (_, existing) => { existing.Add(subscriptionName); return existing; });
 
@@ -227,7 +236,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             }.BuildAsync(cancellationToken);
 
             // Register cancellation to stop subscriber
-            await using var registration = cancellationToken.Register(async void () =>
+            cancelAction = async () =>
             {
                 try
                 {
@@ -238,7 +247,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                 {
                     // Ignore stop exceptions
                 }
-            });
+            };
 
             // Start subscriber
             _ = subscriber.StartAsync(async (msg, _) =>
@@ -274,11 +283,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                         {
                             finalMsgObj["data"] = dataRaw;
                         }
-                        await onMessage(originalTopic, finalMsgObj.ToString(Formatting.None));
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, finalMsgObj.ToString(Formatting.None));
                     }
                     else
                     {
-                        await onMessage(originalTopic, dataRaw);
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, dataRaw);
                     }
                     return SubscriberClient.Reply.Ack;
                 }
@@ -293,6 +302,8 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         {
             // Expected on cancellation
         }
+
+        return cancelAction;
     }
 
     /// <inheritdoc />
@@ -301,17 +312,21 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
+        topic = EncodingUtilities.EncodeTopic(topic)!;
+
         try
         {
-            var encodedTopic = EncodeTopic(topic);
-
             // Cancel local subscription tracking
-            if (_subscriptions.TryRemove(topic, out var ctsList))
+            if (_subscriptions.TryRemove(topic, out var cSibList))
             {
-                foreach (var cts in ctsList)
+                foreach (var cSib in cSibList)
                 {
-                    await cts.CancelAsync();
-                    cts.Dispose();
+                    if (cSib.OnCancel != null)
+                    {
+                        await cSib.OnCancel.Invoke();
+                    }
+                    await cSib.Cts.CancelAsync();
+                    cSib.Cts.Dispose();
                 }
             }
 
@@ -349,14 +364,14 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             }
 
             // Remove publisher from cache and delete the topic
-            _publishers.TryRemove(encodedTopic, out _);
+            _publishers.TryRemove(topic, out _);
 
             var publisherClient = await new PublisherServiceApiClientBuilder
             {
                 Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
             }.BuildAsync(cancellationToken);
 
-            var topicName = new TopicName(_projectId, encodedTopic);
+            var topicName = new TopicName(_projectId, topic);
             await publisherClient.DeleteTopicAsync(topicName, cancellationToken);
         }
         catch (RpcException e) when (e.Status.StatusCode == StatusCode.NotFound)
@@ -377,13 +392,14 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
             Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
-        var encodedTopic = EncodeTopic(topicName);
-        var topicNameObj = new TopicName(_projectId, encodedTopic);
+        var topicNameObj = new TopicName(_projectId, topicName);
 
         try
         {
@@ -417,13 +433,14 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
             Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
-        var encodedTopic = EncodeTopic(topicName);
-        var topicNameObj = new TopicName(_projectId, encodedTopic);
+        var topicNameObj = new TopicName(_projectId, topicName);
 
         try
         {
@@ -488,18 +505,63 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         // Cancel all subscription tokens
-        var cancellationTasks = _subscriptions.Values.Select(async ctsList =>
+        var cancellationTasks = _subscriptions.Values.Select(async cSibList =>
         {
-            foreach (var cts in ctsList)
+            foreach (var cSib in cSibList)
             {
-                await cts.CancelAsync();
-                cts.Dispose();
+                if (cSib.OnCancel != null)
+                {
+                    await cSib.OnCancel.Invoke();
+                }
+                await cSib.Cts.CancelAsync();
+                cSib.Cts.Dispose();
             }
         });
         await Task.WhenAll(cancellationTasks);
 
         _subscriptions.Clear();
+
         _publishers.Clear();
+
+        while (!_topicSubscriptions.IsEmpty)
+        {
+            var topic = _topicSubscriptions.First().Key;
+            if (!_topicSubscriptions.TryRemove(topic, out var subscriptions)) continue;
+
+            var subscriberApi = await new SubscriberServiceApiClientBuilder
+            {
+                Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
+            }.BuildAsync(CancellationToken.None);
+
+            await Task.WhenAll(subscriptions.Select(async sub =>
+            {
+                try
+                {
+                    await subscriberApi.DeleteSubscriptionAsync(sub, cancellationToken: CancellationToken.None);
+                }
+                catch (Exception)
+                {
+                    // Ignore
+                }
+            }));
+        }
         _topicSubscriptions.Clear();
+    }
+
+    /// <summary>
+    /// Not relevant for Google Cloud Pub/Sub
+    /// </summary>
+    public Task<OperationResult<bool>> AWSSpecific_AddSnsS3PolicyAsync(string snsTopicArn, string bucketArn, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<bool>.Success(true));
+    }
+
+    /// <summary>
+    /// Not relevant for Google Cloud Pub/Sub
+    /// </summary>
+    public Task<OperationResult<bool>> AWSSpecific_RemoveSnsS3PolicyAsync(string encodedTopic, string bucketArn,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<bool>.Success(true));
     }
 }

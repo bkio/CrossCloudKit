@@ -1,7 +1,10 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using xRetry;
 using Xunit;
@@ -13,7 +16,10 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
 {
     protected abstract IPubSubService CreatePubSubService();
 
-    protected virtual string GenerateTestTopic() => $"test-topic-{Guid.NewGuid():N}";
+    private static string GenerateTestTopic([CallerMemberName] string? caller = null)
+    {
+        return $"test-{caller}-{StringUtilities.GenerateRandomString(8)}";
+    }
 
     private static void AssertInitialized(IPubSubService service)
     {
@@ -21,14 +27,14 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         service.IsInitialized.Should().BeTrue($"Service should be initialized.");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual void Service_ShouldNotBeNull()
     {
         var service = CreatePubSubService();
         service.Should().NotBeNull();
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_And_Subscribe_ShouldDeliverMessage()
     {
         var service = CreatePubSubService();
@@ -37,7 +43,11 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         try
         {
             var received = new TaskCompletionSource<string>();
-            await service.SubscribeAsync(topic, (_, msg) => { received.TrySetResult(msg); return Task.CompletedTask; });
+            await service.SubscribeAsync(topic, (_, msg) =>
+            {
+                received.TrySetResult(msg);
+                return Task.CompletedTask;
+            });
             const string sent = "hello world";
             var publishResult = await service.PublishAsync(topic, sent);
             publishResult.IsSuccessful.Should().BeTrue($"Errors: {publishResult.ErrorMessage}");
@@ -49,7 +59,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task MultipleSubscribers_ShouldAllReceiveMessages()
     {
         var service = CreatePubSubService();
@@ -99,7 +109,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Subscribe_InvalidTopic_ShouldReturnFalse()
     {
         var service = CreatePubSubService();
@@ -108,7 +118,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_InvalidTopic_ShouldReturnFalse()
     {
         var service = CreatePubSubService();
@@ -117,7 +127,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_EmptyMessage_ShouldReturnFalse()
     {
         var service = CreatePubSubService();
@@ -127,7 +137,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task DisposeAsync_ShouldCleanupSubscriptions()
     {
         var service = CreatePubSubService();
@@ -148,7 +158,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_ConcurrentMessages_ShouldDeliverAll()
     {
         var service = CreatePubSubService();
@@ -191,7 +201,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_LargeMessage_ShouldHandleAppropriately()
     {
         var service = CreatePubSubService();
@@ -227,7 +237,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_SpecialCharacters_ShouldPreserveContent()
     {
         var service = CreatePubSubService();
@@ -255,7 +265,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Subscribe_NullCallback_ShouldReturnFalse()
     {
         var service = CreatePubSubService();
@@ -266,7 +276,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_NullMessage_ShouldReturnFalse()
     {
         var service = CreatePubSubService();
@@ -277,7 +287,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Topic_WithSpecialCharacters_ShouldHandleAppropriately()
     {
         var service = CreatePubSubService();
@@ -327,16 +337,13 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Service_Reinitialization_ShouldMaintainFunctionality()
     {
         var topic = GenerateTestTopic();
 
         var service1 = CreatePubSubService();
         AssertInitialized(service1);
-
-        // Allow time for service to fully initialize
-        await Task.Delay(2000);
 
         // Test with first service instance
         var received1 = new TaskCompletionSource<string>();
@@ -359,16 +366,13 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
             var service2 = CreatePubSubService();
             AssertInitialized(service2);
 
-            // Allow time for second service to fully initialize
-            await Task.Delay(2000);
-
             // Test with a second service instance
-            var received2 = new TaskCompletionSource<string>();
+            var received2Messages = new List<string>();
             try
             {
                 await service2.SubscribeAsync(topic, (_, msg) =>
                 {
-                    received2.TrySetResult(msg);
+                    received2Messages.Add(msg);
                     return Task.CompletedTask;
                 });
 
@@ -376,8 +380,13 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
                 await Task.Delay(3000);
 
                 await service2.PublishAsync(topic, "message2");
-                var res2 = (await received2.Task.WaitAsync(TimeSpan.FromSeconds(20)));
-                res2.Should().Be("message2");
+
+                var retryCount = 0;
+                while (!received2Messages.Contains("message2") && ++retryCount < 10)
+                {
+                    await Task.Delay(1000);
+                }
+                received2Messages.Should().Contain("message2");
             }
             finally
             {
@@ -396,7 +405,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task Publish_HighFrequency_ShouldMaintainPerformance()
     {
         var service = CreatePubSubService();
@@ -422,7 +431,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
                 return Task.CompletedTask;
             });
 
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
 
             // Publish messages rapidly
             var publishTasks = new List<Task<OperationResult<bool>>>();
@@ -452,13 +461,13 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public virtual async Task DeleteTopic_NonExistentTopic_ShouldNotThrow()
     {
         var service = CreatePubSubService();
         AssertInitialized(service);
 
-        var nonExistentTopic = $"non-existent-{Guid.NewGuid():N}";
+        var nonExistentTopic = $"non-existent-{StringUtilities.GenerateRandomString(8)}";
 
         // This should not throw an exception
         var result = await service.DeleteTopicAsync(nonExistentTopic);
@@ -467,7 +476,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"Delete non-existent topic completed. {result.ErrorMessage}");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task MarkUsedOnBucketEvent_ValidTopic_ShouldReturnTrue()
     {
         // Arrange
@@ -493,7 +502,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task UnmarkUsedOnBucketEvent_ValidTopic_ShouldReturnTrue()
     {
         // Arrange
@@ -521,7 +530,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetTopicsUsedOnBucketEventAsync_AfterMarking_ShouldReturnMarkedTopics()
     {
         // Arrange
@@ -560,7 +569,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task GetTopicsUsedOnBucketEventAsync_AfterUnmarking_ShouldNotReturnUnmarkedTopics()
     {
         // Arrange
@@ -590,7 +599,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task MarkUsedOnBucketEvent_EmptyTopic_ShouldReturnFalse()
     {
         // Arrange
@@ -605,14 +614,14 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         Assert.False(result2.IsSuccessful, "MarkUsedOnBucketEvent should return false for null topic");
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task BucketEventMethods_NonExistentTopic_ShouldHandleGracefully()
     {
         // Arrange
         var service = CreatePubSubService();
         AssertInitialized(service);
 
-        var nonExistentTopic = "non-existent-topic-" + Guid.NewGuid().ToString("N")[..8];
+        var nonExistentTopic = "non-existent-topic-" + StringUtilities.GenerateRandomString(8);
 
         // Act
         var markResult = await service.MarkUsedOnBucketEvent(nonExistentTopic);

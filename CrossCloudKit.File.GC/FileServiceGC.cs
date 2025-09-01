@@ -759,6 +759,8 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             return OperationResult<string>.Failure("Google Storage client is not initialized");
         }
 
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
         var fullTopicName = $"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}";
 
         try
@@ -838,12 +840,12 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
 
             foreach (var topic in topicsToDelete.Data)
             {
-                fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{topic}", topic);
+                fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{EncodingUtilities.EncodeTopic(topic)}", topic);
             }
         }
         else
         {
-            fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}", topicName);
+            fullTopicNamesToDelete.Add($"//pubsub.googleapis.com/projects/{_projectId}/topics/{EncodingUtilities.EncodeTopic(topicName)}", topicName);
         }
 
         var notifications = await _gsClient.ListNotificationsAsync(bucketName, new ListNotificationsOptions(), cancellationToken);
@@ -868,6 +870,31 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             deletedCount++;
         }
         return OperationResult<int>.Success(deletedCount);
+    }
+
+    public async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+        var success = true;
+        var errorMessages = new List<string>();
+        try
+        {
+            var listResult = await ListFilesAsync(bucketName, cancellationToken: cancellationToken);
+            if (listResult is { IsSuccessful: true, Data: not null })
+            {
+                foreach (var key in listResult.Data.FileKeys)
+                {
+                    var deleteFileResult = await DeleteFileAsync(bucketName, key, cancellationToken);
+                    if (!deleteFileResult.IsSuccessful)
+                    {
+                        success = false;
+                        errorMessages.Add(deleteFileResult.ErrorMessage!);
+                    }
+                }
+            }
+        }
+        catch { /* Ignore cleanup errors in tests */ }
+        return success ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure($"Cleanup bucket failed: {string.Join(Environment.NewLine, errorMessages)}");
     }
 
     private static PredefinedObjectAcl ConvertAccessibilityToAcl(FileAccessibility accessibility)

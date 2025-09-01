@@ -183,11 +183,35 @@ public class FileServiceS3Compatible : FileServiceAWS
         return OperationResult<int>.Success(deleteConfigs.Count);
     }
 
-    private class SystemClassMemoryScope : IMemoryServiceScope
+    public override async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
     {
-        public string Compile() => "CrossCloudKit.File.S3Compatible.FileServiceS3Compatible";
+        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+
+        var baseSuccess = await base.CleanupBucketAsync(bucketName, cancellationToken);
+
+        if (_memoryService is not { IsInitialized: true })
+            return baseSuccess;
+
+        //Lock mutex for this operation
+        await using var _ = await MemoryServiceScopeMutex.CreateScopeAsync(
+            _memoryService,
+            ObserveFileServiceAndDispatchEventsMemoryServiceScope,
+            "lock",
+            TimeSpan.FromMinutes(5),
+            cancellationToken);
+
+        await _memoryService.EmptyListAsync(SystemClassMemoryScopeInstance, GetFileStateBucketListName(bucketName), false, cancellationToken);
+
+        return baseSuccess;
     }
-    private static readonly SystemClassMemoryScope SystemClassMemoryScopeInstance = new();
+
+    private static readonly LambdaMemoryServiceScope ObserveFileServiceAndDispatchEventsMemoryServiceScope =
+        new(
+            "CrossCloudKit.File.S3Compatible.FileServiceS3Compatible.ObserveFileServiceAndDispatchEvents");
+
+    private static readonly LambdaMemoryServiceScope SystemClassMemoryScopeInstance =
+        new(
+            "CrossCloudKit.File.S3Compatible.FileServiceS3Compatible");
 
     private class EventNotificationConfig
     {
@@ -208,7 +232,7 @@ public class FileServiceS3Compatible : FileServiceAWS
         //Lock mutex for this operation
         await using var _ = await MemoryServiceScopeMutex.CreateScopeAsync(
             _memoryService,
-            new LambdaMemoryServiceScope("CrossCloudKit.File.S3Compatible.FileServiceS3Compatible.ObserveFileServiceAndDispatchEvents"),
+            ObserveFileServiceAndDispatchEventsMemoryServiceScope,
             "lock",
             TimeSpan.FromMinutes(5),
             cancellationToken);
@@ -264,7 +288,7 @@ public class FileServiceS3Compatible : FileServiceAWS
             while (!string.IsNullOrEmpty(continuationToken));
 
             // Get previous file states from memory service using list storage
-            var bucketFileStatesListName = $"file_states_{bucketName}";
+            var bucketFileStatesListName = GetFileStateBucketListName(bucketName);
             var previousFileStatesResult = await _memoryService.GetAllElementsOfListAsync(
                 SystemClassMemoryScopeInstance,
                 bucketFileStatesListName,
@@ -439,6 +463,8 @@ public class FileServiceS3Compatible : FileServiceAWS
                 cancellationToken);
         }
     }
+
+    private static string GetFileStateBucketListName(string bucketName) => $"file_states_{bucketName}";
 
     private class FileState
     {

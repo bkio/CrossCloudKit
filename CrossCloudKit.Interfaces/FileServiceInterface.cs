@@ -271,7 +271,7 @@ public interface IFileService
     /// <param name="bucketName">The name of the bucket</param>
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
-    /// <returns>A task representing the existence check</returns>
+    /// <returns>A task representing the existence check result</returns>
     Task<OperationResult<bool>> FileExistsAsync(
         string bucketName,
         string keyInBucket,
@@ -332,7 +332,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="tags">The tags to set</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
-    /// <returns>A task representing the tags update operation</returns>
+    /// <returns>A task representing the tags update operation result</returns>
     Task<OperationResult<bool>> SetFileTagsAsync(
         string bucketName,
         string keyInBucket,
@@ -346,7 +346,7 @@ public interface IFileService
     /// <param name="keyInBucket">The key/path within the bucket</param>
     /// <param name="accessibility">The new accessibility level</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
-    /// <returns>A task representing the accessibility update operation</returns>
+    /// <returns>A task representing the accessibility update operation result</returns>
     Task<OperationResult<bool>> SetFileAccessibilityAsync(
         string bucketName,
         string keyInBucket,
@@ -402,7 +402,7 @@ public interface IFileService
     /// <param name="eventTypes">The types of events to listen for</param>
     /// <param name="pubSubService">Pub/Sub service instance</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
-    /// <returns>A task representing the notification creation</returns>
+    /// <returns>A task representing the notification creation result</returns>
     Task<OperationResult<string>> CreateNotificationAsync(
         string bucketName,
         string topicName,
@@ -418,10 +418,18 @@ public interface IFileService
     /// <param name="bucketName">The name of the bucket</param>
     /// <param name="topicName">Optional topic name to filter deletions</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
-    /// <returns>A task representing the notification deletion operation</returns>
+    /// <returns>A task representing the notification deletion operation result</returns>
     Task<OperationResult<int>> DeleteNotificationsAsync(
         IPubSubService pubSubService,
         string bucketName,
         string? topicName = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cleans up all files in the bucket, resets to the bucket's initial state.
+    /// </summary>
+    /// <param name="bucketName">The name of the bucket</param>
+    /// <param name="cancellationToken">Cancellation token to observe</param>
+    /// <returns>A task representing the notification deletion operation</returns>
+    Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default);
 }

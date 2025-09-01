@@ -59,6 +59,7 @@ jobs:
         REDIS_PORT: ${{ secrets.REDIS_PORT }}
         REDIS_USER: ${{ secrets.REDIS_USER }}
         REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+        REDIS_ENABLE_SSL: ${{ secrets.REDIS_ENABLE_SSL }}
 
         # S3 Compatible Storage Configuration
         S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
@@ -135,7 +136,7 @@ jobs:
           message="${passed_tests}%2F${total_tests}%20passing"
         elif [ "$total_tests" -gt "0" ] && [ "$failed_tests" -gt "0" ]; then
           color="red"
-          message="${$failed_tests}%2F${total_tests}%20failing"
+          message="${failed_tests}%2F${total_tests}%20failing"
         else
           color="orange"
           message="no%20tests"

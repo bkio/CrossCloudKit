@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using System.Text;
 
 namespace CrossCloudKit.Utilities.Common;
@@ -59,4 +60,18 @@ public static class EncodingUtilities
         var bytes = Encoding.UTF8.GetBytes(input);
         return Convert.ToBase64String(bytes);
     }
+
+    /// <summary>
+    /// Encodes a topic name to what cloud providers expect.
+    /// </summary>
+    /// <param name="topic">The string to encode</param>
+    /// <returns>Encoded string</returns>
+    public static string? EncodeTopic(string? topic) => WebUtility.UrlEncode(topic) ?? null;
+
+    /// <summary>
+    /// Decodes a cloud-compatible topic name to original.
+    /// </summary>
+    /// <param name="encodedTopic">The string to decode</param>
+    /// <returns>Decoded string</returns>
+    public static string? DecodeTopic(string? encodedTopic) => WebUtility.UrlDecode(encodedTopic) ?? null;
 }

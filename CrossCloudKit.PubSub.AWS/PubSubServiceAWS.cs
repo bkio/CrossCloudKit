@@ -1,33 +1,36 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using Amazon.SimpleNotificationService;
+using Amazon.SimpleNotificationService.Model;
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using CrossCloudKit.Interfaces;
 using System.Collections.Concurrent;
 using CrossCloudKit.Utilities.Common;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.PubSub.AWS;
 
 /// <summary>
-/// Modern AWS SQS pub/sub service implementation with async/await patterns
-/// Uses individual queues per subscriber to achieve fanout behavior
+/// AWS SNS+SQS hybrid pub/sub service implementation
+/// Uses SNS for publishing and SQS for reliable subscription delivery
 /// </summary>
 public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 {
-    private const string SlaveSeparator = "-slave-";
-    private record GetQueueListCacheEntry(List<string> Queues, DateTime CachedAt);
+    private readonly string _region;
+    private readonly Amazon.Runtime.AWSCredentials _credentials;
+    private readonly ConcurrentDictionary<string, (string topicArn, AmazonSimpleNotificationServiceClient client)> _publishers = new();
+    private readonly ConcurrentDictionary<string, ConcurrentBag<CancellationSiblings>> _subscriptions = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, string>> _topicSubscriptions = new();
 
-    private readonly AmazonSQSClient _sqsClient;
-    private readonly ConcurrentDictionary<string, List<CancellationTokenSource>> _subscriptions = new();
-    private readonly Dictionary<string, HashSet<string>> _queuesNotTs = [];
-    private readonly Dictionary<string, GetQueueListCacheEntry> _queueListCacheNotTs = [];
-    private readonly HashSet<string> _s3EventTopicsNotTs = [];
+    private record CancellationSiblings(CancellationTokenSource Cts, Func<Task>? OnCancel);
 
     public bool IsInitialized { get; }
 
     /// <summary>
-    /// Constructor for AWS SQS pub/sub service
+    /// Constructor for AWS SNS+SQS hybrid pub/sub service
     /// </summary>
     public PubSubServiceAWS(
         string accessKey,
@@ -39,13 +42,11 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(secretKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(region);
 
+        _region = region;
+
         try
         {
-            _sqsClient = new AmazonSQSClient(
-                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
-                Amazon.RegionEndpoint.GetBySystemName(region));
-
-            InitializeS3EventForwardingAsyncNotSafe().Wait();
+            _credentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
 
             IsInitialized = true;
         }
@@ -53,131 +54,106 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         {
             errorMessageAction?.Invoke($"PubSubServiceAWS initialization failed: {e.Message}");
             IsInitialized = false;
-            _sqsClient = null!;
+            _credentials = null!;
         }
+    }
+
+    private async Task<(string topicArn, AmazonSimpleNotificationServiceClient client)> EnsureTopicExistsAndGetPublisherAsync(
+        string encodedTopic,
+        bool addToPublishers = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (_publishers.TryGetValue(encodedTopic, out var existing))
+            return existing;
+
+        var client = new AmazonSimpleNotificationServiceClient(
+            _credentials,
+            Amazon.RegionEndpoint.GetBySystemName(_region));
+
+        var topicArn = await EnsureTopicExistsAsync(client, encodedTopic, cancellationToken);
+
+        return addToPublishers ? _publishers.GetOrAdd(encodedTopic, (topicArn, client)) : (topicArn, client);
+    }
+
+    private static async Task<string> EnsureTopicExistsAsync(AmazonSimpleNotificationServiceClient client, string encodedTopicName, CancellationToken cancellationToken)
+    {
+        var listResponse = await GetAllTopics(client, cancellationToken);
+        var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{encodedTopicName}"));
+
+        if (existingTopic != null)
+            return existingTopic.TopicArn;
+
+        var createResponse = await client.CreateTopicAsync(new CreateTopicRequest
+        {
+            Name = encodedTopicName
+        }, cancellationToken);
+
+        return createResponse.TopicArn;
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
-        var result = await InternalEnsureTopicExistsAsync(topic, false, cancellationToken);
-        if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
-            return OperationResult<bool>.Failure("Operation has failed.");
-        return OperationResult<bool>.Success(true);
-    }
-    private async Task<OperationResult<List<string>>> InternalEnsureTopicExistsAsync(string topic, bool forceAddNew, CancellationToken cancellationToken = default)
-    {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return OperationResult<List<string>>.Failure("Not initialized or parameters are invalid.");
-
-        List<string> relevantQueues;
+        topic = EncodingUtilities.EncodeTopic(topic)!;
         try
         {
-            relevantQueues = await GetQueueListNotSafe(topic, cancellationToken);
-            if (!forceAddNew && relevantQueues.Count > 0)
-                return OperationResult<List<string>>.Success(relevantQueues);
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, cancellationToken), cancellationToken);
+            await EnsureTopicExistsAndGetPublisherAsync(topic, false, cancellationToken);
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
-            return OperationResult<List<string>>.Failure($"Failed to ensure topic exists(1): {e.Message}");
+            return OperationResult<bool>.Failure($"EnsureTopicExistsAsync failed: {e.Message}");
         }
-
-        var newQueueName = relevantQueues.Count > 0 ? $"{topic}{SlaveSeparator}{StringUtilities.GenerateRandomString(8, true)}" : topic;
-        try
-        {
-            await _sqsClient.CreateQueueAsync(new CreateQueueRequest
-            {
-                QueueName = newQueueName
-            }, cancellationToken);
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => InternalEnsureTopicExistsAsync(topic, forceAddNew, cancellationToken), cancellationToken);
-        }
-        catch (Exception e)
-        {
-            return OperationResult<List<string>>.Failure($"Failed to ensure topic exists(2): {e.Message}");
-        }
-
-        var setRightsResult = await SetSqsInstanceRights(newQueueName, cancellationToken);
-        if (!setRightsResult.IsSuccessful)
-            return OperationResult<List<string>>.Failure($"Failed to set queue policy: {setRightsResult.ErrorMessage}");
-
-        relevantQueues.Add(newQueueName);
-        lock (_queuesNotTs)
-        {
-            if (_queuesNotTs.TryGetValue(topic, out var finalQueues))
-            {
-                finalQueues.Add(newQueueName);
-            }
-        }
-
-        return OperationResult<List<string>>.Success(relevantQueues);
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
+        {
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+        }
 
-        var result = await InternalEnsureTopicExistsAsync(topic, false, cancellationToken);
-        if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
-            return OperationResult<bool>.Failure("Operation has failed.");
-        var relevantQueues = result.Data;
+        topic = EncodingUtilities.EncodeTopic(topic)!;
 
         try
         {
-            var publishTasks = relevantQueues.Select(queueUrl => _sqsClient.SendMessageAsync(new SendMessageRequest
-            {
-                QueueUrl = queueUrl, // Use queue URL from relevantQueues
-                MessageBody = message
-            }, cancellationToken));
+            var (topicArn, client) = await EnsureTopicExistsAndGetPublisherAsync(topic, true, cancellationToken);
 
-            // Run in parallel
-            await Task.WhenAll(publishTasks);
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => PublishAsync(topic, message, cancellationToken), cancellationToken);
+            await client.PublishAsync(new PublishRequest
+            {
+                TopicArn = topicArn,
+                Message = message
+            }, cancellationToken);
+
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception e)
         {
             return OperationResult<bool>.Failure($"Publish failed: {e.Message}");
         }
-        return OperationResult<bool>.Success(true);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<bool>> SubscribeAsync(
-        string topic,
-        Func<string, string, Task>? onMessage,
-        Action<Exception>? onError = null,
-        CancellationToken cancellationToken = default)
+    public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
+        topic = EncodingUtilities.EncodeTopic(topic)!;
+
         try
         {
-            var result = await InternalEnsureTopicExistsAsync(topic, true, cancellationToken);
-            if (!result.IsSuccessful || result.Data == null || result.Data.Count == 0)
-                return OperationResult<bool>.Failure("Operation has failed.");
-            var relevantQueues = result.Data;
-
-            var queueName = relevantQueues[^1]; // Use the last queue URL from relevantQueues
-
             var cts = new CancellationTokenSource();
-            _subscriptions.AddOrUpdate(topic,
-                [cts],
-                (_, existing) => { existing.Add(cts); return existing; });
 
-            // Start message polling in the background
-            _ = Task.Run(async () => await PollMessagesAsync(topic, queueName, onMessage, onError, relevantQueues.Count == 1, cts.Token), cts.Token);
+            // Start subscription in the background
+            var ctsRegResult = await StartSubscriptionAsync(topic, onMessage, onError, cts.Token);
+            if (!ctsRegResult.IsSuccessful) return OperationResult<bool>.Failure(ctsRegResult.ErrorMessage!);
+
+            var sib = new CancellationSiblings(cts, ctsRegResult.Data!);
+            _subscriptions.AddOrUpdate(topic,
+                [sib],
+                (_, existing) => { existing.Add(sib); return existing; });
         }
         catch (Exception e)
         {
@@ -186,94 +162,220 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         return OperationResult<bool>.Success(true);
     }
 
-    private async Task PollMessagesAsync(
-        string topic,
-        string queueName,
-        Func<string, string, Task> onMessage,
-        Action<Exception>? onError,
-        bool isMasterSubscription,
-        CancellationToken cancellationToken)
+    private async Task<OperationResult<Func<Task>?>> StartSubscriptionAsync(string encodedTopic, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
     {
+        Func<Task>? cancelAction = null;
+
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+            var snsTopicArn = await EnsureTopicExistsAsync(snsClient, encodedTopic, cancellationToken);
+
+            using var sqsClient = new AmazonSQSClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            // Create unique SQS queue for this subscription
+            var sqsQueueName = $"{encodedTopic}-{StringUtilities.GenerateRandomString(8)}";
+            var createQueueResponse = await sqsClient.CreateQueueAsync(new CreateQueueRequest
+            {
+                QueueName = sqsQueueName
+            }, cancellationToken);
+
+            var sqsQueueUrl = createQueueResponse.QueueUrl;
+
+            // Get queue ARN
+            var getQueueAttributesResponse = await sqsClient.GetQueueAttributesAsync(new GetQueueAttributesRequest
+            {
+                QueueUrl = sqsQueueUrl,
+                AttributeNames = ["QueueArn"]
+            }, cancellationToken);
+
+            var sqsQueueArn = getQueueAttributesResponse.Attributes["QueueArn"];
+
+            // Set SQS policy to allow SNS to send messages
+            var policySetResult = await SetSqsPolicyAsync(
+                sqsClient, sqsQueueUrl,
+                cancellationToken);
+            if (!policySetResult.IsSuccessful)
+            {
+                return OperationResult<Func<Task>?>.Failure(policySetResult.ErrorMessage!);
+            }
+
+            // Subscribe SQS queue to SNS topic
+            var subscriptionResponse = await snsClient.SubscribeAsync(new SubscribeRequest
+            {
+                TopicArn = snsTopicArn,
+                Protocol = "sqs",
+                Endpoint = sqsQueueArn,
+
+            }, cancellationToken);
+            var subscriptionArn = subscriptionResponse.SubscriptionArn;
+
+            // Track subscription queue for cleanup
+            _topicSubscriptions.AddOrUpdate(encodedTopic,
+                new ConcurrentDictionary<string, string>()
+                {
+                    [sqsQueueUrl] = subscriptionArn
+                },
+                (_, existing) =>
+                {
+                    existing.TryAdd(sqsQueueUrl, subscriptionArn);
+                    return existing;
+                });
+
+            // Register cancellation to clean up resources
+            cancelAction = async () =>
+            {
+                try
+                {
+                    using var localSnsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                        Amazon.RegionEndpoint.GetBySystemName(_region));
+                    using var localSqsClient = new AmazonSQSClient(_credentials,
+                        Amazon.RegionEndpoint.GetBySystemName(_region));
+
+                    if (!_topicSubscriptions.TryGetValue(encodedTopic, out var queueNameToSqsClient)
+                        || !queueNameToSqsClient.TryRemove(sqsQueueUrl, out var localSubscriptionArn)) return;
+
+                    try
+                    {
+                        await localSnsClient.UnsubscribeAsync(new UnsubscribeRequest
+                        {
+                            SubscriptionArn = localSubscriptionArn
+                        }, CancellationToken.None);
+                    }
+                    catch (Exception)
+                    {
+                        // ignored
+                    }
+
+                    try
+                    {
+                        await localSqsClient.DeleteQueueAsync(new DeleteQueueRequest
+                        {
+                            QueueUrl = sqsQueueUrl
+                        }, CancellationToken.None);
+                    }
+                    catch (Exception)
+                    {
+                        // ignored
+                    }
+                }
+                catch
+                {
+                    // Ignore cleanup exceptions
+                }
+            };
+
+            // Start message polling
+            _ = Task.Run(
+                () => PollMessagesAsync(encodedTopic, sqsQueueUrl, onMessage, onError, cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on cancellation
+        }
+        catch (Exception e)
+        {
+            if (cancelAction != null)
+            {
+                try
+                {
+                    await cancelAction();
+                }
+                catch (Exception)
+                {
+                    // Ignore cleanup exceptions
+                }
+            }
+            return OperationResult<Func<Task>?>.Failure($"Start subscription failed: {e.Message}");
+        }
+        return OperationResult<Func<Task>?>.Success(cancelAction);
+    }
+
+    private async Task PollMessagesAsync(string encodedTopic, string sqsQueueUrl, Func<string, string, Task> onMessage, Action<Exception>? onError, CancellationToken cancellationToken)
+    {
+        using var sqsClient = new AmazonSQSClient(_credentials, Amazon.RegionEndpoint.GetBySystemName(_region));
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                var request = new ReceiveMessageRequest
+                var receiveResponse = await sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
                 {
-                    QueueUrl = queueName,
+                    QueueUrl = sqsQueueUrl,
                     MaxNumberOfMessages = 10,
-                    MessageAttributeNames = ["All"],
                     WaitTimeSeconds = 20,
-                    VisibilityTimeout = 30
-                };
+                    VisibilityTimeout = 30,
+                    MessageAttributeNames = ["All"]
+                }, cancellationToken);
 
-                var response = await _sqsClient.ReceiveMessageAsync(request, cancellationToken);
-
-                if (response?.Messages == null || response.Messages.Count == 0)
+                if (receiveResponse?.Messages == null || receiveResponse.Messages.Count == 0)
                     continue;
 
-                var acknowledgedMessages = new Dictionary<string, string>();
-
-                var deleteTasks = new List<Task>();
-                foreach (var sqsMessage in response.Messages.Where(sqsMessage => acknowledgedMessages.TryAdd(sqsMessage.MessageId, sqsMessage.Body)))
+                foreach (var sqsMessage in receiveResponse.Messages)
                 {
+                    string finalMessage;
                     try
                     {
-                        await onMessage(topic, sqsMessage.Body);
+                        var bodyObject = JObject.Parse(sqsMessage.Body);
+                        var finalBody = new JObject()
+                        {
+                            ["body"] = bodyObject
+                        };
+                        if (bodyObject.TryGetValue("Type", out var typeTok) && typeTok.Type == JTokenType.String
+                            && typeTok.Value<string>() == "Notification"
+                            && bodyObject.TryGetValue("Message", out var messageTok) && messageTok.Type == JTokenType.String)
+                        {
+                            finalMessage = bodyObject["Message"]!.Value<string>()!;
+                        }
+                        else
+                        {
+                            if (sqsMessage.Attributes != null)
+                            {
+                                foreach (var attribute in sqsMessage.Attributes)
+                                {
+                                    finalBody[attribute.Key] = attribute.Value;
+                                }
+                            }
+                            finalMessage = finalBody.ToString(Formatting.None);
+                        }
+                    }
+                    catch (JsonReaderException)
+                    {
+                        finalMessage = sqsMessage.Body;
+                    }
+
+                    try
+                    {
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, finalMessage);
+
+                        // Delete message after successful processing
+                        await sqsClient.DeleteMessageAsync(new DeleteMessageRequest
+                        {
+                            QueueUrl = sqsQueueUrl,
+                            ReceiptHandle = sqsMessage.ReceiptHandle
+                        }, cancellationToken);
                     }
                     catch (Exception e)
                     {
                         onError?.Invoke(e);
+                        // Don't delete message on error - it will become visible again for retry
                     }
-
-                    deleteTasks.Add(_sqsClient.DeleteMessageAsync(new DeleteMessageRequest
-                    {
-                        QueueUrl = queueName,
-                        ReceiptHandle = sqsMessage.ReceiptHandle
-                    }, cancellationToken));
                 }
-
-                if (isMasterSubscription)
-                {
-                    var forwardTasks = new List<Task>();
-
-                    var relevantQueues = await GetQueueListNotSafe(topic, cancellationToken);
-
-                    lock (_s3EventTopicsNotTs)
-                    {
-                        if (_s3EventTopicsNotTs.Contains(topic) && relevantQueues.Count > 1)
-                        {
-                            forwardTasks.AddRange((from message in acknowledgedMessages.Values
-                                from otherSubQueueUrl in relevantQueues.Where(queue => queue != queueName).ToList()
-                                select _sqsClient.SendMessageAsync(new SendMessageRequest
-                                {
-                                    QueueUrl = otherSubQueueUrl, // Use queue URL from relevantQueues
-                                    MessageBody = message
-                                }, cancellationToken)));
-                        }
-                    }
-                    await Task.WhenAll(forwardTasks);
-                }
-
-                await Task.WhenAll(deleteTasks);
             }
             catch (QueueDoesNotExistException)
             {
-                break; // Queue was deleted, stop polling
-            }
-            catch (ObjectDisposedException)
-            {
-                break; // Operation has stopped, stop polling
+                break;
             }
             catch (OperationCanceledException)
             {
-                // Expected on cancellation
                 break;
             }
             catch (Exception e)
             {
                 onError?.Invoke(e);
-                // Wait before retrying to avoid tight loop on persistent errors
                 try
                 {
                     await Task.Delay(5000, cancellationToken);
@@ -286,265 +388,28 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
     }
 
-    /// <inheritdoc />
-    public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
-    {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
-
-        // Cancel all subscriptions for this topic
-        if (_subscriptions.TryRemove(topic, out var ctsList))
-        {
-            foreach (var cts in ctsList)
-            {
-                try
-                {
-                    await cts.CancelAsync();
-                    cts.Dispose();
-                }
-                catch (Exception)
-                {
-                    //Ignored
-                }
-            }
-        }
-
-        try
-        {
-            var toBeDeletedQueues = await GetQueueListNotSafe(topic, cancellationToken);
-
-            var deleteTasks = toBeDeletedQueues.Select(queueUrl => _sqsClient.DeleteQueueAsync(new DeleteQueueRequest()
-            {
-                QueueUrl = queueUrl
-            }, cancellationToken));
-
-            // Run in parallel
-            await Task.WhenAll(deleteTasks);
-
-            lock (_queuesNotTs)
-            {
-                _queuesNotTs.Remove(topic);
-            }
-
-            lock (_queueListCacheNotTs)
-            {
-                _queueListCacheNotTs.Remove(topic);
-            }
-
-            lock (_s3EventTopicsNotTs)
-            {
-                _s3EventTopicsNotTs.Remove(topic);
-            }
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => DeleteTopicAsync(topic, cancellationToken), cancellationToken);
-        }
-        catch (Exception e)
-        {
-            return OperationResult<bool>.Failure($"Failed to delete queue(1) {topic}: {e.Message}");
-        }
-        return OperationResult<bool>.Success(true);
-    }
-
-    /// <inheritdoc />
-    public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
-    {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
-
-        lock (_s3EventTopicsNotTs)
-        {
-            _s3EventTopicsNotTs.Add(topic);
-        }
-
-        try
-        {
-            await _sqsClient.TagQueueAsync(new TagQueueRequest
-            {
-                QueueUrl = topic,
-                Tags = new Dictionary<string, string>
-                {
-                    { IPubSubService.UsedOnBucketEventFlagKey, "true" }
-                }
-            }, cancellationToken);
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => MarkUsedOnBucketEvent(topic, cancellationToken), cancellationToken);
-        }
-        catch (Exception e)
-        {
-            return OperationResult<bool>.Failure($"Failed to mark topic as used with bucket events {topic}: {e.Message}");
-        }
-        return OperationResult<bool>.Success(true);
-    }
-
-    /// <inheritdoc />
-    public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
-    {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
-
-        lock (_s3EventTopicsNotTs)
-        {
-            _s3EventTopicsNotTs.Remove(topic);
-        }
-
-        try
-        {
-            await _sqsClient.UntagQueueAsync(new UntagQueueRequest
-            {
-                QueueUrl = topic,
-                TagKeys = [IPubSubService.UsedOnBucketEventFlagKey]
-            }, cancellationToken);
-        }
-        catch (RequestThrottledException)
-        {
-            return await RequestThrottledRetry(() => UnmarkUsedOnBucketEvent(topic, cancellationToken), cancellationToken);
-        }
-        catch (Exception e)
-        {
-            return OperationResult<bool>.Failure($"Failed to unmark topic as used with bucket events {topic}: {e.Message}");
-        }
-        return OperationResult<bool>.Success(true);
-    }
-
-    /// <inheritdoc />
-    public Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
+    private static async Task<OperationResult<bool>> SetSqsPolicyAsync(
+        AmazonSQSClient sqsClient,
+        string sqsQueueUrl,
+        CancellationToken cancellationToken)
     {
         try
         {
-            lock (_s3EventTopicsNotTs)
+            await sqsClient.SetQueueAttributesAsync(new SetQueueAttributesRequest
             {
-                return Task.FromResult(OperationResult<List<string>>.Success(_s3EventTopicsNotTs.ToList()));
-            }
-        }
-        catch (Exception e)
-        {
-            return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}"));
-        }
-    }
-
-    private static async Task<T> RequestThrottledRetry<T>(Func<Task<T>> onRetry, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            await Task.Delay(5000, cancellationToken);
-            return await onRetry();
-        }
-        catch (OperationCanceledException)
-        {
-            //Ignored
-        }
-        return default!;
-    }
-
-    private async Task<List<string>> GetQueueListNotSafe(string topic, CancellationToken cancellationToken = default)
-    {
-        var relevantQueues = new List<string>();
-
-        // Check cache first
-        lock (_queueListCacheNotTs)
-        {
-            if (_queueListCacheNotTs.TryGetValue(topic, out var cached))
-            {
-                if (DateTime.UtcNow - cached.CachedAt >= TimeSpan.FromSeconds(5))
-                {
-                    _queueListCacheNotTs.Remove(topic); // Remove expired cache entry
-                }
-                else
-                {
-                    relevantQueues.AddRange(cached.Queues);
-                }
-            }
-        }
-
-        if (relevantQueues.Count == 0)
-        {
-            var allQueues = new List<string>();
-            string? nextToken = null;
-
-            do
-            {
-                var relevantQueuesResult = await _sqsClient.ListQueuesAsync(new ListQueuesRequest
-                {
-                    QueueNamePrefix = topic,
-                    NextToken = nextToken,
-                    MaxResults = 1000
-                }, cancellationToken);
-
-                if (relevantQueuesResult.QueueUrls is { Count: > 0 })
-                {
-                    allQueues.AddRange(relevantQueuesResult.QueueUrls);
-                }
-
-                nextToken = relevantQueuesResult.NextToken;
-
-            } while (!string.IsNullOrEmpty(nextToken));
-
-            GetQueueListCacheEntry cacheEntry;
-
-            if (allQueues.Count > 0)
-            {
-                cacheEntry = new GetQueueListCacheEntry([.. allQueues], DateTime.UtcNow);
-
-                relevantQueues.AddRange(
-                    allQueues.Select(queueUrl =>
-                        queueUrl[queueUrl.IndexOf(topic, StringComparison.InvariantCulture)..])
-                );
-            }
-            else
-            {
-                cacheEntry = new GetQueueListCacheEntry([], DateTime.UtcNow);
-            }
-
-            // Update cache
-            lock (_queueListCacheNotTs)
-            {
-                _queueListCacheNotTs[topic] = cacheEntry;
-            }
-        }
-
-        lock (_queuesNotTs)
-        {
-            if (!_queuesNotTs.TryGetValue(topic, out var finalQueues))
-            {
-                finalQueues = [];
-                _queuesNotTs.Add(topic, finalQueues);
-            }
-
-            foreach (var queueUrl in relevantQueues)
-            {
-                finalQueues.Add(queueUrl);
-            }
-            return [.. finalQueues]; //Create copy
-        }
-    }
-
-    private async Task<OperationResult<bool>> SetSqsInstanceRights(string topicName, CancellationToken cancellationToken = default)
-    {
-        // Get queue URL
-        var queueUrlResponse = await _sqsClient.GetQueueUrlAsync(topicName, cancellationToken).ConfigureAwait(false);
-        var queueUrl = queueUrlResponse.QueueUrl;
-        try
-        {
-            var setQueueAttributesRequest = new SetQueueAttributesRequest
-            {
-                QueueUrl = queueUrl,
+                QueueUrl = sqsQueueUrl,
                 Attributes = new Dictionary<string, string>
                 {
-                    {
-                        "Policy", $$"""
+                    { "Policy", $$"""
                           {
                               "Version": "2012-10-17",
-                              "Id": "S3PublishPolicy",
+                              "Id": "SNSPublishPolicy",
                               "Statement": [
                                   {
-                                      "Sid": "AllowS3PublishToSQS",
+                                      "Sid": "AllowSNSPublishToSQS",
                                       "Effect": "Allow",
                                       "Principal": {
-                                          "Service": "s3.amazonaws.com"
+                                          "Service": "sns.amazonaws.com"
                                       },
                                       "Action": [
                                           "sqs:*"
@@ -553,93 +418,435 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                                   }
                               ]
                           }
-                          """
-                    }
+                      """ }
                 }
-            };
-            await _sqsClient.SetQueueAttributesAsync(setQueueAttributesRequest, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken);
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Failed to set queue policy: {e.Message}");
+            return OperationResult<bool>.Failure($"Set SQS policy failed: {e.Message}");
+        }
+
+        return OperationResult<bool>.Success(true);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> AWSSpecific_AddSnsS3PolicyAsync(string snsTopicArn, string bucketArn, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            await snsClient.SetTopicAttributesAsync(new SetTopicAttributesRequest()
+            {
+                TopicArn = snsTopicArn,
+                AttributeName = "Policy",
+                AttributeValue = $$"""
+                                   {
+                                       "Version": "2012-10-17",
+                                       "Statement": [
+                                           {
+                                               "Sid": "AllowS3PublishToSNS{{StringUtilities.GenerateRandomString(4)}}",
+                                               "Effect": "Allow",
+                                               "Principal": {
+                                                   "Service": "s3.amazonaws.com"
+                                               },
+                                               "Action": [
+                                                   "sns:Publish"
+                                               ],
+                                               "Resource": "{{snsTopicArn}}",
+                                               "Condition": {
+                                                   "ArnLike": {
+                                                       "aws:SourceArn": "{{bucketArn}}"
+                                                   }
+                                               }
+                                           }
+                                       ]
+                                   }
+                                   """
+            }, cancellationToken);
+        }
+        catch (Exception e)
+        {
+            return OperationResult<bool>.Failure($"Set SNS policy failed: {e.Message}");
         }
         return OperationResult<bool>.Success(true);
     }
 
-    private async Task<List<string>> GetMasterQueuesTaggedWithUsedOnBucketEventAsyncNotSafe(CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> AWSSpecific_RemoveSnsS3PolicyAsync(string encodedTopic, string bucketArn, CancellationToken cancellationToken = default)
     {
-        var matchingQueues = new List<string>();
-        string? nextToken = null;
-
-        do
+        try
         {
-            var listQueuesResponse = await _sqsClient.ListQueuesAsync(new ListQueuesRequest
-            {
-                NextToken = nextToken,
-                MaxResults = 1000 // maximum allowed
-            }, cancellationToken);
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
 
-            foreach (var queueUrl in listQueuesResponse.QueueUrls)
+            var topics = await GetAllTopics(snsClient, cancellationToken);
+            var relevantTopics = topics.Where(t => t.TopicArn.EndsWith($":{encodedTopic}"));
+
+            foreach (var topic in relevantTopics)
             {
-                var tagsResponse = await _sqsClient.ListQueueTagsAsync(new ListQueueTagsRequest
+                var policy = await snsClient.GetTopicAttributesAsync(new GetTopicAttributesRequest
                 {
-                    QueueUrl = queueUrl
+                    TopicArn = topic.TopicArn
                 }, cancellationToken);
 
-                if (tagsResponse.Tags == null ||
-                    !tagsResponse.Tags.ContainsKey(IPubSubService.UsedOnBucketEventFlagKey)) continue;
+                if (!policy.Attributes.TryGetValue("Policy", out var policyStr)) continue;
 
-                if (!queueUrl.Contains(SlaveSeparator))
-                    matchingQueues.Add(new Uri(queueUrl).Segments.Last());
+                var removeStatements = new List<JObject>();
+                var allStatementsRemoved = false;
+
+                if (!policyStr.Contains(bucketArn)) continue;
+
+                var parsed = JObject.Parse(policyStr);
+                if (parsed.TryGetValue("Statement", out var statements) && statements.Type == JTokenType.Array)
+                {
+                    var arr = (JArray)statements;
+                    foreach (var statement in arr)
+                    {
+                        var statementObj = (JObject)statement;
+                        if (!statementObj.TryGetValue("Condition", out var condition) ||
+                            condition.Type != JTokenType.Object) continue;
+
+                        var conditionObj = (JObject)condition;
+                        if (!conditionObj.TryGetValue("ArnLike", out var arnLike) ||
+                            arnLike.Type != JTokenType.Object) continue;
+
+                        var arnLikeObj = (JObject)arnLike;
+                        if ((string)arnLikeObj["aws:SourceArn"]! == bucketArn)
+                        {
+                            removeStatements.Add(statementObj);
+                        }
+                    }
+                    foreach (var removeStatement in removeStatements.TakeWhile(_ => arr.Count != 1))
+                    {
+                        arr.Remove(removeStatement);
+                    }
+                    allStatementsRemoved = arr.Count == 0;
+                }
+
+                if (!allStatementsRemoved && removeStatements.Count > 0)
+                {
+                    await snsClient.SetTopicAttributesAsync(new SetTopicAttributesRequest
+                    {
+                        TopicArn = topic.TopicArn,
+                        AttributeName = "Policy",
+                        AttributeValue = parsed.ToString(Formatting.None)
+                    }, cancellationToken);
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            return OperationResult<bool>.Failure($"Remove SNS policy failed: {e.Message}");
+        }
+        return OperationResult<bool>.Success(true);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+
+        topic = EncodingUtilities.EncodeTopic(topic)!;
+
+        var errorMsg = new ConcurrentBag<string>();
+
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+            using var sqsClient = new AmazonSQSClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            // Cancel local subscription tracking
+            if (_subscriptions.TryRemove(topic, out var cSibList))
+            {
+                foreach (var cSib in cSibList)
+                {
+                    if (cSib.OnCancel != null)
+                    {
+                        await cSib.OnCancel.Invoke();
+                    }
+                    await cSib.Cts.CancelAsync();
+                    cSib.Cts.Dispose();
+                }
             }
 
-            nextToken = listQueuesResponse.NextToken;
+            // Delete all SQS queues for this topic
+            if (_topicSubscriptions.TryRemove(topic, out var queueUrlToSqsClient))
+            {
+                var deleteTasks = new List<Task>();
+                while (!queueUrlToSqsClient.IsEmpty)
+                {
+                    var sqsQueueUrl = queueUrlToSqsClient.Keys.First();
+                    if (queueUrlToSqsClient.TryRemove(sqsQueueUrl, out var subscriptionArn))
+                    {
+                        deleteTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                // ReSharper disable once AccessToDisposedClosure
+                                await snsClient.UnsubscribeAsync(new UnsubscribeRequest
+                                {
+                                    SubscriptionArn = subscriptionArn
+                                }, CancellationToken.None);
+                            }
+                            catch (NotFoundException)
+                            {
+                                // Subscription doesn't exist, that's fine
+                            }
+                            catch (Exception e)
+                            {
+                                errorMsg.Add(e.Message);
+                            }
 
+                            try
+                            {
+                                // ReSharper disable once AccessToDisposedClosure
+                                await sqsClient.DeleteQueueAsync(new DeleteQueueRequest
+                                {
+                                    QueueUrl = sqsQueueUrl
+                                }, cancellationToken);
+                            }
+                            catch (QueueDoesNotExistException)
+                            {
+                                // Queue doesn't exist, that's fine
+                            }
+                            catch (Exception e)
+                            {
+                                errorMsg.Add(e.Message);
+                            }
+                        }, cancellationToken));
+                    }
+                }
+
+                if (deleteTasks.Count > 0)
+                {
+                    await Task.WhenAll(deleteTasks);
+                }
+            }
+
+            // Remove publisher from cache and delete the topic
+            if (_publishers.TryRemove(topic, out var topicArnAndSnsClient))
+            {
+                try
+                {
+                    await topicArnAndSnsClient.client.DeleteTopicAsync(new DeleteTopicRequest
+                    {
+                        TopicArn = topicArnAndSnsClient.topicArn
+                    }, cancellationToken);
+                }
+                catch (NotFoundException)
+                {
+                    // Topic doesn't exist, that's fine
+                }
+                catch (Exception e)
+                {
+                    errorMsg.Add(e.Message);
+                }
+
+                try { topicArnAndSnsClient.client.Dispose(); }
+                catch (Exception)
+                {
+                    // Ignore cleanup exceptions
+                }
+            }
+
+            //Generic topic remove in case there is no publish/subscribe called before
+
+            try
+            {
+                var listResponse = await GetAllTopics(snsClient, cancellationToken);
+                var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{topic}"));
+                if (existingTopic != null)
+                {
+                    await snsClient.DeleteTopicAsync(existingTopic.TopicArn, cancellationToken);
+                }
+            }
+            catch (Exception e)
+            {
+                errorMsg.Add(e.Message);
+            }
+        }
+        catch (Exception e)
+        {
+            return OperationResult<bool>.Failure($"Delete topic failed: {e.Message}");
+        }
+        return !errorMsg.IsEmpty ? OperationResult<bool>.Failure($"Delete subscription failed: {string.Join(Environment.NewLine, errorMsg)}") : OperationResult<bool>.Success(true);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            var listResponse = await GetAllTopics(snsClient, cancellationToken);
+            var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{topicName}"));
+            if (existingTopic == null)
+                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.");
+
+            await snsClient.TagResourceAsync(new TagResourceRequest
+            {
+                ResourceArn = existingTopic.TopicArn,
+                Tags = [new Tag { Key = IPubSubService.UsedOnBucketEventFlagKey, Value = "true" }]
+            }, cancellationToken);
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (Exception e)
+        {
+            return OperationResult<bool>.Failure(
+                $"Failed to mark topic as used with bucket events {topicName}: {e.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
+            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+
+        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials,
+                Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            var listResponse = await GetAllTopics(snsClient, cancellationToken);
+            var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{topicName}"));
+            if (existingTopic == null)
+                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.");
+
+            await snsClient.UntagResourceAsync(new UntagResourceRequest
+            {
+                ResourceArn = existingTopic.TopicArn,
+                TagKeys = [IPubSubService.UsedOnBucketEventFlagKey]
+            }, cancellationToken);
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (Exception e)
+        {
+            return OperationResult<bool>.Failure(
+                $"Failed to unmark topic as used with bucket events {topicName}: {e.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<List<string>>.Failure("Not initialized.");
+
+        try
+        {
+            using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials, Amazon.RegionEndpoint.GetBySystemName(_region));
+
+            var listResponse = await GetAllTopics(snsClient, cancellationToken);
+
+            var result = new List<string>();
+
+            foreach (var topicSummary in listResponse)
+            {
+                try
+                {
+                    var tagsResponse = await snsClient.ListTagsForResourceAsync(new ListTagsForResourceRequest
+                    {
+                        ResourceArn = topicSummary.TopicArn
+                    }, cancellationToken);
+
+                    if (tagsResponse.Tags?.Any(tag => tag.Key == IPubSubService.UsedOnBucketEventFlagKey) !=
+                        true) continue;
+
+                    var topicName = topicSummary.TopicArn.Split(':').Last();
+                    result.Add(EncodingUtilities.DecodeTopic(topicName)!);
+
+                }
+                catch (Exception)
+                {
+                    // Ignore individual topic tag retrieval failures
+                }
+            }
+
+            return OperationResult<List<string>>.Success(result);
+        }
+        catch (Exception e)
+        {
+            return OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}");
+        }
+    }
+
+    private static async Task<List<Topic>> GetAllTopics(AmazonSimpleNotificationServiceClient snsClient, CancellationToken cancellationToken)
+    {
+        var result = new List<Topic>();
+        string? nextToken = null;
+        do
+        {
+            var response = await snsClient.ListTopicsAsync(new ListTopicsRequest { NextToken = nextToken }, cancellationToken);
+            if (response.Topics is { Count: > 0 })
+            {
+                result.AddRange(response.Topics);
+            }
+            nextToken = response.NextToken;
         } while (!string.IsNullOrEmpty(nextToken));
 
-        return matchingQueues;
-    }
-    private async Task InitializeS3EventForwardingAsyncNotSafe(CancellationToken cancellationToken = default)
-    {
-        var masterQueues = await GetMasterQueuesTaggedWithUsedOnBucketEventAsyncNotSafe(cancellationToken);
-        foreach (var queueName in masterQueues)
-        {
-            lock (_s3EventTopicsNotTs)
-            {
-                _s3EventTopicsNotTs.Add(queueName);
-            }
-            //await SubscribeAsync(queueUrl, (_, _) => Task.CompletedTask, null, cancellationToken);
-            //Logically there should be a listener already, if not, when a new listener is added; forwarding will begin anyway.
-        }
+        return result;
     }
 
     public async ValueTask DisposeAsync()
     {
-        // Cancel all subscriptions
-        var cancellationTasks = _subscriptions.Values.Select(async ctsList =>
+        // Cancel all subscription tokens
+        var cancellationTasks = _subscriptions.Values.Select(async cSibList =>
         {
-            foreach (var cts in ctsList)
+            foreach (var cSib in cSibList)
             {
-                await cts.CancelAsync();
-                cts.Dispose();
+                if (cSib.OnCancel != null)
+                {
+                    await cSib.OnCancel.Invoke();
+                }
+                await cSib.Cts.CancelAsync();
+                cSib.Cts.Dispose();
             }
         });
-
         await Task.WhenAll(cancellationTasks);
 
         _subscriptions.Clear();
-        lock (_queuesNotTs)
+
+        // Dispose all publisher clients
+        foreach (var publisher in _publishers.Values)
         {
-            _queuesNotTs.Clear();
+            try { publisher.client.Dispose(); }
+            catch (Exception)
+            {
+                // Ignore cleanup exceptions
+            }
         }
-        lock (_queueListCacheNotTs)
+        _publishers.Clear();
+
+        using var snsClient = new AmazonSimpleNotificationServiceClient(_credentials, Amazon.RegionEndpoint.GetBySystemName(_region));
+
+        foreach (var subscriptions in _topicSubscriptions.Values)
         {
-            _queueListCacheNotTs.Clear();
+            foreach (var subscriptionArn in subscriptions.Values)
+            {
+                await snsClient.UnsubscribeAsync(
+                    subscriptionArn,
+                    CancellationToken.None);
+            }
         }
-        lock (_s3EventTopicsNotTs)
-        {
-            _s3EventTopicsNotTs.Clear();
-        }
-        _sqsClient.Dispose();
+
+        _topicSubscriptions.Clear();
     }
 }

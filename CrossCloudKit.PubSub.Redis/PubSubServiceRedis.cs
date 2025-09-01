@@ -178,15 +178,24 @@ namespace CrossCloudKit.PubSub.Redis
             GC.SuppressFinalize(this);
         }
 
-        private class SystemClassMemoryScope : IMemoryServiceScope
-        {
-            public string Compile()
-            {
-                return Scope;
-            }
-            private const string Scope = "CrossCloudKit.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope";
-        }
-        private static readonly SystemClassMemoryScope SystemClassMemoryScopeInstance = new();
+        private static readonly LambdaMemoryServiceScope SystemClassMemoryScopeInstance = new("CrossCloudKit.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope");
         private const string UsedOnBucketEventListName = "user_on_bucket_event_list";
+
+        /// <summary>
+        /// Not relevant for Redis Pub/Sub
+        /// </summary>
+        public Task<OperationResult<bool>> AWSSpecific_AddSnsS3PolicyAsync(string snsTopicArn, string bucketArn, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+
+        /// <summary>
+        /// Not relevant for Redis Pub/Sub
+        /// </summary>
+        public Task<OperationResult<bool>> AWSSpecific_RemoveSnsS3PolicyAsync(string encodedTopic, string bucketArn,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
     }
 }

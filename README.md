@@ -21,7 +21,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 - **Multi-Service Support**:
   - **Database Services**: AWS DynamoDB, MongoDB, Google Cloud Datastore
   - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers
-  - **PubSub Messaging**: AWS SNS/SQS, Google Cloud Pub/Sub, Redis Pub/Sub
+  - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub
   - **Memory/Caching**: Redis with distributed locking and advanced data structures
 - **Type-Safe Operations**: Strongly-typed primitive operations with `PrimitiveType` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
@@ -35,26 +35,26 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 - **.NET 10 Ready**: Built for the latest .NET platform with nullable reference types
 
 ## 📦 Packages
-| Package | Description |
-|---------|-------------|
-| `CrossCloudKit.Interfaces` | Core interfaces and base classes |
-| **Database Services** | |
-| `CrossCloudKit.Database.AWS` | AWS DynamoDB implementation |
-| `CrossCloudKit.Database.Mongo` | MongoDB implementation |
-| `CrossCloudKit.Database.GC` | Google Cloud Datastore implementation |
-| **File Storage Services** | |
-| `CrossCloudKit.File.AWS` | AWS S3 file storage implementation |
-| `CrossCloudKit.File.GC` | Google Cloud Storage implementation |
-| `CrossCloudKit.File.S3Compatible` | S3-compatible storage providers |
-| **PubSub Messaging Services** | |
-| `CrossCloudKit.PubSub.AWS` | AWS SNS/SQS implementation |
-| `CrossCloudKit.PubSub.GC` | Google Cloud Pub/Sub implementation |
-| `CrossCloudKit.PubSub.Redis` | Redis Pub/Sub implementation |
-| **Memory/Caching Services** | |
+| Package | Description                             |
+|---------|-----------------------------------------|
+| `CrossCloudKit.Interfaces` | Core interfaces and base classes        |
+| **Database Services** |                                         |
+| `CrossCloudKit.Database.AWS` | AWS DynamoDB implementation             |
+| `CrossCloudKit.Database.Mongo` | MongoDB implementation                  |
+| `CrossCloudKit.Database.GC` | Google Cloud Datastore implementation   |
+| **File Storage Services** |                                         |
+| `CrossCloudKit.File.AWS` | AWS S3 file storage implementation      |
+| `CrossCloudKit.File.GC` | Google Cloud Storage implementation     |
+| `CrossCloudKit.File.S3Compatible` | S3-compatible storage providers         |
+| **PubSub Messaging Services** |                                         |
+| `CrossCloudKit.PubSub.AWS` | AWS SNS/SQS Hybrid implementation       |
+| `CrossCloudKit.PubSub.GC` | Google Cloud Pub/Sub implementation     |
+| `CrossCloudKit.PubSub.Redis` | Redis Pub/Sub implementation            |
+| **Memory/Caching Services** |                                         |
 | `CrossCloudKit.Memory.Redis` | Redis memory and caching implementation |
-| **Utilities** | |
-| `CrossCloudKit.Utilities.Common` | Common utilities and primitive types |
-| `CrossCloudKit.Utilities.Windows` | Windows-specific utilities |
+| **Utilities** |                                         |
+| `CrossCloudKit.Utilities.Common` | Common utilities and primitive types    |
+| `CrossCloudKit.Utilities.Windows` | Windows-specific utilities              |
 
 ## 🛠️ Installation
 ```bash
@@ -242,7 +242,7 @@ await mutex.LockAsync();
 ```
 ### PubSub Services
 
-#### AWS SNS/SQS
+#### AWS SNS/SQS Hybrid
 ```csharp
 using CrossCloudKit.PubSub.AWS;
 using CrossCloudKit.Interfaces;
@@ -502,7 +502,7 @@ dotnet test CrossCloudKit.Memory.Redis.Tests
 Tests support environment variables for real cloud service integration:
 
 
-**AWS Services (DynamoDB, S3, SNS/SQS):**
+**AWS Services (DynamoDB, S3, SNS/SQS Hybrid):**
 ```shell script
 AWS_ACCESS_KEY=your-key
 AWS_SECRET_KEY=your-secret
@@ -541,18 +541,18 @@ REDIS_PASSWORD=your-redis-password
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                                Application Layer                                    │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
-│                     CrossCloudKit.Interfaces (Unified API Layer)                           │
-│           IDatabaseService | IFileService | IPubSubService | IMemoryService        │
-├──────────────────┬──────────────────┬──────────────────┬─────────────────────────────┤
-│    Database      │   File Storage   │     PubSub       │        Memory               │
-│    Services      │    Services      │    Services      │       Services              │
-├──────────────────┼──────────────────┼──────────────────┼─────────────────────────────┤
-│ AWS DynamoDB     │    AWS S3        │   AWS SNS/SQS    │     Redis Memory            │
-│ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)         │
-│ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │                             │
-├──────────────────┴──────────────────┴──────────────────┴─────────────────────────────┤
-│                            CrossCloudKit.Utilities.Common                                         │
-│                   (PrimitiveType, OperationResult, etc.)                           │
+│                     CrossCloudKit.Interfaces (Unified API Layer)                    │
+│           IDatabaseService | IFileService | IPubSubService | IMemoryService         │
+├──────────────────┬──────────────────┬──────────────────┬────────────────────────────┤
+│    Database      │   File Storage   │     PubSub       │        Memory              │
+│    Services      │    Services      │    Services      │       Services             │
+├──────────────────┼──────────────────┼──────────────────┼────────────────────────────┤
+│ AWS DynamoDB     │    AWS S3        │   AWS SNS/SQS    │     Redis Memory           │
+│ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)        │
+│ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │                            │
+├──────────────────┴──────────────────┴──────────────────┴────────────────────────────┤
+│                            CrossCloudKit.Utilities.Common                           │
+│                   (PrimitiveType, OperationResult, etc.)                            │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -603,7 +603,7 @@ REDIS_PASSWORD=your-redis-password
 
 ### PubSub Services
 
-#### AWS SNS/SQS
+#### AWS SNS/SQS Hybrid
 - Automatic topic and queue creation with proper permissions
 - Dead letter queue support for failed messages
 - Message filtering and fan-out patterns

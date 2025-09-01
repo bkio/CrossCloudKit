@@ -95,7 +95,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
 
     protected override string GetTestTableName() => $"test-table-{Guid.NewGuid():N}";
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithValidCredentials_ShouldInitializeSuccessfully()
     {
         // Arrange
@@ -119,7 +119,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         service.Dispose();
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithInvalidCredentials_ShouldFailInitialization()
     {
         // Arrange & Act

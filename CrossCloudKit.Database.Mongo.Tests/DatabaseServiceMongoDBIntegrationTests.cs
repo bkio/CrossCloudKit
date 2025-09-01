@@ -46,7 +46,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 
     protected override string GetTestTableName() => $"test-collection-{Guid.NewGuid():N}";
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceMongoDB_WithValidConnectionString_ShouldInitializeSuccessfully()
     {
         // Arrange & Act
@@ -59,7 +59,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
         service.Dispose();
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceMongoDB_WithInvalidConnectionString_ShouldFailInitialization()
     {
         // Arrange & Act

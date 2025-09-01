@@ -69,7 +69,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
 
     protected override string GetTestTableName() => $"test-kind-{Guid.NewGuid():N}";
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithServiceAccountFilePath_ShouldInitialize()
     {
         // This test demonstrates using a file path (will fail initialization with non-existent file)
@@ -94,7 +94,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithDefaultCredentials_ShouldInitialize()
     {
         // This test may succeed if running with proper ADC setup, or fail gracefully
@@ -113,7 +113,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         }
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullProjectId_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -122,14 +122,14 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("   ", useDefaultCredentials: true));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithDefaultCredentialsFalse_ShouldThrowArgumentException()
     {
         // Act & Assert
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, useDefaultCredentials: false));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullServiceAccountPath_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -138,7 +138,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   "));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullJsonContent_ShouldThrowArgumentException()
     {
         // Act & Assert
@@ -147,7 +147,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   ", isBase64Encoded: false));
     }
 
-    [RetryFact(3)]
+    [RetryFact(3, 5000)]
     public async Task DisposeAsync_ShouldCompleteSuccessfully()
     {
         var service = CreateDatabaseService();

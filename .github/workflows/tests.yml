@@ -189,10 +189,9 @@ jobs:
 
         EOF
 
-        # Find where to insert the test results (after the badges but before features)
         if grep -q "## Features" README.md; then
-          # Insert before Features section
-          sed -i '/## Features/{r test_results.tmp; i\ }' README.md
+          # Insert the test results before the Features section
+          sed -i '/## Features/i\'$'\n$(cat test_results.tmp)\n' README.md
         else
           # Insert after the description paragraph
           sed -i '/CrossCloudKit is a comprehensive/r test_results.tmp' README.md

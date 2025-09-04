@@ -89,7 +89,7 @@ public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
     /// <summary>
     /// Creates and acquires a mutex asynchronously.
     /// Recommended in async code with <c>await using</c>.
-    /// NOTE: <see cref="timeToLive"/> will affect the entire <see cref="memoryScope"/>! Consider creating a separate scope for this operation.
+    /// NOTE: <paramref name="timeToLive"/> will affect the entire <paramref name="memoryScope"/>! Consider creating a separate scope for this operation.
     /// </summary>
     // ReSharper disable once MemberCanBePrivate.Global
     public static async Task<MemoryServiceScopeMutex> CreateScopeAsync(
@@ -109,7 +109,7 @@ public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
     /// <summary>
     /// Creates and acquires a mutex synchronously.
     /// Avoid it in async contexts (may block threads).
-    /// NOTE: <see cref="timeToLive"/> will affect the entire <see cref="memoryScope"/>! Consider creating a separate scope for this operation.
+    /// NOTE: <paramref name="timeToLive"/> will affect the entire <paramref name="memoryScope"/>! Consider creating a separate scope for this operation.
     /// </summary>
     public static MemoryServiceScopeMutex CreateScope(
         IMemoryService memoryService,
@@ -190,14 +190,14 @@ public interface IMemoryService : IAsyncDisposable
     /// </summary>
     /// <param name="memoryScope">
     /// The memory scope key for the operation.
-    /// NOTE: <see cref="timeToLive"/> will affect the entire scope!
+    /// NOTE: <paramref name="timeToLive"/> will affect the entire scope!
     /// </param>
     /// <param name="mutexValue">
     /// The unique identifier for the mutex lock. This value should be consistent across
     /// all processes that need to coordinate access to the same resource.
     /// </param>
     /// <param name="timeToLive">
-    /// NOTE: timeToLive will affect entire <see cref="memoryScope"/>!
+    /// NOTE: timeToLive will affect entire <paramref name="memoryScope"/>!
     /// The maximum duration of the lock should be held before automatically expiring.
     /// This prevents deadlocks in case the lock holder crashes or fails to release the lock.
     /// Should be set longer than the expected operation duration but not too long to avoid

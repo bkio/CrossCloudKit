@@ -562,4 +562,159 @@ public class NetworkUtilitiesTests
         // ResolveHostnameAsync with invalid inputs should throw (tested above)
         // This confirms the methods have appropriate input validation
     }
+
+    #region IsValidEmail Tests
+
+    [Fact]
+    public void IsValidEmail_WithValidEmail_ReturnsTrue()
+    {
+        // Arrange
+        var email = "test@example.com";
+
+        // Act
+        var result = NetworkUtilities.IsValidEmail(email);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsValidEmail_WithInvalidEmail_ReturnsFalse()
+    {
+        // Arrange
+        var email = "invalid-email";
+
+        // Act
+        var result = NetworkUtilities.IsValidEmail(email);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsValidEmail_WithNullOrEmpty_ReturnsFalse()
+    {
+        // Act & Assert
+        Assert.False(NetworkUtilities.IsValidEmail(null));
+        Assert.False(NetworkUtilities.IsValidEmail(""));
+        Assert.False(NetworkUtilities.IsValidEmail("   "));
+    }
+
+    [Fact]
+    public void IsValidEmail_WithComplexValidEmail_ReturnsTrue()
+    {
+        // Arrange
+        var email = "user.name+tag@example-domain.co.uk";
+
+        // Act
+        var result = NetworkUtilities.IsValidEmail(email);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    #endregion
+
+    #region IsValidUrl Tests
+
+    [Fact]
+    public void IsValidUrl_WithValidHttpUrl_ReturnsTrue()
+    {
+        // Arrange
+        var url = "http://www.example.com";
+
+        // Act
+        var result = NetworkUtilities.IsValidUrl(url);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsValidUrl_WithValidHttpsUrl_ReturnsTrue()
+    {
+        // Arrange
+        var url = "https://www.example.com";
+
+        // Act
+        var result = NetworkUtilities.IsValidUrl(url);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsValidUrl_WithInvalidScheme_ReturnsFalse()
+    {
+        // Arrange
+        var url = "ftp://www.example.com";
+
+        // Act
+        var result = NetworkUtilities.IsValidUrl(url);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsValidUrl_WithInvalidUrl_ReturnsFalse()
+    {
+        // Arrange
+        var url = "not-a-url";
+
+        // Act
+        var result = NetworkUtilities.IsValidUrl(url);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    #endregion
+
+    #region GetParameterFromUrlParameters Tests
+
+    [Fact]
+    public void GetParameterFromUrlParameters_WithExistingParameter_ReturnsTrueAndValue()
+    {
+        // Arrange
+        var parameters = new Dictionary<string, string> { { "action", "test" } };
+
+        // Act
+        var result = NetworkUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
+
+        // Assert
+        Assert.True(result);
+        Assert.Equal("test", value);
+    }
+
+    [Fact]
+    public void GetParameterFromUrlParameters_WithAmpPrefixedParameter_ReturnsTrueAndValue()
+    {
+        // Arrange
+        var parameters = new Dictionary<string, string> { { "amp;action", "test" } };
+
+        // Act
+        var result = NetworkUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
+
+        // Assert
+        Assert.True(result);
+        Assert.Equal("test", value);
+    }
+
+    [Fact]
+    public void GetParameterFromUrlParameters_WithNonExistingParameter_ReturnsFalse()
+    {
+        // Arrange
+        var parameters = new Dictionary<string, string> { { "other", "value" } };
+
+        // Act
+        var result = NetworkUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
+
+        // Assert
+        Assert.False(result);
+        Assert.Null(value);
+    }
+
+    #endregion
+
 }

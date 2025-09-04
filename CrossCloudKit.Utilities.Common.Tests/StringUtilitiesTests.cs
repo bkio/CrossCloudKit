@@ -187,10 +187,112 @@ public class StringUtilitiesTests
         var length = 10;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, lowercase: true);
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase);
 
         // Assert
         Assert.Equal(result.ToLowerInvariant(), result);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithUppercase_ReturnsUppercaseString()
+    {
+        // Arrange
+        var length = 10;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase);
+
+        // Assert
+        Assert.Equal(result.ToUpperInvariant(), result);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithUppercaseAndDigits_ContainsUppercaseAndDigits()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase, includeDigits: true);
+
+        // Assert
+        Assert.True(result.All(c => char.IsUpper(c) || char.IsDigit(c)));
+        Assert.True(result.All(char.IsLetterOrDigit));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithUppercaseWithoutDigits_ContainsOnlyUppercaseLetters()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase, includeDigits: false);
+
+        // Assert
+        Assert.True(result.All(char.IsUpper));
+        Assert.True(result.All(char.IsLetter));
+        Assert.DoesNotContain(result, char.IsDigit);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithLowercaseAndDigits_ContainsLowercaseAndDigits()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase, includeDigits: true);
+
+        // Assert
+        Assert.True(result.All(c => char.IsLower(c) || char.IsDigit(c)));
+        Assert.True(result.All(char.IsLetterOrDigit));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithLowercaseWithoutDigits_ContainsOnlyLowercaseLetters()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase, includeDigits: false);
+
+        // Assert
+        Assert.True(result.All(char.IsLower));
+        Assert.True(result.All(char.IsLetter));
+        Assert.DoesNotContain(result, char.IsDigit);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithMixedCase_ContainsBothUpperAndLowercase()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length);
+
+        // Assert
+        Assert.True(result.All(char.IsLetter));
+        // With a length of 100, it's statistically almost certain to have both cases
+        Assert.Contains(result, char.IsUpper);
+        Assert.Contains(result, char.IsLower);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithMixedCaseAndDigits_ContainsLettersAndDigits()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, includeDigits: true);
+
+        // Assert
+        Assert.True(result.All(char.IsLetterOrDigit));
+        // With a length of 100, it's statistically almost certain to have both letters and digits
+        Assert.Contains(result, char.IsLetter);
     }
 
     [Fact]
@@ -231,6 +333,13 @@ public class StringUtilitiesTests
     {
         // Act & Assert
         Assert.Throws<ArgumentOutOfRangeException>(() => StringUtilities.GenerateRandomString(-1));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithInvalidCaseOption_ThrowsArgumentOutOfRangeException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentOutOfRangeException>(() => StringUtilities.GenerateRandomString(10, (CaseOptions)999));
     }
 
     #endregion
@@ -281,50 +390,6 @@ public class StringUtilitiesTests
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() => StringUtilities.WildcardToRegex(null));
-    }
-
-    #endregion
-
-    #region EncodeForTagging/DecodeFromTagging Tests
-
-    [Fact]
-    public void EncodeForTagging_WithSpecialCharacters_EncodesCorrectly()
-    {
-        // Arrange
-        var input = "test@example.com";
-
-        // Act
-        var result = StringUtilities.EncodeForTagging(input);
-
-        // Assert
-        Assert.Equal("test@pPp@40example.com", result);
-    }
-
-    [Fact]
-    public void DecodeFromTagging_WithEncodedString_DecodesCorrectly()
-    {
-        // Arrange
-        var input = "test@pPp@40example.com";
-
-        // Act
-        var result = StringUtilities.DecodeFromTagging(input);
-
-        // Assert
-        Assert.Equal("test@example.com", result);
-    }
-
-    [Fact]
-    public void EncodeDecodeForTagging_RoundTrip_ReturnsOriginal()
-    {
-        // Arrange
-        var original = "test@example.com with spaces & symbols!";
-
-        // Act
-        var encoded = StringUtilities.EncodeForTagging(original);
-        var decoded = StringUtilities.DecodeFromTagging(encoded);
-
-        // Assert
-        Assert.Equal(original, decoded);
     }
 
     #endregion
@@ -388,160 +453,6 @@ public class StringUtilitiesTests
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() => StringUtilities.SanitizeElasticsearchIndexName(null));
-    }
-
-    #endregion
-
-    #region IsValidEmail Tests
-
-    [Fact]
-    public void IsValidEmail_WithValidEmail_ReturnsTrue()
-    {
-        // Arrange
-        var email = "test@example.com";
-
-        // Act
-        var result = StringUtilities.IsValidEmail(email);
-
-        // Assert
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void IsValidEmail_WithInvalidEmail_ReturnsFalse()
-    {
-        // Arrange
-        var email = "invalid-email";
-
-        // Act
-        var result = StringUtilities.IsValidEmail(email);
-
-        // Assert
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void IsValidEmail_WithNullOrEmpty_ReturnsFalse()
-    {
-        // Act & Assert
-        Assert.False(StringUtilities.IsValidEmail(null));
-        Assert.False(StringUtilities.IsValidEmail(""));
-        Assert.False(StringUtilities.IsValidEmail("   "));
-    }
-
-    [Fact]
-    public void IsValidEmail_WithComplexValidEmail_ReturnsTrue()
-    {
-        // Arrange
-        var email = "user.name+tag@example-domain.co.uk";
-
-        // Act
-        var result = StringUtilities.IsValidEmail(email);
-
-        // Assert
-        Assert.True(result);
-    }
-
-    #endregion
-
-    #region IsValidUrl Tests
-
-    [Fact]
-    public void IsValidUrl_WithValidHttpUrl_ReturnsTrue()
-    {
-        // Arrange
-        var url = "http://www.example.com";
-
-        // Act
-        var result = StringUtilities.IsValidUrl(url);
-
-        // Assert
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void IsValidUrl_WithValidHttpsUrl_ReturnsTrue()
-    {
-        // Arrange
-        var url = "https://www.example.com";
-
-        // Act
-        var result = StringUtilities.IsValidUrl(url);
-
-        // Assert
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void IsValidUrl_WithInvalidScheme_ReturnsFalse()
-    {
-        // Arrange
-        var url = "ftp://www.example.com";
-
-        // Act
-        var result = StringUtilities.IsValidUrl(url);
-
-        // Assert
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void IsValidUrl_WithInvalidUrl_ReturnsFalse()
-    {
-        // Arrange
-        var url = "not-a-url";
-
-        // Act
-        var result = StringUtilities.IsValidUrl(url);
-
-        // Assert
-        Assert.False(result);
-    }
-
-    #endregion
-
-    #region GetParameterFromUrlParameters Tests
-
-    [Fact]
-    public void GetParameterFromUrlParameters_WithExistingParameter_ReturnsTrueAndValue()
-    {
-        // Arrange
-        var parameters = new Dictionary<string, string> { { "action", "test" } };
-
-        // Act
-        var result = StringUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
-
-        // Assert
-        Assert.True(result);
-        Assert.Equal("test", value);
-    }
-
-    [Fact]
-    public void GetParameterFromUrlParameters_WithAmpPrefixedParameter_ReturnsTrueAndValue()
-    {
-        // Arrange
-        var parameters = new Dictionary<string, string> { { "amp;action", "test" } };
-
-        // Act
-        var result = StringUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
-
-        // Assert
-        Assert.True(result);
-        Assert.Equal("test", value);
-    }
-
-    [Fact]
-    public void GetParameterFromUrlParameters_WithNonExistingParameter_ReturnsFalse()
-    {
-        // Arrange
-        var parameters = new Dictionary<string, string> { { "other", "value" } };
-
-        // Act
-        var result = StringUtilities.GetParameterFromUrlParameters(parameters, "action", out var value);
-
-        // Assert
-        Assert.False(result);
-        Assert.Null(value);
     }
 
     #endregion

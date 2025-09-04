@@ -1,13 +1,32 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using System.Globalization;
-using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 // ReSharper disable MemberCanBePrivate.Global
 
 namespace CrossCloudKit.Utilities.Common;
+
+/// <summary>
+/// Specifies options for the casing of a random string generated.
+/// </summary>
+public enum CaseOptions
+{
+    /// <summary>
+    /// Generates a string where all letters are uppercase. Digits may be included if requested.
+    /// </summary>
+    FullUppercase,
+
+    /// <summary>
+    /// Generates a string where all letters are lowercase. Digits may be included if requested.
+    /// </summary>
+    FullLowercase,
+
+    /// <summary>
+    /// Generates a string with a mix of uppercase and lowercase letters. Digits may be included if requested.
+    /// </summary>
+    Mixed
+}
 
 /// <summary>
 /// Provides utilities for working with strings and text operations.
@@ -73,14 +92,28 @@ public static class StringUtilities
     /// Generates a random string of the specified length.
     /// </summary>
     /// <param name="length">The length of the string to generate</param>
-    /// <param name="lowercase">Whether to return lowercase letters</param>
+    /// <param name="caseOption">Specifies the casing of the string. Defaults to <see cref="CaseOptions.Mixed"/>.</param>
     /// <param name="includeDigits">Whether to include digits in the random string</param>
     /// <returns>A random string</returns>
-    public static string GenerateRandomString(int length, bool lowercase = false, bool includeDigits = false)
+    public static string GenerateRandomString(
+        int length,
+        CaseOptions caseOption = CaseOptions.Mixed,
+        bool includeDigits = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
 
-        var chars = includeDigits ? RandomStringChars : RandomStringCharsOnlyCharacters;
+        var chars = caseOption switch
+        {
+            CaseOptions.FullUppercase => includeDigits
+                ? RandomStringCharsOnlyUpper
+                : RandomStringCharsOnlyCharactersOnlyUpper,
+            CaseOptions.FullLowercase => includeDigits
+                ? RandomStringCharsOnlyLower
+                : RandomStringCharsOnlyCharactersOnlyLower,
+            CaseOptions.Mixed => includeDigits ? RandomStringCharsMixed : RandomStringCharsOnlyCharactersMixed,
+            _ => throw new ArgumentOutOfRangeException(nameof(caseOption), caseOption, null)
+        };
+
         var random = Random.Shared;
         var result = new StringBuilder(length);
 
@@ -89,7 +122,7 @@ public static class StringUtilities
             result.Append(chars[random.Next(chars.Length)]);
         }
 
-        return lowercase ? result.ToString().ToLowerInvariant() : result.ToString();
+        return result.ToString();
     }
 
     /// <summary>
@@ -101,26 +134,6 @@ public static class StringUtilities
     {
         ArgumentNullException.ThrowIfNull(wildcardPattern);
         return $"^{Regex.Escape(wildcardPattern).Replace("\\*", ".*").Replace("\\?", ".")}$";
-    }
-
-    /// <summary>
-    /// Encodes a string for safe use in URL-like contexts by replacing % with a custom sequence.
-    /// </summary>
-    /// <param name="input">The string to encode</param>
-    /// <returns>The encoded string</returns>
-    public static string EncodeForTagging(string input)
-    {
-        return WebUtility.UrlEncode(input).Replace("%", "@pPp@");
-    }
-
-    /// <summary>
-    /// Decodes a string that was encoded with EncodeForTagging.
-    /// </summary>
-    /// <param name="input">The string to decode</param>
-    /// <returns>The decoded string</returns>
-    public static string DecodeFromTagging(string input)
-    {
-        return WebUtility.UrlDecode(input.Replace("@pPp@", "%"));
     }
 
     /// <summary>
@@ -153,103 +166,12 @@ public static class StringUtilities
         return indexName;
     }
 
-    /// <summary>
-    /// Character set containing uppercase letters and digits for random string generation.
-    /// </summary>
-    private const string RandomStringChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    /// <summary>
-    /// Character set containing only uppercase letters for random string generation.
-    /// </summary>
-    private const string RandomStringCharsOnlyCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-
-    /// <summary>
-    /// Validates whether a string is a properly formatted email address.
-    /// </summary>
-    /// <param name="email">The email address to validate</param>
-    /// <returns>True if the email address is valid; otherwise, false</returns>
-    public static bool IsValidEmail(string? email)
-    {
-        if (string.IsNullOrWhiteSpace(email))
-            return false;
-
-        try
-        {
-            // Normalize the domain
-            email = Regex.Replace(email, @"(@)(.+)$", DomainMapper, RegexOptions.None);
-
-            // Examines the domain part of the email and normalizes it.
-            string DomainMapper(Match match)
-            {
-                // Use IdnMapping class to convert Unicode domain names.
-                var idn = new IdnMapping();
-
-                // Pull out and process domain name (throws ArgumentException on invalid)
-                var dName = idn.GetAscii(match.Groups[2].Value);
-
-                return match.Groups[1].Value + dName;
-            }
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-
-        try
-        {
-            return Regex.IsMatch(email,
-                @"^[^@\s]+@[^@\s]+\.[^@\s]+$",
-                RegexOptions.IgnoreCase);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Validates whether a string is a properly formatted HTTP or HTTPS URL.
-    /// </summary>
-    /// <param name="url">The URL to validate</param>
-    /// <returns>True if the URL is valid and uses HTTP or HTTPS scheme; otherwise, false</returns>
-    public static bool IsValidUrl(string url)
-    {
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-    }
-
-    /// <summary>
-    /// Retrieves a parameter value from URL parameters dictionary, handling both normal and amp-prefixed parameters.
-    /// </summary>
-    /// <param name="urlParameters">Dictionary containing URL parameters</param>
-    /// <param name="parameter">The parameter name to retrieve</param>
-    /// <param name="action">The parameter value if found; otherwise, null</param>
-    /// <returns>True if the parameter was found; otherwise, false</returns>
-    public static bool GetParameterFromUrlParameters(Dictionary<string, string> urlParameters, string parameter, out string? action)
-    {
-        action = null;
-
-        if (!urlParameters.TryGetValue(parameter, out var urlParameter))
-        {
-            if (!urlParameters.ContainsKey($"amp;{parameter}"))
-            {
-                return false;
-            }
-            else
-            {
-                action = urlParameters[$"amp;{parameter}"];
-            }
-        }
-        else
-        {
-            action = urlParameter;
-        }
-        return true;
-    }
+    private const string RandomStringCharsOnlyUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private const string RandomStringCharsOnlyLower = "abcdefghijklmnopqrstuvwxyz0123456789";
+    private const string RandomStringCharsMixed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    private const string RandomStringCharsOnlyCharactersOnlyUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private const string RandomStringCharsOnlyCharactersOnlyLower = "abcdefghijklmnopqrstuvwxyz";
+    private const string RandomStringCharsOnlyCharactersMixed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
     /// <summary>
     /// Replaces the first occurrence of a specified string with another string.

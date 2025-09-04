@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+#nullable enable
 using System.Collections.ObjectModel;
 using CrossCloudKit.Interfaces;
 using Newtonsoft.Json;

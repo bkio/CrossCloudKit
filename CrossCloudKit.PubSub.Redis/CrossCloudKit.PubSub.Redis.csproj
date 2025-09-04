@@ -11,12 +11,17 @@
 		<PackageLicenseUrl>https://raw.githubusercontent.com/bkio/CrossCloudKit/refs/heads/main/LICENSE</PackageLicenseUrl>
 		<RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
         <PackageReadmeFile>README.md</PackageReadmeFile>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<!-- optional: suppress "missing XML comment" warnings -->
+		<NoWarn>$(NoWarn);1591</NoWarn>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 	</PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
     <ProjectReference Include="..\CrossCloudKit.Memory.Redis.Common\CrossCloudKit.Memory.Redis.Common.csproj" />
     <None Include="..\README.md" Pack="true" PackagePath="\" />
+	  <None Include="$(OutputPath)\$(AssemblyName).xml" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

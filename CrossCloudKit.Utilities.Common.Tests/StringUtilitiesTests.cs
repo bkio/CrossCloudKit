@@ -181,53 +181,44 @@ public class StringUtilitiesTests
     }
 
     [Fact]
-    public void GenerateRandomString_WithLowercase_ReturnsLowercaseString()
-    {
-        // Arrange
-        var length = 10;
-
-        // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase);
-
-        // Assert
-        Assert.Equal(result.ToLowerInvariant(), result);
-    }
-
-    [Fact]
-    public void GenerateRandomString_WithUppercase_ReturnsUppercaseString()
-    {
-        // Arrange
-        var length = 10;
-
-        // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase);
-
-        // Assert
-        Assert.Equal(result.ToUpperInvariant(), result);
-    }
-
-    [Fact]
-    public void GenerateRandomString_WithUppercaseAndDigits_ContainsUppercaseAndDigits()
+    public void GenerateRandomString_WithOnlyDigits_ReturnsOnlyDigitsString()
     {
         // Arrange
         var length = 100;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase, includeDigits: true);
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyDigits);
 
         // Assert
-        Assert.True(result.All(c => char.IsUpper(c) || char.IsDigit(c)));
-        Assert.True(result.All(char.IsLetterOrDigit));
+        Assert.True(result.All(char.IsDigit));
+        Assert.DoesNotContain(result, char.IsLetter);
     }
 
     [Fact]
-    public void GenerateRandomString_WithUppercaseWithoutDigits_ContainsOnlyUppercaseLetters()
+    public void GenerateRandomString_WithOnlyCharactersMixed_ReturnsOnlyLetters()
     {
         // Arrange
         var length = 100;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullUppercase, includeDigits: false);
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyCharacters);
+
+        // Assert
+        Assert.True(result.All(char.IsLetter));
+        Assert.DoesNotContain(result, char.IsDigit);
+        // With a length of 100, it's statistically almost certain to have both cases
+        Assert.Contains(result, char.IsUpper);
+        Assert.Contains(result, char.IsLower);
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithOnlyCharactersUppercase_ReturnsOnlyUppercaseLetters()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyCharacters, CaseOptions.FullUppercase);
 
         // Assert
         Assert.True(result.All(char.IsUpper));
@@ -236,27 +227,13 @@ public class StringUtilitiesTests
     }
 
     [Fact]
-    public void GenerateRandomString_WithLowercaseAndDigits_ContainsLowercaseAndDigits()
+    public void GenerateRandomString_WithOnlyCharactersLowercase_ReturnsOnlyLowercaseLetters()
     {
         // Arrange
         var length = 100;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase, includeDigits: true);
-
-        // Assert
-        Assert.True(result.All(c => char.IsLower(c) || char.IsDigit(c)));
-        Assert.True(result.All(char.IsLetterOrDigit));
-    }
-
-    [Fact]
-    public void GenerateRandomString_WithLowercaseWithoutDigits_ContainsOnlyLowercaseLetters()
-    {
-        // Arrange
-        var length = 100;
-
-        // Act
-        var result = StringUtilities.GenerateRandomString(length, CaseOptions.FullLowercase, includeDigits: false);
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyCharacters, CaseOptions.FullLowercase);
 
         // Assert
         Assert.True(result.All(char.IsLower));
@@ -265,7 +242,7 @@ public class StringUtilitiesTests
     }
 
     [Fact]
-    public void GenerateRandomString_WithMixedCase_ContainsBothUpperAndLowercase()
+    public void GenerateRandomString_WithMixedDigitsAndMixedCase_ContainsLettersAndDigits()
     {
         // Arrange
         var length = 100;
@@ -274,51 +251,75 @@ public class StringUtilitiesTests
         var result = StringUtilities.GenerateRandomString(length);
 
         // Assert
-        Assert.True(result.All(char.IsLetter));
-        // With a length of 100, it's statistically almost certain to have both cases
+        Assert.True(result.All(char.IsLetterOrDigit));
+        // With a length of 100, it's statistically almost certain to have both letters and digits
+        Assert.Contains(result, char.IsLetter);
+        Assert.Contains(result, char.IsDigit);
         Assert.Contains(result, char.IsUpper);
         Assert.Contains(result, char.IsLower);
     }
 
     [Fact]
-    public void GenerateRandomString_WithMixedCaseAndDigits_ContainsLettersAndDigits()
+    public void GenerateRandomString_WithMixedDigitsAndUppercase_ContainsUppercaseAndDigits()
     {
         // Arrange
         var length = 100;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, includeDigits: true);
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.Mixed, CaseOptions.FullUppercase);
+
+        // Assert
+        Assert.True(result.All(c => char.IsUpper(c) || char.IsDigit(c)));
+        Assert.True(result.All(char.IsLetterOrDigit));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithMixedDigitsAndLowercase_ContainsLowercaseAndDigits()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length, DigitOptions.Mixed, CaseOptions.FullLowercase);
+
+        // Assert
+        Assert.True(result.All(c => char.IsLower(c) || char.IsDigit(c)));
+        Assert.True(result.All(char.IsLetterOrDigit));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithDefaultParameters_ReturnsDefaultBehavior()
+    {
+        // Arrange
+        var length = 100;
+
+        // Act
+        var result = StringUtilities.GenerateRandomString(length);
 
         // Assert
         Assert.True(result.All(char.IsLetterOrDigit));
-        // With a length of 100, it's statistically almost certain to have both letters and digits
+        // Default behavior should include both letters and digits with mixed case
         Assert.Contains(result, char.IsLetter);
+        Assert.Contains(result, char.IsDigit);
+        Assert.Contains(result, char.IsUpper);
+        Assert.Contains(result, char.IsLower);
     }
 
     [Fact]
-    public void GenerateRandomString_WithIncludeDigits_ContainsOnlyLettersAndDigits()
+    public void GenerateRandomString_WithOnlyDigitsCaseOptionIgnored_ReturnsOnlyDigits()
     {
         // Arrange
-        var length = 100;
+        var length = 50;
 
         // Act
-        var result = StringUtilities.GenerateRandomString(length, includeDigits: true);
+        var resultWithUpper = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyDigits, CaseOptions.FullUppercase);
+        var resultWithLower = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyDigits, CaseOptions.FullLowercase);
+        var resultWithMixed = StringUtilities.GenerateRandomString(length, DigitOptions.OnlyDigits);
 
         // Assert
-        Assert.True(result.All(char.IsLetterOrDigit));
-    }
-
-    [Fact]
-    public void GenerateRandomString_WithoutIncludeDigits_ContainsOnlyLetters()
-    {
-        // Arrange
-        var length = 100;
-
-        // Act
-        var result = StringUtilities.GenerateRandomString(length, includeDigits: false);
-
-        // Assert
-        Assert.True(result.All(char.IsLetter));
+        Assert.True(resultWithUpper.All(char.IsDigit));
+        Assert.True(resultWithLower.All(char.IsDigit));
+        Assert.True(resultWithMixed.All(char.IsDigit));
     }
 
     [Fact]
@@ -339,7 +340,14 @@ public class StringUtilitiesTests
     public void GenerateRandomString_WithInvalidCaseOption_ThrowsArgumentOutOfRangeException()
     {
         // Act & Assert
-        Assert.Throws<ArgumentOutOfRangeException>(() => StringUtilities.GenerateRandomString(10, (CaseOptions)999));
+        Assert.Throws<ArgumentOutOfRangeException>(() => StringUtilities.GenerateRandomString(10, DigitOptions.Mixed, (CaseOptions)999));
+    }
+
+    [Fact]
+    public void GenerateRandomString_WithInvalidDigitOption_ThrowsArgumentOutOfRangeException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentOutOfRangeException>(() => StringUtilities.GenerateRandomString(10, (DigitOptions)999));
     }
 
     #endregion

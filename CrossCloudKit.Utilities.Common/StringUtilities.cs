@@ -29,6 +29,27 @@ public enum CaseOptions
 }
 
 /// <summary>
+/// Specifies options for including digits in a random string generated.
+/// </summary>
+public enum DigitOptions
+{
+    /// <summary>
+    /// Generates a string containing only numeric digits (0-9).
+    /// </summary>
+    OnlyDigits,
+
+    /// <summary>
+    /// Generates a string containing only alphabetic characters (uppercase and/or lowercase depending on <see cref="CaseOptions"/>).
+    /// </summary>
+    OnlyCharacters,
+
+    /// <summary>
+    /// Generates a string containing a mix of alphabetic characters and numeric digits.
+    /// </summary>
+    Mixed
+}
+
+/// <summary>
 /// Provides utilities for working with strings and text operations.
 /// </summary>
 public static class StringUtilities
@@ -91,28 +112,42 @@ public static class StringUtilities
     /// <summary>
     /// Generates a random string of the specified length.
     /// </summary>
-    /// <param name="length">The length of the string to generate</param>
+    /// <param name="length">The length of the string to generate. Must be greater than zero.</param>
+    /// <param name="digitOption">Specifies how digits are included in the string. Defaults to <see cref="DigitOptions.Mixed"/>.</param>
     /// <param name="caseOption">Specifies the casing of the string. Defaults to <see cref="CaseOptions.Mixed"/>.</param>
-    /// <param name="includeDigits">Whether to include digits in the random string</param>
-    /// <returns>A random string</returns>
+    /// <returns>A random string with the specified length, casing, and digit options.</returns>
+    /// <remarks>
+    /// If <paramref name="digitOption"/> is <see cref="DigitOptions.OnlyDigits"/>, the <paramref name="caseOption"/> is ignored.
+    /// </remarks>
     public static string GenerateRandomString(
         int length,
-        CaseOptions caseOption = CaseOptions.Mixed,
-        bool includeDigits = false)
+        DigitOptions digitOption = DigitOptions.Mixed,
+        CaseOptions caseOption = CaseOptions.Mixed)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
 
-        var chars = caseOption switch
+        if (!Enum.IsDefined(typeof(DigitOptions), digitOption))
+            throw new ArgumentOutOfRangeException(nameof(digitOption), digitOption, null);
+
+        string chars;
+        if (digitOption == DigitOptions.OnlyDigits)
         {
-            CaseOptions.FullUppercase => includeDigits
-                ? RandomStringCharsOnlyUpper
-                : RandomStringCharsOnlyCharactersOnlyUpper,
-            CaseOptions.FullLowercase => includeDigits
-                ? RandomStringCharsOnlyLower
-                : RandomStringCharsOnlyCharactersOnlyLower,
-            CaseOptions.Mixed => includeDigits ? RandomStringCharsMixed : RandomStringCharsOnlyCharactersMixed,
-            _ => throw new ArgumentOutOfRangeException(nameof(caseOption), caseOption, null)
-        };
+            chars = RandomStringCharsOnlyDigits;
+        }
+        else
+        {
+            chars = caseOption switch
+            {
+                CaseOptions.FullUppercase => digitOption == DigitOptions.Mixed
+                    ? RandomStringCharsOnlyUpper
+                    : RandomStringCharsOnlyCharactersOnlyUpper,
+                CaseOptions.FullLowercase => digitOption == DigitOptions.Mixed
+                    ? RandomStringCharsOnlyLower
+                    : RandomStringCharsOnlyCharactersOnlyLower,
+                CaseOptions.Mixed => digitOption == DigitOptions.Mixed ? RandomStringCharsMixed : RandomStringCharsOnlyCharactersMixed,
+                _ => throw new ArgumentOutOfRangeException(nameof(caseOption), caseOption, null)
+            };
+        }
 
         var random = Random.Shared;
         var result = new StringBuilder(length);
@@ -172,6 +207,7 @@ public static class StringUtilities
     private const string RandomStringCharsOnlyCharactersOnlyUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private const string RandomStringCharsOnlyCharactersOnlyLower = "abcdefghijklmnopqrstuvwxyz";
     private const string RandomStringCharsOnlyCharactersMixed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    private const string RandomStringCharsOnlyDigits = "0123456789";
 
     /// <summary>
     /// Replaces the first occurrence of a specified string with another string.

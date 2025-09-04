@@ -31,7 +31,7 @@ public static class EncodingUtilities
         ArgumentOutOfRangeException.ThrowIfNotEqual(hexInput.Length % 2, 0);
 
         var bytes = new byte[hexInput.Length / 2];
-        for (int i = 0; i < bytes.Length; i++)
+        for (var i = 0; i < bytes.Length; i++)
         {
             bytes[i] = Convert.ToByte(hexInput.Substring(i * 2, 2), 16);
         }
@@ -66,12 +66,12 @@ public static class EncodingUtilities
     /// </summary>
     /// <param name="topic">The string to encode</param>
     /// <returns>Encoded string</returns>
-    public static string? EncodeTopic(string? topic) => WebUtility.UrlEncode(topic) ?? null;
+    public static string? EncodeTopic(string? topic) => topic == null ? null : Uri.EscapeDataString(topic);
 
     /// <summary>
     /// Decodes a cloud-compatible topic name to original.
     /// </summary>
     /// <param name="encodedTopic">The string to decode</param>
     /// <returns>Decoded string</returns>
-    public static string? DecodeTopic(string? encodedTopic) => WebUtility.UrlDecode(encodedTopic) ?? null;
+    public static string? DecodeTopic(string? encodedTopic) => encodedTopic == null ? null : Uri.UnescapeDataString(encodedTopic);
 }

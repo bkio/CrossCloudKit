@@ -4,7 +4,6 @@
 // ReSharper disable MemberCanBePrivate.Global
 namespace CrossCloudKit.Utilities.Common;
 
-
 /// <summary>
 /// Provides utilities for environment variable operations.
 /// </summary>
@@ -39,12 +38,10 @@ public static class EnvironmentUtilities
             foreach (var key in keyOptionsList2)
             {
                 var value = Environment.GetEnvironmentVariable(key);
-                if (!string.IsNullOrEmpty(value))
-                {
-                    foundValue = value;
-                    foundKey = key;
-                    break;
-                }
+                if (string.IsNullOrWhiteSpace(value)) continue;
+                foundValue = value;
+                foundKey = key;
+                break;
             }
 
             if (foundValue is null || foundKey is null)

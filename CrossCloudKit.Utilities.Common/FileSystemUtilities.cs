@@ -92,20 +92,8 @@ public static class FileSystemUtilities
 
     private static DirectoryTreeNode BuildDirectoryTree(DirectoryTreeNode? parent, DirectoryInfo directoryInfo)
     {
-        var children = new List<DirectoryTreeNode>();
-
         // Add files
-        foreach (var file in directoryInfo.GetFiles())
-        {
-            var fileNode = new DirectoryTreeNode
-            {
-                NodeType = DirectoryTreeNodeType.File,
-                Name = file.Name,
-                Parent = parent,
-                Children = []
-            };
-            children.Add(fileNode);
-        }
+        var children = directoryInfo.GetFiles().Select(file => new DirectoryTreeNode { NodeType = DirectoryTreeNodeType.File, Name = file.Name, Parent = parent, Children = [] }).ToList();
 
         // Add subdirectories
         var directoryNode = new DirectoryTreeNode
@@ -116,11 +104,7 @@ public static class FileSystemUtilities
             Children = children
         };
 
-        foreach (var subDirectory in directoryInfo.GetDirectories())
-        {
-            var subDirectoryNode = BuildDirectoryTree(directoryNode, subDirectory);
-            children.Add(subDirectoryNode);
-        }
+        children.AddRange(directoryInfo.GetDirectories().Select(subDirectory => BuildDirectoryTree(directoryNode, subDirectory)));
 
         return directoryNode with { Children = children.AsReadOnly() };
     }
@@ -144,6 +128,12 @@ public static class FileSystemUtilities
     {
         try
         {
+            // If it's a directory, return false as we can't delete it as a file
+            if (Directory.Exists(filePath))
+            {
+                return false;
+            }
+
             if (File.Exists(filePath))
             {
                 File.Delete(filePath);

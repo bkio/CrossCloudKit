@@ -20,13 +20,23 @@ public static class NetworkUtilities
     /// <returns>The resolved IP address</returns>
     public static async Task<IPAddress> ResolveHostnameAsync(string hostNameOrAddress, bool preferIPv6 = false, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(hostNameOrAddress))
+            throw new ArgumentException("Hostname or address cannot be null, empty, or whitespace.", nameof(hostNameOrAddress));
+
         var preferredFamily = preferIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
 
-        var addresses = await Dns.GetHostAddressesAsync(hostNameOrAddress, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(hostNameOrAddress, cancellationToken).ConfigureAwait(false);
 
-        return addresses.FirstOrDefault(addr => addr.AddressFamily == preferredFamily)
-               ?? addresses.FirstOrDefault()
-               ?? throw new InvalidOperationException($"Could not resolve hostname: {hostNameOrAddress}");
+            return addresses.FirstOrDefault(addr => addr.AddressFamily == preferredFamily)
+                   ?? addresses.FirstOrDefault()
+                   ?? throw new InvalidOperationException($"Could not resolve hostname: {hostNameOrAddress}");
+        }
+        catch (SocketException ex)
+        {
+            throw new InvalidOperationException($"Could not resolve hostname: {hostNameOrAddress}", ex);
+        }
     }
 
     /// <summary>

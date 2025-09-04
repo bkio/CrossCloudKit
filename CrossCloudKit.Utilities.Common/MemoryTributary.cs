@@ -23,10 +23,17 @@ public sealed class MemoryTributary : Stream
     private bool _disposed;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MemoryTributary"/> class.
+    /// Initializes a new instance of the <see cref="MemoryTributary"/> class with default block size.
     /// </summary>
-    /// <param name="blockSize">The size of each memory block (default: 1MB)</param>
-    public MemoryTributary(int blockSize = DefaultBlockSize)
+    public MemoryTributary() : this(DefaultBlockSize)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MemoryTributary"/> class with a specific block size.
+    /// </summary>
+    /// <param name="blockSize">The size of each memory block</param>
+    public MemoryTributary(int blockSize)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(blockSize, 0);
 
@@ -61,7 +68,7 @@ public sealed class MemoryTributary : Stream
     /// </summary>
     /// <param name="initialLength">The initial length of the stream</param>
     /// <param name="blockSize">The size of each memory block (default: 1MB)</param>
-    public MemoryTributary(int initialLength, int blockSize = DefaultBlockSize) : this(blockSize)
+    public MemoryTributary(long initialLength, int blockSize = DefaultBlockSize) : this(blockSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialLength);
 

@@ -37,6 +37,8 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <exception cref="ArgumentNullException">Thrown when other is null</exception>
     public PrimitiveType(PrimitiveType other)
     {
+        ArgumentNullException.ThrowIfNull(other);
+
         Kind = other.Kind;
         _value = other.Kind switch
         {
@@ -49,8 +51,11 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Creates a PrimitiveType containing a string value.
     /// </summary>
     /// <param name="value">The string value</param>
+    /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
     public PrimitiveType(string value)
     {
+        ArgumentNullException.ThrowIfNull(value);
+
         Kind = PrimitiveTypeKind.String;
         _value = value;
     }
@@ -82,6 +87,8 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
     public PrimitiveType(byte[] value)
     {
+        ArgumentNullException.ThrowIfNull(value);
+
         Kind = PrimitiveTypeKind.ByteArray;
         _value = value.ToArray(); // Create a copy to ensure immutability
     }
@@ -336,7 +343,7 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
                 break;
 
             case PrimitiveTypeKind.Double:
-                writer.WriteValue(value.AsDouble);
+                writer.WriteValue($"d-{value.AsDouble.ToString(CultureInfo.InvariantCulture)}");
                 break;
 
             case PrimitiveTypeKind.ByteArray:
@@ -363,6 +370,10 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
             if (str.StartsWith("b-"))
             {
                 return new PrimitiveType(Convert.FromBase64String(str[2..]));
+            }
+            if (str.StartsWith("d-"))
+            {
+                return new PrimitiveType(double.Parse(str[2..], CultureInfo.InvariantCulture));
             }
 
             return str.StartsWith("s-") ? new PrimitiveType(str[2..]) : new PrimitiveType(str);

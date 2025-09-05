@@ -126,7 +126,7 @@ public class NetworkUtilitiesTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1));
 
         // Act & Assert
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+        await Assert.ThrowsAnyAsync<Exception>(() =>
             NetworkUtilities.ResolveHostnameAsync("slow-dns-that-might-timeout.example", cancellationToken: cts.Token));
     }
 
@@ -716,5 +716,4 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
-
 }

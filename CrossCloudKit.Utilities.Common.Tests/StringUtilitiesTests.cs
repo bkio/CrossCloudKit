@@ -594,39 +594,6 @@ public class StringUtilitiesTests
 
     #endregion
 
-    #region MakeValidFileName Tests
-
-    [Fact]
-    public void MakeValidFileName_WithInvalidCharacters_ReplacesWithUnderscore()
-    {
-        // Arrange
-        var input = "file<name>with|invalid*chars";
-
-        // Act
-        var result = input.MakeValidFileName();
-
-        // Assert
-        Assert.False(result.Contains('<'));
-        Assert.False(result.Contains('>'));
-        Assert.False(result.Contains('|'));
-        Assert.False(result.Contains('*'));
-    }
-
-    [Fact]
-    public void MakeValidFileName_WithValidName_ReturnsUnchanged()
-    {
-        // Arrange
-        var input = "validfilename.txt";
-
-        // Act
-        var result = input.MakeValidFileName();
-
-        // Assert
-        Assert.Equal("validfilename.txt", result);
-    }
-
-    #endregion
-
     #region LimitMaxWords Tests
 
     [Fact]

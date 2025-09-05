@@ -271,17 +271,6 @@ public static class StringUtilities
     }
 
     /// <summary>
-    /// Sanitizes a string to make it suitable for use as a file name by replacing invalid characters.
-    /// </summary>
-    /// <param name="input">The string to sanitize</param>
-    /// <returns>A valid file name with invalid characters replaced by underscores</returns>
-    public static string MakeValidFileName(this string input)
-    {
-        return Regex.Replace(input, InvalidRegStr, "_");
-    }
-    private static readonly string InvalidRegStr = string.Format(@"([{0}]*\.+$)|([{0}]+)", Regex.Escape(new string(Path.GetInvalidFileNameChars())));
-
-    /// <summary>
     /// Limits a string to a maximum number of words separated by the specified separator.
     /// </summary>
     /// <param name="input">The input string to limit</param>

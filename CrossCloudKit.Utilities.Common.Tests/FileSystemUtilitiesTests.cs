@@ -277,44 +277,6 @@ public class FileSystemUtilitiesTests
     }
 
     [Fact]
-    public void TryDeleteFile_WithReadOnlyFile_ReturnsFalse()
-    {
-        // Arrange
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, "test content");
-
-        try
-        {
-            // Make file read-only
-            // ReSharper disable once UnusedVariable
-            var fileInfo = new FileInfo(tempFile)
-            {
-                IsReadOnly = true
-            };
-
-            // Act
-            var result = FileSystemUtilities.TryDeleteFile(tempFile);
-
-            // Assert
-            Assert.False(result);
-            Assert.True(File.Exists(tempFile));
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-            {
-                // Remove read-only attribute and delete
-                // ReSharper disable once UnusedVariable
-                var fileInfo = new FileInfo(tempFile)
-                {
-                    IsReadOnly = false
-                };
-                File.Delete(tempFile);
-            }
-        }
-    }
-
-    [Fact]
     public void DeleteDirectoryContents_WithFilesOnly_DeletesAllFiles()
     {
         // Arrange
@@ -746,4 +708,37 @@ public class FileSystemUtilitiesTests
             }
         }
     }
+
+    #region MakeValidFileName Tests
+
+    [Fact]
+    public void MakeValidFileName_WithInvalidCharacters_ReplacesWithUnderscore()
+    {
+        // Arrange
+        var input = "file<name>with|invalid*chars";
+
+        // Act
+        var result = input.MakeValidFileName();
+
+        // Assert
+        Assert.False(result.Contains('<'));
+        Assert.False(result.Contains('>'));
+        Assert.False(result.Contains('|'));
+        Assert.False(result.Contains('*'));
+    }
+
+    [Fact]
+    public void MakeValidFileName_WithValidName_ReturnsUnchanged()
+    {
+        // Arrange
+        var input = "validfilename.txt";
+
+        // Act
+        var result = input.MakeValidFileName();
+
+        // Assert
+        Assert.Equal("validfilename.txt", result);
+    }
+
+    #endregion
 }

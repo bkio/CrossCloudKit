@@ -2,6 +2,9 @@
 // See LICENSE file in the project root for full license information.
 
 // ReSharper disable UnusedAutoPropertyAccessor.Global
+
+using System.Text.RegularExpressions;
+
 namespace CrossCloudKit.Utilities.Common;
 
 /// <summary>
@@ -194,5 +197,74 @@ public static class FileSystemUtilities
         {
             // Handle any other exceptions gracefully
         }
+    }
+
+    // Cross-platform invalid filename characters
+    // Combines invalid characters from Windows, Linux, and macOS
+    private static readonly char[] CrossPlatformInvalidFileNameChars =
+    [
+        // Windows invalid characters
+        '<', '>', ':', '"', '/', '\\', '|', '?', '*',
+        // Control characters (0-31)
+        '\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
+        '\x08', '\x09', '\x0A', '\x0B', '\x0C', '\x0D', '\x0E', '\x0F',
+        '\x10', '\x11', '\x12', '\x13', '\x14', '\x15', '\x16', '\x17',
+        '\x18', '\x19', '\x1A', '\x1B', '\x1C', '\x1D', '\x1E', '\x1F'
+    ];
+
+    private static readonly string CrossPlatformInvalidRegStr =
+        $@"([{Regex.Escape(new string(CrossPlatformInvalidFileNameChars))}]*\.+$)|([{Regex.Escape(new string(CrossPlatformInvalidFileNameChars))}]+)";
+
+    /// <summary>
+    /// Makes a string safe to use as a filename across all platforms by replacing invalid characters with underscores.
+    /// This method uses a cross-platform set of invalid characters that includes restrictions from Windows, Linux, and macOS.
+    /// </summary>
+    /// <param name="input">The input string to make valid</param>
+    /// <returns>A valid filename string with invalid characters replaced by underscores</returns>
+    public static string MakeValidFileName(this string input)
+    {
+        if (string.IsNullOrEmpty(input))
+        {
+            return string.Empty;
+        }
+
+        // Replace invalid characters with underscores
+        var result = Regex.Replace(input, CrossPlatformInvalidRegStr, "_");
+
+        // Handle special cases for reserved names on Windows (CON, PRN, AUX, etc.)
+        if (IsReservedFileName(result))
+        {
+            result = "_" + result;
+        }
+
+        // Trim trailing periods and spaces (Windows restriction)
+        result = result.TrimEnd('.', ' ');
+
+        // Ensure the result is not empty
+        if (string.IsNullOrEmpty(result))
+        {
+            result = "_";
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks if a filename is reserved on Windows
+    /// </summary>
+    private static bool IsReservedFileName(string fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+            return false;
+
+        var reservedNames = new[]
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+
+        var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+        return reservedNames.Contains(nameWithoutExtension.ToUpperInvariant());
     }
 }

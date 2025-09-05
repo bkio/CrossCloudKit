@@ -153,7 +153,7 @@ public class CryptographyUtilitiesTests
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1));
 
             // Act & Assert
-            await Assert.ThrowsAsync<Exception>(async () =>
+            await Assert.ThrowsAnyAsync<Exception>(async () =>
             {
                 await CryptographyUtilities.CalculateFileSha256Async(tempFile, cts.Token);
             });

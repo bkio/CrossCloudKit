@@ -137,7 +137,7 @@ public class FileSystemUtilitiesTests
             await cts.CancelAsync(); // Cancel immediately
 
             // Act & Assert
-            await Assert.ThrowsAsync<Exception>(() =>
+            await Assert.ThrowsAnyAsync<Exception>(() =>
                 FileSystemUtilities.GetDirectoryTreeAsync(testDirectory, cts.Token));
         }
         finally

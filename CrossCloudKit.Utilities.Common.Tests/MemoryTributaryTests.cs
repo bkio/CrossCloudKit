@@ -365,7 +365,7 @@ public class MemoryTributaryTests
         await cts.CancelAsync();
 
         // Act & Assert
-        await Assert.ThrowsAsync<Exception>(() =>
+        await Assert.ThrowsAnyAsync<Exception>(() =>
             tributary.ReadFromAsync(sourceStream, 1000, cts.Token));
     }
 
@@ -411,7 +411,7 @@ public class MemoryTributaryTests
         await cts.CancelAsync();
 
         // Act & Assert
-        await Assert.ThrowsAsync<Exception>(() =>
+        await Assert.ThrowsAnyAsync<Exception>(() =>
             tributary.WriteToAsync(destinationStream, cts.Token));
     }
 
@@ -536,7 +536,7 @@ public class MemoryTributaryTests
         await cts.CancelAsync();
 
         // Act & Assert
-        await Assert.ThrowsAsync<Exception>(() => stream.FlushAsync(cts.Token));
+        await Assert.ThrowsAnyAsync<Exception>(() => stream.FlushAsync(cts.Token));
     }
 
     [Fact]

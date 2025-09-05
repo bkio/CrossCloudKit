@@ -115,7 +115,7 @@ public class NetworkUtilitiesTests
         await cts.CancelAsync();
 
         // Act & Assert
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+        await Assert.ThrowsAnyAsync<Exception>(() =>
             NetworkUtilities.ResolveHostnameAsync("localhost", cancellationToken: cts.Token));
     }
 

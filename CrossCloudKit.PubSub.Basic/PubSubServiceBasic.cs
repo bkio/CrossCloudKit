@@ -4,7 +4,9 @@
 using System.Collections.Concurrent;
 using System.Text;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
+// ReSharper disable NullableWarningSuppressionIsUsed
 
 namespace CrossCloudKit.PubSub.Basic;
 
@@ -15,9 +17,9 @@ namespace CrossCloudKit.PubSub.Basic;
 public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 {
     private readonly string _storageDirectory;
-    private readonly Dictionary<string, Mutex> _mutexes = new();
     private readonly Dictionary<string, Timer> _messagePollingTimers = new();
     private readonly ConcurrentDictionary<string, List<SubscriptionInfo>> _localSubscriptions = new();
+    private readonly ConcurrentDictionary<string, HashSet<string>> _recentlyDeliveredMessages = new();
     private readonly Timer _cleanupTimer;
     private readonly string _processId;
     private bool _disposed;
@@ -72,6 +74,11 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
+            // Register a subscription in the file system for cross-process visibility
+            var regResult = RegisterSubscription(topic).Result;
+            if (!regResult.IsSuccessful)
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to register subscription for topic '{topic}': {regResult.ErrorMessage}"));
+
             var subscriptionInfo = new SubscriptionInfo(onMessage, onError);
 
             // Add to local subscriptions
@@ -80,9 +87,6 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             {
                 localSubs.Add(subscriptionInfo);
             }
-
-            // Register a subscription in the file system for cross-process visibility
-            RegisterSubscription(topic);
 
             // Start polling for messages if this is the first subscription for this topic
             if (!_messagePollingTimers.ContainsKey(topic))
@@ -113,7 +117,11 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         try
         {
             // Store message in file system for cross-process delivery
-            await StoreMessageAsync(topic, message).ConfigureAwait(false);
+            var storeResult = await StoreMessageAsync(topic, message).ConfigureAwait(false);
+            if (!storeResult.IsSuccessful)
+            {
+                return OperationResult<bool>.Failure($"Failed to store message to topic '{topic}': {storeResult.ErrorMessage}");
+            }
 
             // Deliver to local subscribers immediately
             await DeliverToLocalSubscribersAsync(topic, message).ConfigureAwait(false);
@@ -175,22 +183,16 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            using var mutex = GetOrCreateMutex("bucket_events");
-            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
-                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
+            var mutexWrapper = CreateMutex("bucket_events");
+            if (!mutexWrapper.IsSuccessful)
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+            using var mutex = mutexWrapper.Data!;
 
-            try
-            {
-                var bucketEventTopics = GetBucketEventTopics();
-                if (bucketEventTopics.Contains(topic)) return Task.FromResult(OperationResult<bool>.Success(true));
-                bucketEventTopics.Add(topic);
-                SaveBucketEventTopics(bucketEventTopics);
-                return Task.FromResult(OperationResult<bool>.Success(true));
-            }
-            finally
-            {
-                mutex.ReleaseMutex();
-            }
+            var bucketEventTopics = GetBucketEventTopics();
+            if (bucketEventTopics.Contains(topic)) return Task.FromResult(OperationResult<bool>.Success(true));
+            bucketEventTopics.Add(topic);
+            SaveBucketEventTopics(bucketEventTopics);
+            return Task.FromResult(OperationResult<bool>.Success(true));
         }
         catch (Exception ex)
         {
@@ -212,23 +214,17 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            using var mutex = GetOrCreateMutex("bucket_events");
-            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
-                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
+            var mutexWrapper = CreateMutex("bucket_events");
+            if (!mutexWrapper.IsSuccessful)
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+            using var mutex = mutexWrapper.Data!;
 
-            try
+            var bucketEventTopics = GetBucketEventTopics();
+            if (bucketEventTopics.Remove(topic))
             {
-                var bucketEventTopics = GetBucketEventTopics();
-                if (bucketEventTopics.Remove(topic))
-                {
-                    SaveBucketEventTopics(bucketEventTopics);
-                }
-                return Task.FromResult(OperationResult<bool>.Success(true));
+                SaveBucketEventTopics(bucketEventTopics);
             }
-            finally
-            {
-                mutex.ReleaseMutex();
-            }
+            return Task.FromResult(OperationResult<bool>.Success(true));
         }
         catch (Exception ex)
         {
@@ -247,19 +243,13 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            using var mutex = GetOrCreateMutex("bucket_events");
-            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
-                return Task.FromResult(OperationResult<List<string>>.Failure("Failed to acquire cross-process mutex within timeout"));
+            var mutexWrapper = CreateMutex("bucket_events");
+            if (!mutexWrapper.IsSuccessful)
+                return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+            using var mutex = mutexWrapper.Data!;
 
-            try
-            {
-                var topics = GetBucketEventTopics();
-                return Task.FromResult(OperationResult<List<string>>.Success(topics));
-            }
-            finally
-            {
-                mutex.ReleaseMutex();
-            }
+            var topics = GetBucketEventTopics();
+            return Task.FromResult(OperationResult<List<string>>.Success(topics));
         }
         catch (Exception ex)
         {
@@ -323,20 +313,6 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             // Clear all subscriptions
             _localSubscriptions.Clear();
 
-            // Dispose all mutexes
-            foreach (var mutex in _mutexes.Values)
-            {
-                try
-                {
-                    mutex.Dispose();
-                }
-                catch (Exception)
-                {
-                    // ignored
-                }
-            }
-            _mutexes.Clear();
-
             // Unregister this process's subscriptions
             UnregisterAllSubscriptions();
         }
@@ -352,66 +328,71 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
     private record PubSubMessage(string Content, DateTime Timestamp, string PublisherId);
 
-    private Mutex GetOrCreateMutex(string key)
+    private static OperationResult<AutoMutex> CreateMutex(string key)
     {
         // Create a safe mutex name from the key
         var mutexName = "CrossCloudKit.PubSub.Basic." + Convert.ToBase64String(Encoding.UTF8.GetBytes(key))
             .Replace('/', '_').Replace('+', '-').Replace("=", "");
 
-        if (_mutexes.TryGetValue(mutexName, out var existingMutex))
-            return existingMutex;
-
         try
         {
-            var mutex = new Mutex(false, mutexName);
-            _mutexes[mutexName] = mutex;
-            return mutex;
+            return OperationResult<AutoMutex>.Success(new AutoMutex(mutexName));
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            // If named mutex creation fails, create an unnamed mutex for this process only
-            var mutex = new Mutex(false);
-            _mutexes[mutexName] = mutex;
-            return mutex;
+            return OperationResult<AutoMutex>.Failure($"Failed to create mutex: {e.Message}");
         }
     }
 
-    private Task StoreMessageAsync(string topic, string message)
+    private Task<OperationResult<bool>> StoreMessageAsync(string topic, string message)
     {
         var pubSubMessage = new PubSubMessage(message, DateTime.UtcNow, _processId);
 
-        using var mutex = GetOrCreateMutex($"topic_{topic}");
-        if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
-            throw new TimeoutException("Failed to acquire cross-process mutex within timeout");
+        var mutexWrapper = CreateMutex($"topic_{topic}");
+        if (!mutexWrapper.IsSuccessful)
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+        using var mutex = mutexWrapper.Data!;
 
-        try
-        {
-            var messagesFilePath = GetTopicMessagesFilePath(topic);
-            var messages = LoadMessagesFromFile(messagesFilePath);
-            messages.Add(pubSubMessage);
+        var messagesFilePath = GetTopicMessagesFilePath(topic);
+        var messages = LoadMessagesFromFile(messagesFilePath);
+        messages.Add(pubSubMessage);
 
-            // Keep only recent messages (last 100 or last hour)
-            var cutoffTime = DateTime.UtcNow.AddHours(-1);
-            messages = messages
-                .Where(m => m.Timestamp > cutoffTime)
-                .OrderByDescending(m => m.Timestamp)
-                .Take(100)
-                .ToList();
+        // Keep only recent messages (last 100 or last hour)
+        var cutoffTime = DateTime.UtcNow.AddHours(-1);
+        messages = messages
+            .Where(m => m.Timestamp > cutoffTime)
+            .OrderByDescending(m => m.Timestamp)
+            .Take(100)
+            .ToList();
 
-            SaveMessagesToFile(messagesFilePath, messages);
-        }
-        finally
-        {
-            mutex.ReleaseMutex();
-        }
+        SaveMessagesToFile(messagesFilePath, messages);
 
-        return Task.CompletedTask;
+        return Task.FromResult(OperationResult<bool>.Success(true));
     }
 
     private async Task DeliverToLocalSubscribersAsync(string topic, string message)
     {
         if (!_localSubscriptions.TryGetValue(topic, out var subscribers))
             return;
+
+        // Simple deduplication: track recently delivered messages
+        var messageKey = $"{message}#{DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond / 1000}"; // Group by second
+        var deliveredSet = _recentlyDeliveredMessages.GetOrAdd(topic, _ => []);
+
+        bool shouldDeliver;
+        lock (deliveredSet)
+        {
+            shouldDeliver = deliveredSet.Add(messageKey);
+
+            // Clean up old entries to prevent memory leak
+            if (deliveredSet.Count > 50)
+            {
+                deliveredSet.Clear(); // Simple cleanup - clear all old entries
+            }
+        }
+
+        if (!shouldDeliver)
+            return; // Already delivered this message recently
 
         List<SubscriptionInfo> subscribersCopy;
         lock (subscribers)
@@ -442,29 +423,24 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
     }
 
-    private void RegisterSubscription(string topic)
+    private Task<OperationResult<bool>> RegisterSubscription(string topic)
     {
-        using var mutex = GetOrCreateMutex($"subscriptions_{topic}");
-        if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
-            return;
+        var mutexWrapper = CreateMutex($"subscriptions_{topic}");
+        if (!mutexWrapper.IsSuccessful)
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+        using var mutex = mutexWrapper.Data;
 
-        try
-        {
-            var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
-            var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
+        var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
+        var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
 
-            // Remove old subscriptions for this process
-            subscriptions.RemoveAll(s => s == _processId);
+        // Remove old subscriptions for this process
+        subscriptions.RemoveAll(s => s == _processId);
 
-            // Add new subscription
-            subscriptions.Add(_processId);
+        // Add new subscription
+        subscriptions.Add(_processId);
 
-            SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
-        }
-        finally
-        {
-            mutex.ReleaseMutex();
-        }
+        SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
+        return Task.FromResult(OperationResult<bool>.Success(true));
     }
 
     private void StartMessagePolling(string topic)
@@ -481,7 +457,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
                     // Individual polling failures shouldn't stop the service
                 }
             },
-            null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+            null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         _messagePollingTimers[topic] = timer;
     }
 
@@ -492,32 +468,26 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            using var mutex = GetOrCreateMutex($"topic_{topic}");
-            if (!mutex.WaitOne(TimeSpan.FromMilliseconds(100)))
+            var mutexWrapper = CreateMutex($"topic_{topic}");
+            if (!mutexWrapper.IsSuccessful)
                 return;
+            using var mutex = mutexWrapper.Data!;
 
-            try
+            var messagesFilePath = GetTopicMessagesFilePath(topic);
+            var messages = LoadMessagesFromFile(messagesFilePath);
+            var undeliveredMessages = messages.Where(m => m.PublisherId != _processId).ToList();
+
+            foreach (var message in undeliveredMessages)
             {
-                var messagesFilePath = GetTopicMessagesFilePath(topic);
-                var messages = LoadMessagesFromFile(messagesFilePath);
-                var undeliveredMessages = messages.Where(m => m.PublisherId != _processId).ToList();
-
-                foreach (var message in undeliveredMessages)
-                {
-                    await DeliverToLocalSubscribersAsync(topic, message.Content).ConfigureAwait(false);
-                }
-
-                // Mark messages as processed by removing old ones
-                if (undeliveredMessages.Count != 0)
-                {
-                    var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
-                    var filteredMessages = messages.Where(m => m.Timestamp > cutoffTime).ToList();
-                    SaveMessagesToFile(messagesFilePath, filteredMessages);
-                }
+                await DeliverToLocalSubscribersAsync(topic, message.Content).ConfigureAwait(false);
             }
-            finally
+
+            // Mark messages as processed by removing old ones
+            if (messages.Count != 0)
             {
-                mutex.ReleaseMutex();
+                var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
+                var filteredMessages = messages.Where(m => m.Timestamp > cutoffTime).ToList();
+                SaveMessagesToFile(messagesFilePath, filteredMessages);
             }
         }
         catch (Exception)
@@ -583,21 +553,15 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         {
             try
             {
-                using var mutex = GetOrCreateMutex($"subscriptions_{topic}");
-                if (!mutex.WaitOne(TimeSpan.FromSeconds(1)))
-                    continue;
+                var mutexWrapper = CreateMutex($"subscriptions_{topic}");
+                if (!mutexWrapper.IsSuccessful)
+                    return;
+                using var mutex = mutexWrapper.Data!;
 
-                try
-                {
-                    var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
-                    var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
-                    subscriptions.RemoveAll(s => s == _processId);
-                    SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
-                }
-                finally
-                {
-                    mutex.ReleaseMutex();
-                }
+                var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
+                var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
+                subscriptions.RemoveAll(s => s == _processId);
+                SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
             }
             catch (Exception)
             {

@@ -20,8 +20,8 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 - **Multi-Service Support**:
   - **Database Services**: AWS DynamoDB, MongoDB, Google Cloud Datastore
   - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers
-  - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub
-  - **Memory/Caching**: Redis with distributed locking and advanced data structures
+  - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
+  - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
 - **Type-Safe Operations**: Strongly-typed primitive operations with `PrimitiveType` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
@@ -49,8 +49,10 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | `CrossCloudKit.PubSub.AWS` | AWS SNS/SQS Hybrid implementation       |
 | `CrossCloudKit.PubSub.GC` | Google Cloud Pub/Sub implementation     |
 | `CrossCloudKit.PubSub.Redis` | Redis Pub/Sub implementation            |
+| `CrossCloudKit.PubSub.Basic` | Cross-process file-based Pub/Sub implementation |
 | **Memory/Caching Services** |                                         |
 | `CrossCloudKit.Memory.Redis` | Redis memory and caching implementation |
+| `CrossCloudKit.Memory.Basic` | Cross-process file-based memory implementation |
 | **Utilities** |                                         |
 | `CrossCloudKit.Utilities.Common` | Common utilities and primitive types    |
 | `CrossCloudKit.Utilities.Windows` | Windows-specific utilities              |
@@ -72,9 +74,11 @@ dotnet add package CrossCloudKit.File.S3Compatible
 dotnet add package CrossCloudKit.PubSub.AWS
 dotnet add package CrossCloudKit.PubSub.GC
 dotnet add package CrossCloudKit.PubSub.Redis
+dotnet add package CrossCloudKit.PubSub.Basic
 
 # Memory Services
 dotnet add package CrossCloudKit.Memory.Redis
+dotnet add package CrossCloudKit.Memory.Basic
 
 # Core interfaces (automatically included as dependency)
 dotnet add package CrossCloudKit.Interfaces
@@ -548,7 +552,8 @@ REDIS_PASSWORD=your-redis-password
 ├──────────────────┼──────────────────┼──────────────────┼────────────────────────────┤
 │ AWS DynamoDB     │    AWS S3        │   AWS SNS/SQS    │     Redis Memory           │
 │ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)        │
-│ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │                            │
+│ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │     Basic Memory           │
+│                  │                  │ Basic Cross-Proc │  (Cross-Proc, Lists)       │
 ├──────────────────┴──────────────────┴──────────────────┴────────────────────────────┤
 │                            CrossCloudKit.Utilities.Common                           │
 │                   (PrimitiveType, OperationResult, etc.)                            │
@@ -631,6 +636,24 @@ REDIS_PASSWORD=your-redis-password
 - Memory-efficient operations with streaming support
 - Cluster and sentinel support for high availability
 
+#### Basic Memory Service
+- Cross-process file-based storage using JSON serialization
+- Cross-process mutex locking with automatic expiration using OS-level named mutexes
+- Thread-safe and process-safe operations for concurrent access
+- Key-value storage, list operations, and distributed locking
+- Automatic file cleanup and expiration handling
+- No external dependencies required (perfect for development and single-machine deployments)
+
+### PubSub Services
+
+#### Basic Pub/Sub Service
+- Cross-process message delivery using file-based storage and polling
+- Cross-process subscription management with OS-level mutex synchronization
+- Message persistence and delivery across multiple processes on the same machine
+- Topic-based routing with cross-process visibility
+- Automatic message cleanup and subscription management
+- No external dependencies required (perfect for development and single-machine deployments)
+
 ## 🚀 Advanced Use Cases
 
 ### Multi-Cloud Deployment
@@ -638,9 +661,15 @@ REDIS_PASSWORD=your-redis-password
 ```csharp
 // Switch between providers seamlessly
 IDatabaseService dbService = useAws
-    ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/));
+    ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/);
 IFileService fileService = useGcp
-    ? new FileServiceGC(/*Parameters*/)) : new FileServiceAWS(/*Parameters*/));
+    ? new FileServiceGC(/*Parameters*/) : new FileServiceAWS(/*Parameters*/);
+
+// Use Basic implementations for development or single-machine multi-process deployments
+IMemoryService memoryService = useRedis
+    ? new MemoryServiceRedis(/*Parameters*/) : new MemoryServiceBasic();
+IPubSubService pubSubService = useCloud
+    ? new PubSubServiceAWS(/*Parameters*/) : new PubSubServiceBasic();
 ```
 
 

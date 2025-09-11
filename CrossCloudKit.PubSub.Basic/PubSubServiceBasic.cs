@@ -2,21 +2,38 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Collections.Concurrent;
+using System.Text;
 using CrossCloudKit.Interfaces;
+using Newtonsoft.Json;
 
 namespace CrossCloudKit.PubSub.Basic;
 
 /// <summary>
-/// In-process implementation of IPubSubService using concurrent collections and event handling.
+/// Cross-process implementation of IPubSubService using file-based storage and OS-level synchronization primitives.
+/// Enables pub/sub messaging across multiple processes on the same machine.
 /// </summary>
 public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, ConcurrentBag<SubscriptionInfo>> _topicSubscriptions = new();
-    private readonly ConcurrentBag<string> _bucketEventTopics = [];
-    private readonly Lock _lockObject = new();
+    private readonly string _storageDirectory;
+    private readonly Dictionary<string, Mutex> _mutexes = new();
+    private readonly Dictionary<string, Timer> _messagePollingTimers = new();
+    private readonly ConcurrentDictionary<string, List<SubscriptionInfo>> _localSubscriptions = new();
+    private readonly Timer _cleanupTimer;
+    private readonly string _processId;
     private bool _disposed;
 
     private record SubscriptionInfo(Func<string, string, Task> OnMessage, Action<Exception>? OnError);
+
+    public PubSubServiceBasic()
+    {
+        _storageDirectory = Path.Combine(Path.GetTempPath(), "CrossCloudKit.PubSub.Basic");
+        Directory.CreateDirectory(_storageDirectory);
+
+        _processId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
+
+        // Start background cleanup every 5 minutes
+        _cleanupTimer = new Timer(CleanupExpiredData, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+    }
 
     public bool IsInitialized => !_disposed;
 
@@ -32,9 +49,6 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         return Task.FromResult(string.IsNullOrEmpty(topic)
             ? OperationResult<bool>.Failure("Topic cannot be empty.")
             : OperationResult<bool>.Success(true));
-
-        // For in-memory pub/sub, ensuring a topic exists simply means we're ready to handle it
-        // Topics are created implicitly when the first subscription or message is published
     }
 
     /// <inheritdoc />
@@ -59,8 +73,22 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         try
         {
             var subscriptionInfo = new SubscriptionInfo(onMessage, onError);
-            var subscribers = _topicSubscriptions.GetOrAdd(topic, _ => []);
-            subscribers.Add(subscriptionInfo);
+
+            // Add to local subscriptions
+            var localSubs = _localSubscriptions.GetOrAdd(topic, _ => []);
+            lock (localSubs)
+            {
+                localSubs.Add(subscriptionInfo);
+            }
+
+            // Register a subscription in the file system for cross-process visibility
+            RegisterSubscription(topic);
+
+            // Start polling for messages if this is the first subscription for this topic
+            if (!_messagePollingTimers.ContainsKey(topic))
+            {
+                StartMessagePolling(topic);
+            }
 
             return Task.FromResult(OperationResult<bool>.Success(true));
         }
@@ -84,20 +112,11 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            if (!_topicSubscriptions.TryGetValue(topic, out var subscribers) || subscribers.IsEmpty)
-            {
-                // No subscribers for this topic - message is lost (similar to Redis pub/sub behavior)
-                return OperationResult<bool>.Success(true);
-            }
+            // Store message in file system for cross-process delivery
+            await StoreMessageAsync(topic, message).ConfigureAwait(false);
 
-            // Create tasks for all message deliveries
-            var deliveryTasks = subscribers.Select(subscriber => DeliverMessageAsync(subscriber, topic, message)).ToList();
-
-            // Wait for all message deliveries to complete
-            if (deliveryTasks.Count > 0)
-            {
-                await Task.WhenAll(deliveryTasks).ConfigureAwait(false);
-            }
+            // Deliver to local subscribers immediately
+            await DeliverToLocalSubscribersAsync(topic, message).ConfigureAwait(false);
 
             return OperationResult<bool>.Success(true);
         }
@@ -121,8 +140,18 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            // Remove all subscriptions for this topic
-            _topicSubscriptions.TryRemove(topic, out _);
+            // Stop message polling for this topic
+            if (_messagePollingTimers.TryGetValue(topic, out var timer))
+            {
+                timer.Dispose();
+                _messagePollingTimers.Remove(topic);
+            }
+
+            // Remove local subscriptions
+            _localSubscriptions.TryRemove(topic, out _);
+
+            // Clean up topic files
+            CleanupTopicFiles(topic);
 
             return Task.FromResult(OperationResult<bool>.Success(true));
         }
@@ -146,14 +175,21 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            lock (_lockObject)
-            {
-                // Check if a topic is already marked
-                if (_bucketEventTopics.Contains(topic))
-                    return Task.FromResult(OperationResult<bool>.Success(true));
+            using var mutex = GetOrCreateMutex("bucket_events");
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-                _bucketEventTopics.Add(topic);
+            try
+            {
+                var bucketEventTopics = GetBucketEventTopics();
+                if (bucketEventTopics.Contains(topic)) return Task.FromResult(OperationResult<bool>.Success(true));
+                bucketEventTopics.Add(topic);
+                SaveBucketEventTopics(bucketEventTopics);
                 return Task.FromResult(OperationResult<bool>.Success(true));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
             }
         }
         catch (Exception ex)
@@ -176,26 +212,22 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            lock (_lockObject)
+            using var mutex = GetOrCreateMutex("bucket_events");
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
+
+            try
             {
-                // Create a new bag without the topic to remove
-                var newBag = new ConcurrentBag<string>();
-                foreach (var existingTopic in _bucketEventTopics)
+                var bucketEventTopics = GetBucketEventTopics();
+                if (bucketEventTopics.Remove(topic))
                 {
-                    if (existingTopic != topic)
-                    {
-                        newBag.Add(existingTopic);
-                    }
+                    SaveBucketEventTopics(bucketEventTopics);
                 }
-
-                // Replace the old bag with the new one
-                _bucketEventTopics.Clear();
-                foreach (var remainingTopic in newBag)
-                {
-                    _bucketEventTopics.Add(remainingTopic);
-                }
-
                 return Task.FromResult(OperationResult<bool>.Success(true));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
             }
         }
         catch (Exception ex)
@@ -215,10 +247,18 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            lock (_lockObject)
+            using var mutex = GetOrCreateMutex("bucket_events");
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<List<string>>.Failure("Failed to acquire cross-process mutex within timeout"));
+
+            try
             {
-                var topics = _bucketEventTopics.ToList();
+                var topics = GetBucketEventTopics();
                 return Task.FromResult(OperationResult<List<string>>.Success(topics));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
             }
         }
         catch (Exception ex)
@@ -244,29 +284,6 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         return Task.FromResult(OperationResult<bool>.Success(true));
     }
 
-    private static async Task DeliverMessageAsync(
-        SubscriptionInfo subscriber,
-        string topic,
-        string message)
-    {
-        try
-        {
-            await subscriber.OnMessage(topic, message).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            try
-            {
-                // Notify the subscriber's error handler if available
-                subscriber.OnError?.Invoke(ex);
-            }
-            catch (Exception)
-            {
-                // ignored
-            }
-        }
-    }
-
     /// <summary>
     /// Dispose the service asynchronously
     /// </summary>
@@ -279,14 +296,49 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
-            // Clear all subscriptions
-            _topicSubscriptions.Clear();
-
-            // Clear bucket event topics
-            lock (_lockObject)
+            // Dispose cleanup timer
+            try
             {
-                _bucketEventTopics.Clear();
+                await _cleanupTimer.DisposeAsync().ConfigureAwait(false);
             }
+            catch (Exception)
+            {
+                // ignored
+            }
+
+            // Dispose all message polling timers
+            foreach (var timer in _messagePollingTimers.Values)
+            {
+                try
+                {
+                    await timer.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
+            }
+            _messagePollingTimers.Clear();
+
+            // Clear all subscriptions
+            _localSubscriptions.Clear();
+
+            // Dispose all mutexes
+            foreach (var mutex in _mutexes.Values)
+            {
+                try
+                {
+                    mutex.Dispose();
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
+            }
+            _mutexes.Clear();
+
+            // Unregister this process's subscriptions
+            UnregisterAllSubscriptions();
         }
         catch (Exception)
         {
@@ -296,5 +348,348 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         await Task.CompletedTask;
         // ReSharper disable once GCSuppressFinalizeForTypeWithoutDestructor
         GC.SuppressFinalize(this);
+    }
+
+    private record PubSubMessage(string Content, DateTime Timestamp, string PublisherId);
+
+    private Mutex GetOrCreateMutex(string key)
+    {
+        // Create a safe mutex name from the key
+        var mutexName = "CrossCloudKit.PubSub.Basic." + Convert.ToBase64String(Encoding.UTF8.GetBytes(key))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+
+        if (_mutexes.TryGetValue(mutexName, out var existingMutex))
+            return existingMutex;
+
+        try
+        {
+            var mutex = new Mutex(false, mutexName);
+            _mutexes[mutexName] = mutex;
+            return mutex;
+        }
+        catch (Exception)
+        {
+            // If named mutex creation fails, create an unnamed mutex for this process only
+            var mutex = new Mutex(false);
+            _mutexes[mutexName] = mutex;
+            return mutex;
+        }
+    }
+
+    private Task StoreMessageAsync(string topic, string message)
+    {
+        var pubSubMessage = new PubSubMessage(message, DateTime.UtcNow, _processId);
+
+        using var mutex = GetOrCreateMutex($"topic_{topic}");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+            throw new TimeoutException("Failed to acquire cross-process mutex within timeout");
+
+        try
+        {
+            var messagesFilePath = GetTopicMessagesFilePath(topic);
+            var messages = LoadMessagesFromFile(messagesFilePath);
+            messages.Add(pubSubMessage);
+
+            // Keep only recent messages (last 100 or last hour)
+            var cutoffTime = DateTime.UtcNow.AddHours(-1);
+            messages = messages
+                .Where(m => m.Timestamp > cutoffTime)
+                .OrderByDescending(m => m.Timestamp)
+                .Take(100)
+                .ToList();
+
+            SaveMessagesToFile(messagesFilePath, messages);
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task DeliverToLocalSubscribersAsync(string topic, string message)
+    {
+        if (!_localSubscriptions.TryGetValue(topic, out var subscribers))
+            return;
+
+        List<SubscriptionInfo> subscribersCopy;
+        lock (subscribers)
+        {
+            subscribersCopy = new List<SubscriptionInfo>(subscribers);
+        }
+
+        var deliveryTasks = subscribersCopy.Select(subscriber => DeliverMessageAsync(subscriber, topic, message));
+        await Task.WhenAll(deliveryTasks).ConfigureAwait(false);
+    }
+
+    private static async Task DeliverMessageAsync(SubscriptionInfo subscriber, string topic, string message)
+    {
+        try
+        {
+            await subscriber.OnMessage(topic, message).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                subscriber.OnError?.Invoke(ex);
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
+        }
+    }
+
+    private void RegisterSubscription(string topic)
+    {
+        using var mutex = GetOrCreateMutex($"subscriptions_{topic}");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+            return;
+
+        try
+        {
+            var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
+            var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
+
+            // Remove old subscriptions for this process
+            subscriptions.RemoveAll(s => s == _processId);
+
+            // Add new subscription
+            subscriptions.Add(_processId);
+
+            SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+    }
+
+    private void StartMessagePolling(string topic)
+    {
+        var timer = new Timer(async void (_) =>
+            {
+                try
+                {
+                    await PollForMessagesAsync(topic).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // Ignore polling errors to prevent process crash
+                    // Individual polling failures shouldn't stop the service
+                }
+            },
+            null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+        _messagePollingTimers[topic] = timer;
+    }
+
+    private async Task PollForMessagesAsync(string topic)
+    {
+        if (_disposed || !_localSubscriptions.ContainsKey(topic))
+            return;
+
+        try
+        {
+            using var mutex = GetOrCreateMutex($"topic_{topic}");
+            if (!mutex.WaitOne(TimeSpan.FromMilliseconds(100)))
+                return;
+
+            try
+            {
+                var messagesFilePath = GetTopicMessagesFilePath(topic);
+                var messages = LoadMessagesFromFile(messagesFilePath);
+                var undeliveredMessages = messages.Where(m => m.PublisherId != _processId).ToList();
+
+                foreach (var message in undeliveredMessages)
+                {
+                    await DeliverToLocalSubscribersAsync(topic, message.Content).ConfigureAwait(false);
+                }
+
+                // Mark messages as processed by removing old ones
+                if (undeliveredMessages.Count != 0)
+                {
+                    var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
+                    var filteredMessages = messages.Where(m => m.Timestamp > cutoffTime).ToList();
+                    SaveMessagesToFile(messagesFilePath, filteredMessages);
+                }
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception)
+        {
+            // Ignore polling errors
+        }
+    }
+
+    private void CleanupTopicFiles(string topic)
+    {
+        try
+        {
+            var messagesFilePath = GetTopicMessagesFilePath(topic);
+            if (File.Exists(messagesFilePath))
+                File.Delete(messagesFilePath);
+
+            var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
+            if (File.Exists(subscriptionsFilePath))
+                File.Delete(subscriptionsFilePath);
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors
+        }
+    }
+
+    private void CleanupExpiredData(object? state)
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            if (!Directory.Exists(_storageDirectory))
+                return;
+
+            var files = Directory.GetFiles(_storageDirectory, "*.json");
+            var cutoffTime = DateTime.UtcNow.AddHours(-24);
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    var fileInfo = new FileInfo(file);
+                    if (fileInfo.LastWriteTime < cutoffTime)
+                        File.Delete(file);
+                }
+                catch (Exception)
+                {
+                    // Ignore errors for individual files
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors
+        }
+    }
+
+    private void UnregisterAllSubscriptions()
+    {
+        foreach (var topic in _localSubscriptions.Keys.ToList())
+        {
+            try
+            {
+                using var mutex = GetOrCreateMutex($"subscriptions_{topic}");
+                if (!mutex.WaitOne(TimeSpan.FromSeconds(1)))
+                    continue;
+
+                try
+                {
+                    var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
+                    var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);
+                    subscriptions.RemoveAll(s => s == _processId);
+                    SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
+                }
+                finally
+                {
+                    mutex.ReleaseMutex();
+                }
+            }
+            catch (Exception)
+            {
+                // Ignore errors during cleanup
+            }
+        }
+    }
+
+    private List<string> GetBucketEventTopics()
+    {
+        var filePath = GetBucketEventTopicsFilePath();
+        if (!File.Exists(filePath))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<List<string>>(json) ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private void SaveBucketEventTopics(List<string> topics)
+    {
+        var filePath = GetBucketEventTopicsFilePath();
+        var json = JsonConvert.SerializeObject(topics, Formatting.None);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
+    }
+
+    private static List<PubSubMessage> LoadMessagesFromFile(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<List<PubSubMessage>>(json) ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private static void SaveMessagesToFile(string filePath, List<PubSubMessage> messages)
+    {
+        var json = JsonConvert.SerializeObject(messages, Formatting.None);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
+    }
+
+    private static List<string> LoadSubscriptionsFromFile(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<List<string>>(json) ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private static void SaveSubscriptionsToFile(string filePath, List<string> subscriptions)
+    {
+        var json = JsonConvert.SerializeObject(subscriptions, Formatting.None);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
+    }
+
+    private string GetTopicMessagesFilePath(string topic)
+    {
+        var fileName = Convert.ToBase64String(Encoding.UTF8.GetBytes($"messages_{topic}"))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+        return Path.Combine(_storageDirectory, $"{fileName}.json");
+    }
+
+    private string GetTopicSubscriptionsFilePath(string topic)
+    {
+        var fileName = Convert.ToBase64String(Encoding.UTF8.GetBytes($"subscriptions_{topic}"))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+        return Path.Combine(_storageDirectory, $"{fileName}.json");
+    }
+
+    private string GetBucketEventTopicsFilePath()
+    {
+        return Path.Combine(_storageDirectory, "bucket_event_topics.json");
     }
 }

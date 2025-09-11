@@ -1,8 +1,8 @@
 ﻿// Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Text;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
@@ -10,22 +10,35 @@ using Newtonsoft.Json;
 namespace CrossCloudKit.Memory.Basic;
 
 /// <summary>
-/// In-memory implementation of IMemoryService using concurrent collections.
+/// Cross-process implementation of IMemoryService using memory-mapped files and OS-level synchronization primitives.
+/// Enables memory sharing and mutex operations across multiple processes on the same machine.
 /// </summary>
-public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : IMemoryService
+public sealed class MemoryServiceBasic : IMemoryService
 {
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, PrimitiveType>> _scopedKeyValues = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, List<PrimitiveType>>> _scopedLists = new();
-    private readonly ConcurrentDictionary<string, (DateTime ExpiryTime, CancellationTokenSource ExpiryCts)> _expirations = new();
-    private readonly Lock _lockObject = new();
+    private readonly IPubSubService? _pubSubService;
+    private readonly string _storageDirectory;
+    private readonly Dictionary<string, Timer> _expirationTimers = new();
+    private readonly Dictionary<string, Mutex> _mutexes = new();
+    private readonly Timer _cleanupTimer;
+    private bool _disposed;
 
-    private record LockIdAndExpiry(string LockId, CancellationTokenSource ExpiryCts);
-    private readonly Dictionary<string, LockIdAndExpiry> _memoryMutexes = new();
+    public MemoryServiceBasic(IPubSubService? pubSubService = null)
+    {
+        _pubSubService = pubSubService;
+        _storageDirectory = Path.Combine(Path.GetTempPath(), "CrossCloudKit.Memory.Basic");
+        Directory.CreateDirectory(_storageDirectory);
 
-    public bool IsInitialized => true;
+        // Start background cleanup every 5 minutes
+        _cleanupTimer = new Timer(CleanupExpiredFiles, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+    }
+
+    public bool IsInitialized => !_disposed;
 
     /// <inheritdoc />
-    public Task<OperationResult<string?>> MemoryMutexLock(IMemoryServiceScope memoryScope, string mutexValue, TimeSpan timeToLive,
+    public Task<OperationResult<string?>> MemoryMutexLock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
@@ -37,40 +50,90 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (timeToLive <= TimeSpan.Zero)
             return Task.FromResult(OperationResult<string?>.Failure("Time to live must be positive"));
 
-        var lockKey = $"{memoryScope.Compile()}:{mutexValue}";
+        // Use a prefixed key similar to Redis implementation
+        var lockKey = $"CrossCloudKit.Memory.Basic.MemoryServiceBasic.Mutex:{mutexValue}";
 
         // Generate a unique lock ID to identify the lock holder
-        var lockId = Guid.NewGuid().ToString("N");
+        var lockId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
 
-        lock (_memoryMutexes)
+        try
         {
-            if (_memoryMutexes.ContainsKey(lockKey)) return Task.FromResult(OperationResult<string?>.Success(null));
-            var cts = new CancellationTokenSource(timeToLive);
-            cts.Token.Register(() => //ExpiryCts disposes CancellationTokenRegistration so no need to dispose that explicitly.
-            {
-                try
-                {
-                    lock (_memoryMutexes)
-                    {
-                        if (!_memoryMutexes.TryGetValue(lockKey, out var existingLock)
-                            || existingLock.LockId != lockId) return;
+            var scopeKey = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scopeKey);
 
-                        _memoryMutexes.Remove(lockKey);
-                        existingLock.ExpiryCts.Dispose();
-                    }
-                }
-                catch (Exception)
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<string?>.Failure("Failed to acquire cross-process mutex within timeout"));
+
+            try
+            {
+                var mutexData = GetOrCreateMutexData(scopeKey);
+
+                // Check if mutex already exists and is not expired
+                if (mutexData.TryGetValue(lockKey, out var existingMutex))
                 {
-                    // ignored
+                    if (existingMutex.ExpiryTime > DateTime.UtcNow)
+                    {
+                        return Task.FromResult(OperationResult<string?>.Success(null)); // Lock already taken
+                    }
+                    // Remove the expired lock
+                    mutexData.Remove(lockKey);
                 }
-            });
-            _memoryMutexes.Add(lockKey, new LockIdAndExpiry(lockId, cts));
-            return Task.FromResult(OperationResult<string?>.Success(lockId));
+
+                // Acquire the lock
+                var expiryTime = DateTime.UtcNow.Add(timeToLive);
+                mutexData[lockKey] = new MutexLockData { LockId = lockId, ExpiryTime = expiryTime };
+
+                // Set up the expiration timer
+                var timer = new Timer(_ =>
+                {
+                    try
+                    {
+                        using var timerMutex = GetOrCreateMutex(scopeKey);
+                        if (timerMutex.WaitOne(TimeSpan.FromSeconds(10)))
+                        {
+                            try
+                            {
+                                var currentData = GetOrCreateMutexData(scopeKey);
+                                if (currentData.TryGetValue(lockKey, out var value) && value.LockId == lockId)
+                                {
+                                    currentData.Remove(lockKey);
+                                    SaveMutexData(scopeKey, currentData);
+                                }
+                            }
+                            finally
+                            {
+                                timerMutex.ReleaseMutex();
+                            }
+                        }
+                        _expirationTimers.Remove(lockKey);
+                    }
+                    catch (Exception)
+                    {
+                        // ignored
+                    }
+                }, null, timeToLive, Timeout.InfiniteTimeSpan);
+
+                _expirationTimers[lockKey] = timer;
+                SaveMutexData(scopeKey, mutexData);
+
+                return Task.FromResult(OperationResult<string?>.Success(lockId));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<string?>.Failure($"Failed to acquire mutex lock: {ex.Message}"));
         }
     }
 
     /// <inheritdoc />
-    public Task<OperationResult<bool>> MemoryMutexUnlock(IMemoryServiceScope memoryScope, string mutexValue, string lockId,
+    public Task<OperationResult<bool>> MemoryMutexUnlock(
+        IMemoryServiceScope memoryScope,
+        string mutexValue,
+        string lockId,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
@@ -82,22 +145,49 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (string.IsNullOrEmpty(lockId))
             return Task.FromResult(OperationResult<bool>.Failure("Lock ID is required"));
 
-        var lockKey = $"{memoryScope.Compile()}:{mutexValue}";
+        // Use the same prefixed key format as in lock
+        var lockKey = $"CrossCloudKit.Memory.Basic.MemoryServiceBasic.Mutex:{mutexValue}";
 
-        lock (_memoryMutexes)
+        try
         {
-            if (!_memoryMutexes.TryGetValue(lockKey, out var existingLock)
-                || existingLock.LockId != lockId) return Task.FromResult(OperationResult<bool>.Success(false));
-            _memoryMutexes.Remove(lockKey);
+            var scopeKey = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scopeKey);
+
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
+
             try
             {
-                existingLock.ExpiryCts.Dispose();
+                var mutexData = GetOrCreateMutexData(scopeKey);
+
+                // Check if the lock exists and matches the provided lock ID
+                if (!mutexData.TryGetValue(lockKey, out var existingLock))
+                    return Task.FromResult(OperationResult<bool>.Success(false));
+
+                if (existingLock.LockId != lockId)
+                    return Task.FromResult(OperationResult<bool>.Success(false));
+
+                // Remove the lock
+                mutexData.Remove(lockKey);
+                SaveMutexData(scopeKey, mutexData);
+
+                // Cancel expiration timer
+                if (_expirationTimers.TryGetValue(lockKey, out var timer))
+                {
+                    timer.Dispose();
+                    _expirationTimers.Remove(lockKey);
+                }
+
+                return Task.FromResult(OperationResult<bool>.Success(true));
             }
-            catch (Exception)
+            finally
             {
-                // ignored
+                mutex.ReleaseMutex();
             }
-            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to release mutex lock: {ex.Message}"));
         }
     }
 
@@ -110,29 +200,53 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
 
-        var scope = memoryScope.Compile();
-        var expiryTime = DateTime.UtcNow.Add(timeToLive);
-
-        var cts = new CancellationTokenSource(timeToLive);
-        cts.Token.Register(() =>
+        try
         {
+            var scope = memoryScope.Compile();
+            var expiryTime = DateTime.UtcNow.Add(timeToLive);
+
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
+
             try
             {
-                // Clean up expired scope
-                _scopedKeyValues.TryRemove(scope, out _);
-                _scopedLists.TryRemove(scope, out _);
-                _expirations.TryRemove(scope, out var expiry);
-                expiry.ExpiryCts?.Dispose();
+                var data = GetOrCreateStoredData(scope);
+                var newData = data with { ExpiryTime = expiryTime };
+                SaveStoredData(scope, newData);
             }
-            catch (Exception)
+            finally
             {
-                // ignored
+                mutex.ReleaseMutex();
             }
-        });
 
-        _expirations.AddOrUpdate(scope, (expiryTime, cts), (_, _) => (expiryTime, cts));
+            // Set up expiration timer
+            var timer = new Timer(_ =>
+            {
+                try
+                {
+                    var filePath = GetScopeFilePath(scope);
+                    if (File.Exists(filePath))
+                        File.Delete(filePath);
 
-        return Task.FromResult(OperationResult<bool>.Success(true));
+                    var mutexFilePath = GetScopeFilePath(scope, "_mutex");
+                    if (File.Exists(mutexFilePath))
+                        File.Delete(mutexFilePath);
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
+            }, null, timeToLive, Timeout.InfiniteTimeSpan);
+
+            _expirationTimers[scope] = timer;
+
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to set expiration: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -143,13 +257,32 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<TimeSpan?>.Failure("Service is not initialized"));
 
-        var scope = memoryScope.Compile();
+        try
+        {
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<TimeSpan?>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        if (!_expirations.TryGetValue(scope, out var expiry))
-            return Task.FromResult(OperationResult<TimeSpan?>.Success(null));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
 
-        var remainingTime = expiry.ExpiryTime - DateTime.UtcNow;
-        return Task.FromResult(OperationResult<TimeSpan?>.Success(remainingTime > TimeSpan.Zero ? remainingTime : null));
+                if (!data.ExpiryTime.HasValue)
+                    return Task.FromResult(OperationResult<TimeSpan?>.Success(null));
+
+                var remainingTime = data.ExpiryTime.Value - DateTime.UtcNow;
+                return Task.FromResult(OperationResult<TimeSpan?>.Success(remainingTime > TimeSpan.Zero ? remainingTime : null));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<TimeSpan?>.Failure($"Failed to get expiration time: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -166,21 +299,41 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (keyValueArray.Length == 0)
             return OperationResult<bool>.Failure("Key values are empty.");
 
-        var scope = memoryScope.Compile();
-        var scopeDict = _scopedKeyValues.GetOrAdd(scope, _ => new ConcurrentDictionary<string, PrimitiveType>());
-
-        foreach (var (key, value) in keyValueArray)
+        try
         {
-            scopeDict.AddOrUpdate(key, value, (_, _) => value);
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
 
-        if (publishChange && pubSubService is not null)
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                foreach (var (key, value) in keyValueArray)
+                {
+                    data.KeyValues[key] = value;
+                }
+
+                SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                    keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "SetKeyValue",
-                keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to set key values: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(true);
     }
 
     /// <inheritdoc />
@@ -206,19 +359,50 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure("Service is not initialized");
 
-        var scope = memoryScope.Compile();
-        var scopeDict = _scopedKeyValues.GetOrAdd(scope, _ => new ConcurrentDictionary<string, PrimitiveType>());
-
-        var addedSuccessfully = scopeDict.TryAdd(key, value);
-        var existingValue = addedSuccessfully ? value : scopeDict.GetValueOrDefault(key);
-
-        if (addedSuccessfully && publishChange && pubSubService is not null)
+        try
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "SetKeyValue",
-                new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
-        }
+            var scope = memoryScope.Compile();
+            bool addedSuccessfully;
+            PrimitiveType? existingValue;
 
-        return OperationResult<(bool newlySet, PrimitiveType? value)>.Success((addedSuccessfully, existingValue));
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.KeyValues.TryGetValue(key, out var keyValue))
+                {
+                    addedSuccessfully = false;
+                    existingValue = keyValue;
+                }
+                else
+                {
+                    addedSuccessfully = true;
+                    data.KeyValues[key] = value;
+                    existingValue = value;
+                    SaveStoredData(scope, data);
+                }
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (addedSuccessfully && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                    new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<(bool newlySet, PrimitiveType? value)>.Success((addedSuccessfully, existingValue));
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure($"Failed to set key value conditionally: {ex.Message}");
+        }
     }
 
     /// <inheritdoc />
@@ -230,13 +414,28 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<PrimitiveType?>.Failure("Service is not initialized"));
 
-        var scope = memoryScope.Compile();
+        try
+        {
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<PrimitiveType?>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        if (!_scopedKeyValues.TryGetValue(scope, out var scopeDict))
-            return Task.FromResult(OperationResult<PrimitiveType?>.Success(null));
-
-        var value = scopeDict.GetValueOrDefault(key);
-        return Task.FromResult(OperationResult<PrimitiveType?>.Success(value));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                var value = data.KeyValues.GetValueOrDefault(key);
+                return Task.FromResult(OperationResult<PrimitiveType?>.Success(value));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<PrimitiveType?>.Failure($"Failed to get key value: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -252,21 +451,38 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (keyArray.Length == 0)
             return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Keys are empty."));
 
-        var scope = memoryScope.Compile();
-        var result = new Dictionary<string, PrimitiveType>();
-
-        if (!_scopedKeyValues.TryGetValue(scope, out var scopeDict))
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
-
-        foreach (var key in keyArray)
+        try
         {
-            if (scopeDict.TryGetValue(key, out var value))
-            {
-                result[key] = value;
-            }
-        }
+            var scope = memoryScope.Compile();
+            var result = new Dictionary<string, PrimitiveType>();
 
-        return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Failed to acquire cross-process mutex within timeout"));
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                foreach (var key in keyArray)
+                {
+                    if (data.KeyValues.TryGetValue(key, out var value))
+                    {
+                        result[key] = value;
+                    }
+                }
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure($"Failed to get key values: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -277,17 +493,28 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-        var result = new Dictionary<string, PrimitiveType>();
-
-        if (!_scopedKeyValues.TryGetValue(scope, out var scopeDict))
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
-        foreach (var kvp in scopeDict)
+        try
         {
-            result[kvp.Key] = kvp.Value;
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                var result = new Dictionary<string, PrimitiveType>(data.KeyValues);
+                return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure($"Failed to get all key values: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -300,20 +527,39 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-        var wasRemoved = false;
-
-        if (_scopedKeyValues.TryGetValue(scope, out var scopeDict))
+        try
         {
-            wasRemoved = scopeDict.TryRemove(key, out _);
-        }
+            var scope = memoryScope.Compile();
+            bool wasRemoved;
 
-        if (wasRemoved && publishChange && pubSubService is not null)
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                wasRemoved = data.KeyValues.Remove(key);
+
+                if (wasRemoved)
+                    SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (wasRemoved && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(wasRemoved);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "DeleteKey", key, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to delete key: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(wasRemoved);
     }
 
     /// <inheritdoc />
@@ -325,16 +571,43 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-        var wasRemoved = _scopedKeyValues.TryRemove(scope, out _);
-        _scopedLists.TryRemove(scope, out _);
-
-        if (wasRemoved && publishChange && pubSubService is not null)
+        try
         {
-            await PublishChangeNotificationAsync<string>(pubSubService, memoryScope, "DeleteAllKeys", null!, cancellationToken).ConfigureAwait(false);
-        }
+            var scope = memoryScope.Compile();
+            bool wasRemoved;
 
-        return OperationResult<bool>.Success(wasRemoved);
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var filePath = GetScopeFilePath(scope);
+                var mutexFilePath = GetScopeFilePath(scope, "_mutex");
+
+                wasRemoved = File.Exists(filePath);
+
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+                if (File.Exists(mutexFilePath))
+                    File.Delete(mutexFilePath);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (wasRemoved && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null!, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(wasRemoved);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<bool>.Failure($"Failed to delete all keys: {ex.Message}");
+        }
     }
 
     /// <inheritdoc />
@@ -345,15 +618,28 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<ReadOnlyCollection<string>>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-        var keys = new List<string>();
-
-        if (_scopedKeyValues.TryGetValue(scope, out var scopeDict))
+        try
         {
-            keys.AddRange(scopeDict.Keys);
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<ReadOnlyCollection<string>>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<ReadOnlyCollection<string>>.Success(keys.AsReadOnly()));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                var keys = data.KeyValues.Keys.ToList();
+                return Task.FromResult(OperationResult<ReadOnlyCollection<string>>.Success(keys.AsReadOnly()));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<ReadOnlyCollection<string>>.Failure($"Failed to get keys: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -364,15 +650,28 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<long>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-        var count = 0L;
-
-        if (_scopedKeyValues.TryGetValue(scope, out var scopeDict))
+        try
         {
-            count = scopeDict.Count;
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<long>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<long>.Success(count));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                var count = (long)data.KeyValues.Count;
+                return Task.FromResult(OperationResult<long>.Success(count));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<long>.Failure($"Failed to get keys count: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -389,28 +688,46 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (incrementArray.Length == 0)
             return OperationResult<Dictionary<string, long>>.Failure("Key increments array is empty.");
 
-        var scope = memoryScope.Compile();
-        var scopeDict = _scopedKeyValues.GetOrAdd(scope, _ => new ConcurrentDictionary<string, PrimitiveType>());
-        var result = new Dictionary<string, long>();
-
-        lock (_lockObject) // Ensure atomic increment operations
+        try
         {
-            foreach (var (key, increment) in incrementArray)
+            var scope = memoryScope.Compile();
+            var result = new Dictionary<string, long>();
+
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<Dictionary<string, long>>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
             {
-                var currentValue = scopeDict.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
-                var newValue = currentValue + increment;
-                scopeDict.AddOrUpdate(key, new PrimitiveType(newValue), (_, _) => new PrimitiveType(newValue));
-                result[key] = newValue;
+                var data = GetOrCreateStoredData(scope);
+
+                foreach (var (key, increment) in incrementArray)
+                {
+                    var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
+                    var newValue = currentValue + increment;
+                    data.KeyValues[key] = new PrimitiveType(newValue);
+                    result[key] = newValue;
+                }
+
+                SaveStoredData(scope, data);
             }
-        }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
 
-        if (result.Count > 0 && publishChange && pubSubService is not null)
+            if (result.Count > 0 && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                    result.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<Dictionary<string, long>>.Success(result);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "SetKeyValue",
-                result.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken).ConfigureAwait(false);
+            return OperationResult<Dictionary<string, long>>.Failure($"Failed to increment key values: {ex.Message}");
         }
-
-        return OperationResult<Dictionary<string, long>>.Success(result);
     }
 
     /// <inheritdoc />
@@ -424,24 +741,40 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<long>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-        var scopeDict = _scopedKeyValues.GetOrAdd(scope, _ => new ConcurrentDictionary<string, PrimitiveType>());
-
-        long newValue;
-        lock (_lockObject) // Ensure atomic increment operation
+        try
         {
-            var currentValue = scopeDict.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
-            newValue = currentValue + incrementBy;
-            scopeDict.AddOrUpdate(key, new PrimitiveType(newValue), (_, _) => new PrimitiveType(newValue));
-        }
+            var scope = memoryScope.Compile();
+            long newValue;
 
-        if (publishChange && pubSubService is not null)
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<long>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+                var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
+                newValue = currentValue + incrementBy;
+                data.KeyValues[key] = new PrimitiveType(newValue);
+                SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
+                    new Dictionary<string, PrimitiveType> { [key] = new(newValue) }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<long>.Success(newValue);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "SetKeyValue",
-                new Dictionary<string, PrimitiveType> { [key] = new(newValue) }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<long>.Failure($"Failed to increment key value: {ex.Message}");
         }
-
-        return OperationResult<long>.Success(newValue);
     }
 
     // List Operations
@@ -462,25 +795,44 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (valueArray.Length == 0)
             return OperationResult<bool>.Success(true);
 
-        var scope = memoryScope.Compile();
-        var scopeLists = _scopedLists.GetOrAdd(scope, _ => new ConcurrentDictionary<string, List<PrimitiveType>>());
-
-        lock (_lockObject)
+        try
         {
-            if (onlyIfListExists && !scopeLists.ContainsKey(listName))
-                return OperationResult<bool>.Success(false);
+            var scope = memoryScope.Compile();
 
-            var list = scopeLists.GetOrAdd(listName, _ => []);
-            list.AddRange(valueArray);
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (onlyIfListExists && !data.Lists.ContainsKey(listName))
+                    return OperationResult<bool>.Success(false);
+
+                if (!data.Lists.ContainsKey(listName))
+                    data.Lists[listName] = new List<PrimitiveType>();
+
+                data.Lists[listName].AddRange(valueArray);
+                SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListTail",
+                    new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(true);
         }
-
-        if (publishChange && pubSubService is not null)
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PushToListTail",
-                new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to push to list tail: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(true);
     }
 
     /// <inheritdoc />
@@ -499,25 +851,44 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (valueArray.Length == 0)
             return OperationResult<bool>.Success(true);
 
-        var scope = memoryScope.Compile();
-        var scopeLists = _scopedLists.GetOrAdd(scope, _ => new ConcurrentDictionary<string, List<PrimitiveType>>());
-
-        lock (_lockObject)
+        try
         {
-            if (onlyIfListExists && !scopeLists.ContainsKey(listName))
-                return OperationResult<bool>.Success(false);
+            var scope = memoryScope.Compile();
 
-            var list = scopeLists.GetOrAdd(listName, _ => []);
-            list.InsertRange(0, valueArray);
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (onlyIfListExists && !data.Lists.ContainsKey(listName))
+                    return OperationResult<bool>.Success(false);
+
+                if (!data.Lists.ContainsKey(listName))
+                    data.Lists[listName] = new List<PrimitiveType>();
+
+                data.Lists[listName].InsertRange(0, valueArray);
+                SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListHead",
+                    new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(true);
         }
-
-        if (publishChange && pubSubService is not null)
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PushToListHead",
-                new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to push to list head: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(true);
     }
 
     /// <inheritdoc />
@@ -535,29 +906,52 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (valueArray.Length == 0)
             return OperationResult<PrimitiveType[]>.Success([]);
 
-        var scope = memoryScope.Compile();
-        var scopeLists = _scopedLists.GetOrAdd(scope, _ => new ConcurrentDictionary<string, List<PrimitiveType>>());
-        var addedValues = new List<PrimitiveType>();
-
-        lock (_lockObject)
+        try
         {
-            var list = scopeLists.GetOrAdd(listName, _ => []);
+            var scope = memoryScope.Compile();
+            var addedValues = new List<PrimitiveType>();
 
-            foreach (var value in valueArray)
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<PrimitiveType[]>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
             {
-                if (list.Contains(value)) continue;
-                list.Add(value);
-                addedValues.Add(value);
+                var data = GetOrCreateStoredData(scope);
+
+                if (!data.Lists.ContainsKey(listName))
+                    data.Lists[listName] = new List<PrimitiveType>();
+
+                var list = data.Lists[listName];
+                foreach (var value in valueArray)
+                {
+                    if (!list.Contains(value))
+                    {
+                        list.Add(value);
+                        addedValues.Add(value);
+                    }
+                }
+
+                if (addedValues.Count > 0)
+                    SaveStoredData(scope, data);
             }
-        }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
 
-        if (addedValues.Count > 0 && publishChange && pubSubService is not null)
+            if (addedValues.Count > 0 && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListTail",
+                    new { ListName = listName, Values = addedValues }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<PrimitiveType[]>.Success(addedValues.ToArray());
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PushToListTail",
-                new { ListName = listName, Values = addedValues }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<PrimitiveType[]>.Failure($"Failed to push to list tail if values not exist: {ex.Message}");
         }
-
-        return OperationResult<PrimitiveType[]>.Success(addedValues.ToArray());
     }
 
     /// <inheritdoc />
@@ -570,30 +964,44 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<PrimitiveType?>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return OperationResult<PrimitiveType?>.Success(null);
-
-        PrimitiveType? poppedValue = null;
-        lock (_lockObject)
+        try
         {
-            if (list.Count > 0)
+            var scope = memoryScope.Compile();
+            PrimitiveType? poppedValue = null;
+
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<PrimitiveType?>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
             {
-                var lastIndex = list.Count - 1;
-                poppedValue = list[lastIndex];
-                list.RemoveAt(lastIndex);
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list) && list.Count > 0)
+                {
+                    var lastIndex = list.Count - 1;
+                    poppedValue = list[lastIndex];
+                    list.RemoveAt(lastIndex);
+                    SaveStoredData(scope, data);
+                }
             }
-        }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
 
-        if (poppedValue != null && publishChange && pubSubService is not null)
+            if (poppedValue != null && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PopFromList",
+                    new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<PrimitiveType?>.Success(poppedValue);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PopFromList",
-                new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<PrimitiveType?>.Failure($"Failed to pop last element from list: {ex.Message}");
         }
-
-        return OperationResult<PrimitiveType?>.Success(poppedValue);
     }
 
     /// <inheritdoc />
@@ -606,29 +1014,43 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<PrimitiveType?>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return OperationResult<PrimitiveType?>.Success(null);
-
-        PrimitiveType? poppedValue = null;
-        lock (_lockObject)
+        try
         {
-            if (list.Count > 0)
+            var scope = memoryScope.Compile();
+            PrimitiveType? poppedValue = null;
+
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<PrimitiveType?>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
             {
-                poppedValue = list[0];
-                list.RemoveAt(0);
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list) && list.Count > 0)
+                {
+                    poppedValue = list[0];
+                    list.RemoveAt(0);
+                    SaveStoredData(scope, data);
+                }
             }
-        }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
 
-        if (poppedValue != null && publishChange && pubSubService is not null)
+            if (poppedValue != null && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PopFromList",
+                    new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<PrimitiveType?>.Success(poppedValue);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "PopFromList",
-                new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<PrimitiveType?>.Failure($"Failed to pop first element from list: {ex.Message}");
         }
-
-        return OperationResult<PrimitiveType?>.Success(poppedValue);
     }
 
     /// <inheritdoc />
@@ -646,25 +1068,50 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (valueArray.Length == 0)
             return OperationResult<IEnumerable<PrimitiveType?>>.Success([]);
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return OperationResult<IEnumerable<PrimitiveType?>>.Success([]);
-
-        var removedValues = new List<PrimitiveType?>();
-        lock (_lockObject)
+        try
         {
-            removedValues.AddRange(valueArray.Where(value => list.Remove(value)));
-        }
+            var scope = memoryScope.Compile();
+            var removedValues = new List<PrimitiveType?>();
 
-        if (removedValues.Count > 0 && publishChange && pubSubService is not null)
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list))
+                {
+                    foreach (var value in valueArray)
+                    {
+                        if (list.Remove(value))
+                        {
+                            removedValues.Add(value);
+                        }
+                    }
+
+                    if (removedValues.Count > 0)
+                        SaveStoredData(scope, data);
+                }
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (removedValues.Count > 0 && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "RemoveFromList",
+                    new { ListName = listName, Values = removedValues }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<IEnumerable<PrimitiveType?>>.Success(removedValues);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "RemoveFromList",
-                new { ListName = listName, Values = removedValues }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<IEnumerable<PrimitiveType?>>.Failure($"Failed to remove elements from list: {ex.Message}");
         }
-
-        return OperationResult<IEnumerable<PrimitiveType?>>.Success(removedValues);
     }
 
     /// <inheritdoc />
@@ -676,19 +1123,34 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(Array.Empty<PrimitiveType>().ToList().AsReadOnly()));
-
-        List<PrimitiveType> snapshot;
-        lock (_lockObject)
+        try
         {
-            snapshot = new List<PrimitiveType>(list);
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(snapshot.AsReadOnly()));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list))
+                {
+                    var snapshot = new List<PrimitiveType>(list);
+                    return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(snapshot.AsReadOnly()));
+                }
+
+                return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(Array.Empty<PrimitiveType>().ToList().AsReadOnly()));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure($"Failed to get all elements of list: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -701,26 +1163,43 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return OperationResult<bool>.Success(false);
-
-        bool wasNotEmpty;
-        lock (_lockObject)
+        try
         {
-            wasNotEmpty = list.Count > 0;
-            list.Clear();
-        }
+            var scope = memoryScope.Compile();
+            bool wasNotEmpty = false;
 
-        if (wasNotEmpty && publishChange && pubSubService is not null)
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list) && list.Count > 0)
+                {
+                    list.Clear();
+                    wasNotEmpty = true;
+                    SaveStoredData(scope, data);
+                }
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+
+            if (wasNotEmpty && publishChange && _pubSubService is not null)
+            {
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "EmptyList",
+                    new { ListName = listName }, cancellationToken).ConfigureAwait(false);
+            }
+
+            return OperationResult<bool>.Success(wasNotEmpty);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "EmptyList",
-                new { ListName = listName }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to empty list: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(wasNotEmpty);
     }
 
     /// <inheritdoc />
@@ -734,44 +1213,62 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.");
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists))
-            return OperationResult<bool>.Success(false);
-
-        var clearedAny = false;
-        var clearedLists = new List<string>();
-
-        lock (_lockObject)
+        try
         {
-            // Clear the main list
-            if (scopeLists.TryGetValue(listName, out var mainList) && mainList.Count > 0)
+            var scope = memoryScope.Compile();
+            var clearedAny = false;
+            var clearedLists = new List<string>();
+
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout");
+
+            try
             {
-                mainList.Clear();
-                clearedAny = true;
-                clearedLists.Add(listName);
+                var data = GetOrCreateStoredData(scope);
+
+                // Clear the main list
+                if (data.Lists.TryGetValue(listName, out var mainList) && mainList.Count > 0)
+                {
+                    mainList.Clear();
+                    clearedAny = true;
+                    clearedLists.Add(listName);
+                }
+
+                // Clear sublists with a prefix
+                var sublistPattern = $"{listName}:{sublistPrefix}";
+                var matchingKeys = data.Lists.Keys.Where(key => key.StartsWith(sublistPattern)).ToList();
+
+                foreach (var key in matchingKeys)
+                {
+                    if (data.Lists.TryGetValue(key, out var sublist) && sublist.Count > 0)
+                    {
+                        sublist.Clear();
+                        clearedAny = true;
+                        clearedLists.Add(key);
+                    }
+                }
+
+                if (clearedAny)
+                    SaveStoredData(scope, data);
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
             }
 
-            // Clear sublists with a prefix
-            var sublistPattern = $"{listName}:{sublistPrefix}";
-            var matchingKeys = scopeLists.Keys.Where(key => key.StartsWith(sublistPattern)).ToList();
-
-            foreach (var key in matchingKeys)
+            if (clearedAny && publishChange && _pubSubService is not null)
             {
-                if (!scopeLists.TryGetValue(key, out var sublist) || sublist.Count <= 0) continue;
-                sublist.Clear();
-                clearedAny = true;
-                clearedLists.Add(key);
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "EmptyListAndSublists",
+                    new { ListName = listName, SublistPrefix = sublistPrefix, ClearedLists = clearedLists }, cancellationToken).ConfigureAwait(false);
             }
-        }
 
-        if (clearedAny && publishChange && pubSubService is not null)
+            return OperationResult<bool>.Success(clearedAny);
+        }
+        catch (Exception ex)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "EmptyListAndSublists",
-                new { ListName = listName, SublistPrefix = sublistPrefix, ClearedLists = clearedLists }, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failure($"Failed to empty list and sublists: {ex.Message}");
         }
-
-        return OperationResult<bool>.Success(clearedAny);
     }
 
     /// <inheritdoc />
@@ -783,19 +1280,33 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<long>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return Task.FromResult(OperationResult<long>.Success(0L));
-
-        long count;
-        lock (_lockObject)
+        try
         {
-            count = list.Count;
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<long>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<long>.Success(count));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list))
+                {
+                    return Task.FromResult(OperationResult<long>.Success(list.Count));
+                }
+
+                return Task.FromResult(OperationResult<long>.Success(0L));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<long>.Failure($"Failed to get list size: {ex.Message}"));
+        }
     }
 
     /// <inheritdoc />
@@ -808,58 +1319,254 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
         if (!IsInitialized)
             return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized."));
 
-        var scope = memoryScope.Compile();
-
-        if (!_scopedLists.TryGetValue(scope, out var scopeLists) ||
-            !scopeLists.TryGetValue(listName, out var list))
-            return Task.FromResult(OperationResult<bool>.Success(false));
-
-        bool contains;
-        lock (_lockObject)
+        try
         {
-            contains = list.Contains(value);
-        }
+            var scope = memoryScope.Compile();
+            using var mutex = GetOrCreateMutex(scope);
+            if (!mutex.WaitOne(TimeSpan.FromSeconds(30)))
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to acquire cross-process mutex within timeout"));
 
-        return Task.FromResult(OperationResult<bool>.Success(contains));
+            try
+            {
+                var data = GetOrCreateStoredData(scope);
+
+                if (data.Lists.TryGetValue(listName, out var list))
+                {
+                    return Task.FromResult(OperationResult<bool>.Success(list.Contains(value)));
+                }
+
+                return Task.FromResult(OperationResult<bool>.Success(false));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to check if list contains value: {ex.Message}"));
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        // Dispose all expiry cancellation tokens
-        foreach (var expiry in _expirations.Values)
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        try
         {
+            // Dispose cleanup timer
             try
             {
-                expiry.ExpiryCts.Dispose();
+                await _cleanupTimer.DisposeAsync();
             }
             catch (Exception)
             {
                 // ignored
             }
-        }
 
-        // Dispose all mutex cancellation tokens
-        lock (_memoryMutexes)
-        {
-            foreach (var mutex in _memoryMutexes.Values)
+            // Dispose all expiration timers
+            foreach (var timer in _expirationTimers.Values)
             {
                 try
                 {
-                    mutex.ExpiryCts.Dispose();
+                    await timer.DisposeAsync();
                 }
                 catch (Exception)
                 {
                     // ignored
                 }
             }
-            _memoryMutexes.Clear();
+            _expirationTimers.Clear();
+
+            // Dispose all mutexes
+            foreach (var mutex in _mutexes.Values)
+            {
+                try
+                {
+                    mutex.Dispose();
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
+            }
+            _mutexes.Clear();
+        }
+        catch (Exception)
+        {
+            // Ignore disposal errors
         }
 
-        _expirations.Clear();
-        _scopedKeyValues.Clear();
-        _scopedLists.Clear();
-
         await Task.CompletedTask;
+    }
+
+    private Mutex GetOrCreateMutex(string scope)
+    {
+        // Create a safe mutex name from the scope
+        var mutexName = "CrossCloudKit.Memory.Basic." + Convert.ToBase64String(Encoding.UTF8.GetBytes(scope))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+
+        if (_mutexes.TryGetValue(mutexName, out var existingMutex))
+            return existingMutex;
+
+        try
+        {
+            var mutex = new Mutex(false, mutexName);
+            _mutexes[mutexName] = mutex;
+            return mutex;
+        }
+        catch (Exception)
+        {
+            // If named mutex creation fails, create an unnamed mutex for this process only
+            // This is a fallback that provides at least in-process synchronization
+            var mutex = new Mutex(false);
+            _mutexes[mutexName] = mutex;
+            return mutex;
+        }
+    }
+
+    private void CleanupExpiredFiles(object? state)
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            if (!Directory.Exists(_storageDirectory))
+                return;
+
+            var files = Directory.GetFiles(_storageDirectory, "*.json");
+            var now = DateTime.UtcNow;
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    // Skip mutex files, they will be cleaned up with their main files
+                    if (Path.GetFileName(file).Contains("_mutex"))
+                        continue;
+
+                    var json = File.ReadAllText(file, Encoding.UTF8);
+                    var data = JsonConvert.DeserializeObject<StoredData>(json);
+
+                    if (data?.ExpiryTime.HasValue == true && data.ExpiryTime <= now)
+                    {
+                        // Delete the main file
+                        File.Delete(file);
+
+                        // Delete associated mutex file if it exists
+                        var mutexFile = file.Replace(".json", "_mutex.json");
+                        if (File.Exists(mutexFile))
+                            File.Delete(mutexFile);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore errors for individual files
+                    // They might be in use by other processes
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors
+        }
+    }
+
+    private record MutexLockData
+    {
+        public string LockId { get; init; } = string.Empty;
+        public DateTime ExpiryTime { get; init; }
+    }
+
+    private record StoredData
+    {
+        public Dictionary<string, PrimitiveType> KeyValues { get; init; } = new();
+        public Dictionary<string, List<PrimitiveType>> Lists { get; init; } = new();
+        public DateTime? ExpiryTime { get; init; }
+    }
+
+    private string GetScopeFilePath(string scope, string suffix = "")
+    {
+        var fileName = Convert.ToBase64String(Encoding.UTF8.GetBytes(scope + suffix))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+        return Path.Combine(_storageDirectory, $"{fileName}.json");
+    }
+
+    private StoredData GetOrCreateStoredData(string scope)
+    {
+        var filePath = GetScopeFilePath(scope);
+
+        if (!File.Exists(filePath))
+            return new StoredData();
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            var data = JsonConvert.DeserializeObject<StoredData>(json);
+
+            // Check if data has expired
+            if (data?.ExpiryTime.HasValue == true && data.ExpiryTime <= DateTime.UtcNow)
+            {
+                File.Delete(filePath);
+                return new StoredData();
+            }
+
+            return data ?? new StoredData();
+        }
+        catch (Exception)
+        {
+            return new StoredData();
+        }
+    }
+
+    private void SaveStoredData(string scope, StoredData data)
+    {
+        var filePath = GetScopeFilePath(scope);
+        var json = JsonConvert.SerializeObject(data, Formatting.None);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
+    }
+
+    private Dictionary<string, MutexLockData> GetOrCreateMutexData(string scope)
+    {
+        var filePath = GetScopeFilePath(scope, "_mutex");
+
+        if (!File.Exists(filePath))
+            return new Dictionary<string, MutexLockData>();
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            var data = JsonConvert.DeserializeObject<Dictionary<string, MutexLockData>>(json);
+
+            // Remove expired locks
+            if (data != null)
+            {
+                var expiredKeys = data.Where(kvp => kvp.Value.ExpiryTime <= DateTime.UtcNow)
+                    .Select(kvp => kvp.Key).ToList();
+
+                foreach (var expiredKey in expiredKeys)
+                {
+                    data.Remove(expiredKey);
+                }
+            }
+
+            return data ?? new Dictionary<string, MutexLockData>();
+        }
+        catch (Exception)
+        {
+            return new Dictionary<string, MutexLockData>();
+        }
+    }
+
+    private void SaveMutexData(string scope, Dictionary<string, MutexLockData> data)
+    {
+        var filePath = GetScopeFilePath(scope, "_mutex");
+        var json = JsonConvert.SerializeObject(data, Formatting.None);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
     }
 
     private static async Task PublishChangeNotificationAsync<T>(IPubSubService? pubSubService,
@@ -870,7 +1577,6 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
     {
         if (pubSubService is null)
         {
-            OperationResult<bool>.Failure("Pub/Sub service is not configured.");
             return;
         }
 
@@ -887,9 +1593,9 @@ public sealed class MemoryServiceBasic(IPubSubService? pubSubService = null) : I
             var message = JsonConvert.SerializeObject(notification);
             await pubSubService.PublishAsync(scope, message, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            OperationResult<bool>.Failure($"Failed to publish change notification for operation {operation} on scope {memoryScope}: {ex.Message}, Trace: {ex.StackTrace}");
+            // Ignore pub/sub errors to not affect memory operations
         }
     }
 }

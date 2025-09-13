@@ -1039,6 +1039,703 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
     #endregion
 
+    #region ScanMemoryScopesWithPattern Tests
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithExactMatch_ShouldReturnMatchingScope()
+    {
+        var testScope1 = new TestMemoryScope("exact-match-scope-1");
+        var testScope2 = new TestMemoryScope("exact-match-scope-2");
+        var testScope3 = new TestMemoryScope("different-scope");
+
+        try
+        {
+            // Arrange - Create data in different scopes
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key1", new PrimitiveType("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key2", new PrimitiveType("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key3", new PrimitiveType("value3"))], publishChange: false);
+
+            // Act - Search for exact match
+            var result = await MemoryService.ScanMemoryScopesWithPattern("exact-match-scope-1");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(1);
+            result.Data.Should().Contain("exact-match-scope-1");
+            result.Data.Should().NotContain("exact-match-scope-2");
+            result.Data.Should().NotContain("different-scope");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithWildcardPattern_ShouldReturnMatchingScopes()
+    {
+        var testScope1 = new TestMemoryScope("user:123");
+        var testScope2 = new TestMemoryScope("user:456");
+        var testScope3 = new TestMemoryScope("user:789");
+        var testScope4 = new TestMemoryScope("admin:123");
+        var testScope5 = new TestMemoryScope("guest:456");
+
+        try
+        {
+            // Arrange - Create data in different scopes
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("name", new PrimitiveType("John"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("name", new PrimitiveType("Jane"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("name", new PrimitiveType("Bob"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("role", new PrimitiveType("admin"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("role", new PrimitiveType("guest"))], publishChange: false);
+
+            // Act - Search with wildcard pattern
+            var result = await MemoryService.ScanMemoryScopesWithPattern("user:*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3, "Should match all user: scopes");
+            result.Data.Should().Contain("user:123");
+            result.Data.Should().Contain("user:456");
+            result.Data.Should().Contain("user:789");
+            result.Data.Should().NotContain("admin:123");
+            result.Data.Should().NotContain("guest:456");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope4, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope5, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithSuffixWildcardPattern_ShouldReturnMatchingScopes()
+    {
+        var testScope1 = new TestMemoryScope("session:web:123");
+        var testScope2 = new TestMemoryScope("session:mobile:456");
+        var testScope3 = new TestMemoryScope("session:api:789");
+        var testScope4 = new TestMemoryScope("cache:web:123");
+        var testScope5 = new TestMemoryScope("temp:session:999");
+
+        try
+        {
+            // Arrange - Create data in different scopes
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new PrimitiveType("web-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new PrimitiveType("mobile-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new PrimitiveType("api-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new PrimitiveType("web-cache"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new PrimitiveType("temp-session"))], publishChange: false);
+
+            // Act - Search with prefix wildcard pattern
+            var result = await MemoryService.ScanMemoryScopesWithPattern("session:*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3, "Should match all session: prefixed scopes");
+            result.Data.Should().Contain("session:web:123");
+            result.Data.Should().Contain("session:mobile:456");
+            result.Data.Should().Contain("session:api:789");
+            result.Data.Should().NotContain("cache:web:123");
+            result.Data.Should().NotContain("temp:session:999");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope4, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope5, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithMiddleWildcardPattern_ShouldReturnMatchingScopes()
+    {
+        var testScope1 = new TestMemoryScope("app:user:profile");
+        var testScope2 = new TestMemoryScope("app:admin:profile");
+        var testScope3 = new TestMemoryScope("app:guest:profile");
+        var testScope4 = new TestMemoryScope("app:user:settings");
+        var testScope5 = new TestMemoryScope("web:user:profile");
+
+        try
+        {
+            // Arrange - Create data in different scopes
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new PrimitiveType("user-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new PrimitiveType("admin-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new PrimitiveType("guest-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new PrimitiveType("user-settings"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new PrimitiveType("web-user-profile"))], publishChange: false);
+
+            // Act - Search with middle wildcard pattern
+            var result = await MemoryService.ScanMemoryScopesWithPattern("app:*:profile");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3, "Should match app:*:profile pattern");
+            result.Data.Should().Contain("app:user:profile");
+            result.Data.Should().Contain("app:admin:profile");
+            result.Data.Should().Contain("app:guest:profile");
+            result.Data.Should().NotContain("app:user:settings");
+            result.Data.Should().NotContain("web:user:profile");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope4, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope5, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithAsteriskOnly_ShouldReturnAllScopes()
+    {
+        var testScope1 = new TestMemoryScope("scope-all-1");
+        var testScope2 = new TestMemoryScope("scope-all-2");
+        var testScope3 = new TestMemoryScope("scope-all-3");
+
+        try
+        {
+            // Arrange - Create data in different scopes
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value3"))], publishChange: false);
+
+            // Act - Search with asterisk only (match all)
+            var result = await MemoryService.ScanMemoryScopesWithPattern("*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCountGreaterOrEqualTo(3, "Should match at least our test scopes");
+            result.Data.Should().Contain("scope-all-1");
+            result.Data.Should().Contain("scope-all-2");
+            result.Data.Should().Contain("scope-all-3");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithNoMatchingScopes_ShouldReturnEmptyCollection()
+    {
+        var testScope1 = new TestMemoryScope("existing-scope-1");
+        var testScope2 = new TestMemoryScope("existing-scope-2");
+
+        try
+        {
+            // Arrange - Create data in scopes with known names
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
+
+            // Act - Search for pattern that should not match any existing scopes
+            var result = await MemoryService.ScanMemoryScopesWithPattern("non-existing-pattern-*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().BeEmpty("Should return empty collection when no scopes match");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithEmptyPattern_ShouldHandleGracefully()
+    {
+        try
+        {
+            // Act - Search with empty pattern
+            var result = await MemoryService.ScanMemoryScopesWithPattern("");
+
+            // Assert - Should either return empty collection or handle gracefully
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            // Empty pattern behavior can vary by implementation - just ensure it doesn't crash
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithComplexPattern_ShouldReturnMatchingScopes()
+    {
+        var testScope1 = new TestMemoryScope("order:2024:january:123");
+        var testScope2 = new TestMemoryScope("order:2024:february:456");
+        var testScope3 = new TestMemoryScope("order:2024:march:789");
+        var testScope4 = new TestMemoryScope("order:2023:january:111");
+        var testScope5 = new TestMemoryScope("invoice:2024:january:123");
+
+        try
+        {
+            // Arrange - Create data in different scopes with hierarchical structure
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("amount", new PrimitiveType(100.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("amount", new PrimitiveType(200.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("amount", new PrimitiveType(300.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("amount", new PrimitiveType(150.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("amount", new PrimitiveType(250.0))], publishChange: false);
+
+            // Act - Search for orders from 2024
+            var result = await MemoryService.ScanMemoryScopesWithPattern("order:2024:*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(3, "Should match all 2024 orders");
+            result.Data.Should().Contain("order:2024:january:123");
+            result.Data.Should().Contain("order:2024:february:456");
+            result.Data.Should().Contain("order:2024:march:789");
+            result.Data.Should().NotContain("order:2023:january:111");
+            result.Data.Should().NotContain("invoice:2024:january:123");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope4, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope5, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithScopesContainingLists_ShouldReturnScopes()
+    {
+        var testScope1 = new TestMemoryScope("list-scope-1");
+        var testScope2 = new TestMemoryScope("list-scope-2");
+        var testScope3 = new TestMemoryScope("keyval-scope-1");
+
+        try
+        {
+            // Arrange - Create scopes with lists and key-value data
+            await MemoryService.PushToListTailAsync(testScope1, "test-list-1",
+                [new PrimitiveType("item1"), new PrimitiveType("item2")], publishChange: false);
+            await MemoryService.PushToListTailAsync(testScope2, "test-list-2",
+                [new PrimitiveType("item3"), new PrimitiveType("item4")], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value"))], publishChange: false);
+
+            // Act - Search for list scopes
+            var result = await MemoryService.ScanMemoryScopesWithPattern("list-scope-*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().Contain("list-scope-1");
+            result.Data.Should().Contain("list-scope-2");
+            result.Data.Should().NotContain("keyval-scope-1");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.EmptyListAsync(testScope1, "test-list-1", publishChange: false);
+                await MemoryService.EmptyListAsync(testScope2, "test-list-2", publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithSpecialCharacters_ShouldHandleCorrectly()
+    {
+        var testScope1 = new TestMemoryScope("scope-with-dashes");
+        var testScope2 = new TestMemoryScope("scope_with_underscores");
+        var testScope3 = new TestMemoryScope("scope.with.dots");
+        var testScope4 = new TestMemoryScope("scope:with:colons");
+
+        try
+        {
+            // Arrange - Create scopes with various special characters
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("dashes"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("underscores"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("dots"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("key", new PrimitiveType("colons"))], publishChange: false);
+
+            // Act - Search for scopes with specific patterns
+            var dashResult = await MemoryService.ScanMemoryScopesWithPattern("scope-with-*");
+            var underscoreResult = await MemoryService.ScanMemoryScopesWithPattern("scope_with_*");
+            var dotResult = await MemoryService.ScanMemoryScopesWithPattern("scope.with.*");
+            var colonResult = await MemoryService.ScanMemoryScopesWithPattern("scope:with:*");
+
+            // Assert - Each pattern should match its corresponding scope
+            dashResult.IsSuccessful.Should().BeTrue();
+            dashResult.Data.Should().Contain("scope-with-dashes");
+
+            underscoreResult.IsSuccessful.Should().BeTrue();
+            underscoreResult.Data.Should().Contain("scope_with_underscores");
+
+            dotResult.IsSuccessful.Should().BeTrue();
+            dotResult.Data.Should().Contain("scope.with.dots");
+
+            colonResult.IsSuccessful.Should().BeTrue();
+            colonResult.Data.Should().Contain("scope:with:colons");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope4, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithExpiredScopes_ShouldNotReturnExpiredScopes()
+    {
+        var testScope1 = new TestMemoryScope("expired-scope-test-1");
+        var testScope2 = new TestMemoryScope("expired-scope-test-2");
+        var testScope3 = new TestMemoryScope("non-expired-scope-test");
+
+        try
+        {
+            // Arrange - Create scopes with different TTL settings
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
+            await MemoryService.SetKeyExpireTimeAsync(testScope1, TimeSpan.FromSeconds(1)); // Very short TTL
+
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
+            await MemoryService.SetKeyExpireTimeAsync(testScope2, TimeSpan.FromSeconds(1)); // Very short TTL
+
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value3"))], publishChange: false);
+            // No expiration set for testScope3
+
+            // Wait for expiration
+            await Task.Delay(TimeSpan.FromSeconds(10));
+
+            // Act - Search for scopes (expired ones should not be returned)
+            var result = await MemoryService.ScanMemoryScopesWithPattern("*-scope-test*");
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().Contain("non-expired-scope-test", "Non-expired scope should still be found");
+            result.Data.Should().NotContain("expired-scope-test-1", "Expired scope should not be returned");
+            result.Data.Should().NotContain("expired-scope-test-2", "Expired scope should not be returned");
+        }
+        finally
+        {
+            // Cleanup
+            try
+            {
+                await MemoryService.DeleteAllKeysAsync(testScope1, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope2, publishChange: false);
+                await MemoryService.DeleteAllKeysAsync(testScope3, publishChange: false);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithCancellationToken_ShouldRespectCancellation()
+    {
+        var testScopes = new List<TestMemoryScope>();
+
+        try
+        {
+            // Arrange - Create many scopes for a potentially long operation
+            for (int i = 0; i < 10; i++)
+            {
+                var scope = new TestMemoryScope($"cancellation-test-scope-{i}");
+                testScopes.Add(scope);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"value{i}"))], publishChange: false);
+            }
+
+            // Act & Assert - Test cancellation
+            using var cts = new CancellationTokenSource();
+            await cts.CancelAsync();
+
+            // The operation should either complete quickly or handle cancellation gracefully
+            // Different implementations might handle pre-cancelled tokens differently
+            var result = await MemoryService.ScanMemoryScopesWithPattern("cancellation-test-*", cts.Token);
+
+            // Should either succeed (if operation was fast) or be cancelled
+            // The key is that it shouldn't throw an unhandled exception
+            if (!result.IsSuccessful)
+            {
+                // If it fails, it should be due to cancellation or proper error handling
+                result.ErrorMessage.Should().NotBeNullOrEmpty();
+            }
+        }
+        finally
+        {
+            // Cleanup
+            foreach (var scope in testScopes)
+            {
+                try
+                {
+                    await MemoryService.DeleteAllKeysAsync(scope, publishChange: false);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_WithLargeNumberOfScopes_ShouldPerformWell()
+    {
+        var testScopes = new List<TestMemoryScope>();
+
+        try
+        {
+            // Arrange - Create many scopes to test performance and scalability
+            const int scopeCount = 50;
+
+            for (int i = 0; i < scopeCount; i++)
+            {
+                var scope = new TestMemoryScope($"perf-test-scope-{i:D3}");
+                testScopes.Add(scope);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"value{i}"))], publishChange: false);
+            }
+
+            // Add some non-matching scopes
+            for (int i = 0; i < 10; i++)
+            {
+                var scope = new TestMemoryScope($"other-scope-{i:D3}");
+                testScopes.Add(scope);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"other{i}"))], publishChange: false);
+            }
+
+            // Act - Search with pattern (measure performance)
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = await MemoryService.ScanMemoryScopesWithPattern("perf-test-*");
+            stopwatch.Stop();
+
+            // Assert
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data.Should().HaveCount(scopeCount, $"Should find all {scopeCount} matching scopes");
+
+            // Verify all matching scopes are returned
+            for (int i = 0; i < scopeCount; i++)
+            {
+                result.Data.Should().Contain($"perf-test-scope-{i:D3}");
+            }
+
+            // Verify non-matching scopes are not returned
+            for (int i = 0; i < 10; i++)
+            {
+                result.Data.Should().NotContain($"other-scope-{i:D3}");
+            }
+
+            // Performance check - should complete in reasonable time
+            stopwatch.ElapsedMilliseconds.Should().BeLessThan(10000,
+                $"Scan operation took too long: {stopwatch.ElapsedMilliseconds}ms");
+        }
+        finally
+        {
+            // Cleanup
+            foreach (var scope in testScopes)
+            {
+                try
+                {
+                    await MemoryService.DeleteAllKeysAsync(scope, publishChange: false);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ScanMemoryScopesWithPattern_CompleteWorkflow_ShouldWorkCorrectly()
+    {
+        var userScope1 = new TestMemoryScope("user:john:profile");
+        var userScope2 = new TestMemoryScope("user:jane:profile");
+        var userScope3 = new TestMemoryScope("user:bob:settings");
+        var adminScope = new TestMemoryScope("admin:system:config");
+        var guestScope = new TestMemoryScope("guest:temp:session");
+
+        try
+        {
+            // Complete workflow test with multiple patterns and operations
+
+            // 1. Initially, no scopes should match our patterns
+            var initialResult = await MemoryService.ScanMemoryScopesWithPattern("user:*:profile");
+            initialResult.IsSuccessful.Should().BeTrue();
+            initialResult.Data.Should().BeEmpty("No scopes should exist initially");
+
+            // 2. Create user profile scopes
+            await MemoryService.SetKeyValuesAsync(userScope1, [new("name", new PrimitiveType("John Doe"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(userScope2, [new("name", new PrimitiveType("Jane Smith"))], publishChange: false);
+
+            var profileResult = await MemoryService.ScanMemoryScopesWithPattern("user:*:profile");
+            profileResult.IsSuccessful.Should().BeTrue();
+            profileResult.Data.Should().HaveCount(2);
+            profileResult.Data.Should().Contain("user:john:profile");
+            profileResult.Data.Should().Contain("user:jane:profile");
+
+            // 3. Add user settings scope
+            await MemoryService.SetKeyValuesAsync(userScope3, [new("theme", new PrimitiveType("dark"))], publishChange: false);
+
+            var allUserResult = await MemoryService.ScanMemoryScopesWithPattern("user:*");
+            allUserResult.IsSuccessful.Should().BeTrue();
+            allUserResult.Data.Should().HaveCount(3);
+            allUserResult.Data.Should().Contain("user:john:profile");
+            allUserResult.Data.Should().Contain("user:jane:profile");
+            allUserResult.Data.Should().Contain("user:bob:settings");
+
+            // 4. Add admin and guest scopes
+            await MemoryService.SetKeyValuesAsync(adminScope, [new("role", new PrimitiveType("admin"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(guestScope, [new("temp", new PrimitiveType("session-123"))], publishChange: false);
+
+            var allScopesResult = await MemoryService.ScanMemoryScopesWithPattern("*");
+            allScopesResult.IsSuccessful.Should().BeTrue();
+            allScopesResult.Data.Should().HaveCountGreaterOrEqualTo(5);
+            allScopesResult.Data.Should().Contain("user:john:profile");
+            allScopesResult.Data.Should().Contain("user:jane:profile");
+            allScopesResult.Data.Should().Contain("user:bob:settings");
+            allScopesResult.Data.Should().Contain("admin:system:config");
+            allScopesResult.Data.Should().Contain("guest:temp:session");
+
+            // 5. Test multiple specific patterns
+            var adminResult = await MemoryService.ScanMemoryScopesWithPattern("admin:*");
+            adminResult.Data.Should().HaveCount(1);
+            adminResult.Data.Should().Contain("admin:system:config");
+
+            var guestResult = await MemoryService.ScanMemoryScopesWithPattern("guest:*");
+            guestResult.Data.Should().HaveCount(1);
+            guestResult.Data.Should().Contain("guest:temp:session");
+
+            var profileOnlyResult = await MemoryService.ScanMemoryScopesWithPattern("*:profile");
+            profileOnlyResult.Data.Should().HaveCount(2);
+            profileOnlyResult.Data.Should().Contain("user:john:profile");
+            profileOnlyResult.Data.Should().Contain("user:jane:profile");
+
+            // 6. Delete some scopes and verify they're no longer found
+            await MemoryService.DeleteAllKeysAsync(userScope1, publishChange: false);
+
+            var afterDeleteResult = await MemoryService.ScanMemoryScopesWithPattern("user:*:profile");
+            afterDeleteResult.IsSuccessful.Should().BeTrue();
+            afterDeleteResult.Data.Should().HaveCount(1);
+            afterDeleteResult.Data.Should().Contain("user:jane:profile");
+            afterDeleteResult.Data.Should().NotContain("user:john:profile");
+
+            // 7. Final verification - all remaining scopes
+            var finalResult = await MemoryService.ScanMemoryScopesWithPattern("*");
+            finalResult.IsSuccessful.Should().BeTrue();
+            finalResult.Data.Should().Contain("user:jane:profile");
+            finalResult.Data.Should().Contain("user:bob:settings");
+            finalResult.Data.Should().Contain("admin:system:config");
+            finalResult.Data.Should().Contain("guest:temp:session");
+            finalResult.Data.Should().NotContain("user:john:profile");
+        }
+        finally
+        {
+            // Cleanup
+            var scopes = new[] { userScope1, userScope2, userScope3, adminScope, guestScope };
+            foreach (var scope in scopes)
+            {
+                try
+                {
+                    await MemoryService.DeleteAllKeysAsync(scope, publishChange: false);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+        }
+    }
+
+    #endregion
+
     #region Key Deletion Tests
 
     [RetryFact(3, 5000)]

@@ -254,6 +254,19 @@ public interface IMemoryService : IAsyncDisposable
     // Key-Value Operations
 
     /// <summary>
+    /// Scans memory service for memory-scopes (keys) matching the specified pattern and returns them as a read-only collection.
+    /// </summary>
+    /// <param name="pattern">Pattern to match (e.g. "user:*" to match all scopes starting with "user:").</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>
+    /// An <see cref="OperationResult{T}"/> containing the collection of matching memory scopes as
+    /// <see cref="IReadOnlyCollection{String}"/> if successful, or a failure with an error message
+    /// </returns>
+    Task<OperationResult<IReadOnlyCollection<string>>> ScanMemoryScopesWithPattern(
+        string pattern,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Sets the expire time for the given memory scope key.
     /// </summary>
     /// <param name="memoryScope">The memory scope key to set expiration for.</param>

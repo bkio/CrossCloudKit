@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Text.RegularExpressions;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
@@ -171,6 +172,80 @@ public sealed class MemoryServiceBasic : IMemoryService
         {
             return Task.FromResult(OperationResult<bool>.Failure($"Failed to release mutex lock: {ex.Message}"));
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyCollection<string>>> ScanMemoryScopesWithPattern(
+        string pattern,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<IReadOnlyCollection<string>>.Failure("Service is not initialized");
+
+        try
+        {
+            var matchingScopes = new List<string>();
+
+            if (!Directory.Exists(_storageDirectory))
+                return OperationResult<IReadOnlyCollection<string>>.Success(matchingScopes.AsReadOnly());
+
+            // Get all JSON files, excluding mutex files
+            var files = Directory.GetFiles(_storageDirectory, "*.json")
+                .Where(f => !Path.GetFileName(f).Contains("_mutex"))
+                .ToArray();
+
+            foreach (var file in files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    // Extract scope name from filename
+                    var fileName = Path.GetFileNameWithoutExtension(file);
+
+                    // Decode the Base64-encoded filename back to the original scope
+                    var scopeName = EncodingUtilities.Base64DecodeNoPadding(fileName);
+
+                    // Check if the scope matches the pattern
+                    if (MatchesPattern(scopeName, pattern))
+                    {
+                        // Verify the file contains valid data and hasn't expired
+                        var json = await File.ReadAllTextAsync(file, Encoding.UTF8, cancellationToken);
+                        var data = JsonConvert.DeserializeObject<StoredData>(json);
+
+                        // Skip expired data
+                        if (data?.ExpiryTime.HasValue == true && data.ExpiryTime <= DateTime.UtcNow)
+                            continue;
+
+                        matchingScopes.Add(scopeName);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore individual file processing errors (corrupted files, etc.)
+                }
+            }
+
+            return OperationResult<IReadOnlyCollection<string>>.Success(matchingScopes.AsReadOnly());
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<IReadOnlyCollection<string>>.Failure($"Failed to scan memory scopes: {ex.Message}");
+        }
+    }
+
+    private static bool MatchesPattern(string scopeName, string pattern)
+    {
+        // Handle simple wildcard patterns like Redis does
+        if (pattern == "*")
+            return true;
+
+        if (!pattern.Contains('*'))
+            return scopeName.Equals(pattern, StringComparison.Ordinal);
+
+        // Convert simple wildcards to regex pattern
+        var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
+        return Regex.IsMatch(scopeName, regexPattern, RegexOptions.Compiled);
     }
 
     /// <inheritdoc />
@@ -1298,8 +1373,7 @@ public sealed class MemoryServiceBasic : IMemoryService
 
     private string GetScopeFilePath(string scope, string suffix = "")
     {
-        var fileName = Convert.ToBase64String(Encoding.UTF8.GetBytes(scope + suffix))
-            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+        var fileName = EncodingUtilities.Base64EncodeNoPadding(scope + suffix);
         return Path.Combine(_storageDirectory, $"{fileName}.json");
     }
 

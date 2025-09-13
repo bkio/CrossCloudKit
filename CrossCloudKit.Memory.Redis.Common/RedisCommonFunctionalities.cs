@@ -149,6 +149,30 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         }
     }
 
+    protected static string BuildListKey(IMemoryServiceScope memoryScope, string listName)
+    {
+        return $"{memoryScope.Compile()}{ScopeListDelimiter}{listName}";
+    }
+    protected static string BuildListKey(string memoryScopeCompiled, string listName)
+    {
+        return $"{memoryScopeCompiled}{ScopeListDelimiter}{listName}";
+    }
+    protected static bool TrySplittingScopeAndListName(string key, out string? scope, out string? listName)
+    {
+        var parts = key.Split([ScopeListDelimiter], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 2)
+        {
+            scope = parts[0];
+            listName = parts[1];
+            return true;
+        }
+
+        scope = null;
+        listName = null;
+        return false;
+    }
+    protected const string ScopeListDelimiter = "<<<--->>>";
+
     /// <summary>
     /// Executes a Redis operation with retry logic and proper error handling.
     /// </summary>
@@ -276,7 +300,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             return OperationResult<bool>.Failure("Value array is empty.");
 
         var scope = memoryScope.Compile();
-        var listKey = $"{scope}:{listName}";
+        var listKey = BuildListKey(scope, listName);
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
@@ -371,7 +395,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             """;
 
         var scope = memoryScope.Compile();
-        var listKey = $"{scope}:{listName}";
+        var listKey = BuildListKey(scope, listName);
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
@@ -403,7 +427,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         IPubSubService? pubSubService,
         CancellationToken cancellationToken)
     {
-        var listKey = $"{memoryScope.Compile()}:{listName}";
+        var listKey = BuildListKey(memoryScope, listName);
 
         var poppedValue = await ExecuteRedisOperationAsync(async database => fromTail
             ? await database.ListRightPopAsync(listKey).ConfigureAwait(false)
@@ -437,7 +461,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (valueArray.Length == 0)
             return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Value array is empty.");
 
-        var listKey = $"{memoryScope.Compile()}:{listName}";
+        var listKey = BuildListKey(memoryScope, listName);
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
@@ -466,7 +490,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         string listName,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope.Compile()}:{listName}";
+        var listKey = BuildListKey(memoryScope, listName);
 
         return await ExecuteRedisOperationAsync(async database =>
         {
@@ -487,7 +511,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         IPubSubService? pubSubService = null,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope.Compile()}:{listName}";
+        var listKey = BuildListKey(memoryScope, listName);
 
         var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
 
@@ -518,8 +542,8 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         var result = await ExecuteRedisOperationAsync(async database =>
         {
             await database.ScriptEvaluateAsync(script,
-                [$"{scope}:{listName}"],
-                [$"{scope}:{sublistPrefix}"]).ConfigureAwait(false);
+                [BuildListKey(scope, listName)],
+                [BuildListKey(scope, sublistPrefix)]).ConfigureAwait(false);
 
             return ValueTask.CompletedTask;
         }, cancellationToken).ConfigureAwait(false);
@@ -540,7 +564,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         string listName,
         CancellationToken cancellationToken = default)
     {
-        var listKey = $"{memoryScope.Compile()}:{listName}";
+        var listKey = BuildListKey(memoryScope, listName);
 
         return await ExecuteRedisOperationAsync(async database => await database.ListLengthAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }

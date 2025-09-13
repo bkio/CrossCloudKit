@@ -403,6 +403,327 @@ public class EncodingUtilitiesTests
         Assert.Equal("A\0B", result);
     }
 
+    #region Base64EncodeNoPadding Tests
+
+    [Theory]
+    [InlineData("Hello World", "SGVsbG8gV29ybGQ")]
+    [InlineData("Test123", "VGVzdDEyMw")]
+    [InlineData("A", "QQ")]
+    [InlineData("AB", "QUI")]
+    [InlineData("ABC", "QUJD")]
+    [InlineData("ABCD", "QUJDRA")]
+    public void Base64EncodeNoPadding_WithVariousStrings_ReturnsCorrectEncodingWithoutPadding(string input, string expected)
+    {
+        // Act
+        var result = EncodingUtilities.Base64EncodeNoPadding(input);
+
+        // Assert
+        Assert.Equal(expected, result);
+        Assert.DoesNotContain("=", result); // Should not contain padding
+    }
+
+    [Fact]
+    public void Base64EncodeNoPadding_WithEmptyString_ReturnsEmptyString()
+    {
+        // Act
+        var result = EncodingUtilities.Base64EncodeNoPadding("");
+
+        // Assert
+        Assert.Equal("", result);
+    }
+
+    [Fact]
+    public void Base64EncodeNoPadding_WithNull_ThrowsArgumentNullException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => EncodingUtilities.Base64EncodeNoPadding(null!));
+    }
+
+    [Theory]
+    [InlineData("Hello/World+Test=End")]
+    [InlineData("Path/To/File")]
+    [InlineData("User+Name")]
+    [InlineData("Data=Value")]
+    public void Base64EncodeNoPadding_WithSpecialCharacters_ProducesUrlSafeOutput(string input)
+    {
+        // Act
+        var result = EncodingUtilities.Base64EncodeNoPadding(input);
+
+        // Assert
+        Assert.DoesNotContain("+", result);
+        Assert.DoesNotContain("/", result);
+        Assert.DoesNotContain("=", result);
+        // Should contain URL-safe characters instead
+        Assert.True(result.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'));
+    }
+
+    [Theory]
+    [InlineData("Unicode: 世界")]
+    [InlineData("Emoji: 🌍🚀💻")]
+    [InlineData("Mixed: Hello 世界 🌍")]
+    [InlineData("Arabic: مرحبا")]
+    [InlineData("Russian: Привет")]
+    public void Base64EncodeNoPadding_WithUnicodeStrings_HandlesUtf8Correctly(string input)
+    {
+        // Act
+        var result = EncodingUtilities.Base64EncodeNoPadding(input);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotEmpty(result);
+        Assert.DoesNotContain("=", result);
+        Assert.True(result.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'));
+    }
+
+    [Fact]
+    public void Base64EncodeNoPadding_ProducesFilenameSafeOutput()
+    {
+        // Arrange - Test with characters that are problematic for filenames
+        var problematicStrings = new[]
+        {
+            "file/path\\name",
+            "file:name",
+            "file*name",
+            "file?name",
+            "file\"name",
+            "file<name>",
+            "file|name"
+        };
+
+        foreach (var input in problematicStrings)
+        {
+            // Act
+            var result = EncodingUtilities.Base64EncodeNoPadding(input);
+
+            // Assert - Should not contain any filename-unsafe characters
+            Assert.DoesNotContain("/", result);
+            Assert.DoesNotContain("\\", result);
+            Assert.DoesNotContain(":", result);
+            Assert.DoesNotContain("*", result);
+            Assert.DoesNotContain("?", result);
+            Assert.DoesNotContain("\"", result);
+            Assert.DoesNotContain("<", result);
+            Assert.DoesNotContain(">", result);
+            Assert.DoesNotContain("|", result);
+            Assert.DoesNotContain("=", result);
+        }
+    }
+
+    #endregion
+
+    #region Base64DecodeNoPadding Tests
+
+    [Theory]
+    [InlineData("SGVsbG8gV29ybGQ", "Hello World")]
+    [InlineData("VGVzdDEyMw", "Test123")]
+    [InlineData("QQ", "A")]
+    [InlineData("QUI", "AB")]
+    [InlineData("QUJD", "ABC")]
+    [InlineData("QUJDRA", "ABCD")]
+    public void Base64DecodeNoPadding_WithValidTokens_ReturnsCorrectDecoding(string token, string expected)
+    {
+        // Act
+        var result = EncodingUtilities.Base64DecodeNoPadding(token);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Base64DecodeNoPadding_WithEmptyString_ReturnsEmptyString()
+    {
+        // Act
+        var result = EncodingUtilities.Base64DecodeNoPadding("");
+
+        // Assert
+        Assert.Equal("", result);
+    }
+
+    [Fact]
+    public void Base64DecodeNoPadding_WithNull_ThrowsArgumentNullException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => EncodingUtilities.Base64DecodeNoPadding(null!));
+    }
+
+    [Fact]
+    public void Base64DecodeNoPadding_WithValidUrlSafeCharacters_HandlesCorrectly()
+    {
+        // Arrange - Create valid tokens using the encode method
+        var testStrings = new[] { "Hello+World/Test", "A/B+C", "Test_Data-Safe" };
+
+        foreach (var testString in testStrings)
+        {
+            // Act - Encode then decode
+            var encoded = EncodingUtilities.Base64EncodeNoPadding(testString);
+            var result = EncodingUtilities.Base64DecodeNoPadding(encoded);
+
+            // Assert
+            Assert.Equal(testString, result);
+            Assert.DoesNotContain("=", encoded); // Should not contain padding
+            Assert.DoesNotContain("+", encoded); // Should not contain standard Base64 chars
+            Assert.DoesNotContain("/", encoded); // Should not contain standard Base64 chars
+        }
+    }
+
+    [Theory]
+    [InlineData("Invalid!")]          // Contains exclamation mark - invalid Base64 character
+    [InlineData("Token@")]            // Contains @ - invalid Base64 character
+    [InlineData("Bad#Token")]         // Contains # - invalid Base64 character
+    [InlineData("Test Token")]        // Contains space - invalid Base64 character
+    [InlineData("Invalid*Token")]     // Contains * - invalid Base64 character
+    public void Base64DecodeNoPadding_WithInvalidTokens_ThrowsFormatException(string invalidToken)
+    {
+        // Act & Assert - Should throw FormatException for invalid Base64 data
+        Assert.Throws<FormatException>(() => EncodingUtilities.Base64DecodeNoPadding(invalidToken));
+    }
+
+    [Theory]
+    [InlineData("Invalid!")]
+    [InlineData("Token@")]
+    [InlineData("Bad#Token")]
+    [InlineData("Test Token")] // Contains space
+    public void Base64DecodeNoPadding_WithInvalidCharacters_ThrowsFormatException(string invalidToken)
+    {
+        // Act & Assert
+        Assert.Throws<FormatException>(() => EncodingUtilities.Base64DecodeNoPadding(invalidToken));
+    }
+
+    #endregion
+
+    #region Base64NoPadding RoundTrip Tests
+
+    [Theory]
+    [InlineData("Hello World")]
+    [InlineData("Test string with special chars: !@#$%^&*()")]
+    [InlineData("Unicode test: 你好世界 🌍")]
+    [InlineData("")]
+    [InlineData("A")]
+    [InlineData("AB")]
+    [InlineData("ABC")]
+    [InlineData("ABCD")]
+    [InlineData("Long string with various content including numbers 123456789 and symbols !@#$%^&*()")]
+    [InlineData("Path/To/File+With=Special")]
+    [InlineData("Mixed Unicode: Hello 世界 🚀 Привет مرحبا")]
+    public void Base64NoPadding_EncodeDecodeRoundTrip_ReturnsOriginalString(string originalString)
+    {
+        // Act
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(originalString);
+        var decoded = EncodingUtilities.Base64DecodeNoPadding(encoded);
+
+        // Assert
+        Assert.Equal(originalString, decoded);
+    }
+
+    [Fact]
+    public void Base64NoPadding_RoundTrip_WithLargeString_WorksCorrectly()
+    {
+        // Arrange
+        var largeString = string.Join(" ", Enumerable.Repeat("Large test string with Unicode 世界 🌍", 1000));
+
+        // Act
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(largeString);
+        var decoded = EncodingUtilities.Base64DecodeNoPadding(encoded);
+
+        // Assert
+        Assert.Equal(largeString, decoded);
+        Assert.DoesNotContain("=", encoded);
+        Assert.DoesNotContain("+", encoded);
+        Assert.DoesNotContain("/", encoded);
+    }
+
+    [Fact]
+    public void Base64NoPadding_ComparedToStandardBase64_ProducesUrlSafeNoPaddingVariant()
+    {
+        // Arrange
+        const string testString = "Hello World+Test/Data=End";
+
+        // Act
+        var standardBase64 = EncodingUtilities.Base64Encode(testString);
+        var noPaddingEncoded = EncodingUtilities.Base64EncodeNoPadding(testString);
+
+        // Assert - Standard Base64 may contain +, /, = while no-padding version should not
+        if (standardBase64.Contains('+') || standardBase64.Contains('/') || standardBase64.Contains('='))
+        {
+            Assert.DoesNotContain("+", noPaddingEncoded);
+            Assert.DoesNotContain("/", noPaddingEncoded);
+            Assert.DoesNotContain("=", noPaddingEncoded);
+        }
+
+        // Both should decode to the same original string
+        var standardDecoded = EncodingUtilities.Base64Decode(standardBase64);
+        var noPaddingDecoded = EncodingUtilities.Base64DecodeNoPadding(noPaddingEncoded);
+        Assert.Equal(testString, standardDecoded);
+        Assert.Equal(testString, noPaddingDecoded);
+    }
+
+    [Theory]
+    [InlineData("A")]        // Single character (padding would be ==)
+    [InlineData("AB")]       // Two characters (padding would be =)
+    [InlineData("ABC")]      // Three characters (no padding needed)
+    [InlineData("ABCD")]     // Four characters (no padding needed)
+    [InlineData("ABCDE")]    // Five characters (padding would be ==)
+    [InlineData("ABCDEF")]   // Six characters (padding would be =)
+    public void Base64EncodeNoPadding_WithDifferentPaddingRequirements_NeverIncludesPadding(string input)
+    {
+        // Act
+        var result = EncodingUtilities.Base64EncodeNoPadding(input);
+
+        // Assert
+        Assert.DoesNotContain("=", result);
+    }
+
+    [Fact]
+    public void Base64NoPadding_Performance_HandlesLargeStrings()
+    {
+        // Arrange
+        var largeString = new string('A', 100000); // 100KB string
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        // Act
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(largeString);
+        var decoded = EncodingUtilities.Base64DecodeNoPadding(encoded);
+        stopwatch.Stop();
+
+        // Assert
+        Assert.Equal(largeString, decoded);
+        Assert.True(stopwatch.ElapsedMilliseconds < 1000, $"Performance test failed: took {stopwatch.ElapsedMilliseconds}ms");
+        Assert.DoesNotContain("=", encoded);
+    }
+
+    [Fact]
+    public void Base64NoPadding_EdgeCase_ControlCharactersAndWhitespace()
+    {
+        // Arrange
+        var testString = "Hello\nWorld\r\n\tTest";
+
+        // Act
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(testString);
+        var decoded = EncodingUtilities.Base64DecodeNoPadding(encoded);
+
+        // Assert
+        Assert.Equal(testString, decoded);
+        Assert.DoesNotContain("=", encoded);
+        Assert.True(encoded.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'));
+    }
+
+    [Fact]
+    public void Base64NoPadding_WithNullBytes_HandlesCorrectly()
+    {
+        // Arrange
+        var testString = "Hello\0World\0Test";
+
+        // Act
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(testString);
+        var decoded = EncodingUtilities.Base64DecodeNoPadding(encoded);
+
+        // Assert
+        Assert.Equal(testString, decoded);
+        Assert.DoesNotContain("=", encoded);
+    }
+
+    #endregion
+
     // Helper method to validate Base64 strings
     private static bool IsValidBase64(string base64String)
     {

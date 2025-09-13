@@ -117,6 +117,53 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     }
 
     /// <inheritdoc />
+    public async Task<OperationResult<IReadOnlyCollection<string>>> ScanMemoryScopesWithPattern(
+        string pattern,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInitialized)
+            return OperationResult<IReadOnlyCollection<string>>.Failure("Redis connection is not initialized");
+
+        var result = await ExecuteRedisOperationAsync(async database =>
+        {
+            var server = RedisConnection!.GetServer(RedisConnection.GetEndPoints().First());
+
+            var scopes = new List<string>();
+
+            await foreach (var key in server.KeysAsync(database: database.Database, pattern: pattern, pageSize: 1000).WithCancellation(cancellationToken))
+            {
+                var addKey = (string?)key;
+                if (addKey == null) continue;
+                if (addKey.Contains(ScopeListDelimiter)
+                    && TrySplittingScopeAndListName(addKey, out var justScope, out _))
+                {
+                    addKey = justScope!;
+                }
+
+                var ttl = await database.KeyTimeToLiveAsync(key).ConfigureAwait(false);
+                if (ttl.HasValue)
+                {
+                    switch (ttl.Value.TotalMilliseconds)
+                    {
+                        case <= 0:
+                            break;
+                        default:
+                            scopes.Add(addKey);
+                            break;
+                    }
+                }
+                else
+                {
+                    scopes.Add(addKey);
+                }
+            }
+
+            return (IReadOnlyCollection<string>)scopes.AsReadOnly();
+        }, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<OperationResult<bool>> SetKeyExpireTimeAsync(
         IMemoryServiceScope memoryScope,
         TimeSpan timeToLive,
@@ -133,13 +180,13 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             if (!exists)
             {
                 // Create the key as a hash if it doesn't exist (since we use hash operations for key-value storage)
-                if (!await database.HashSetAsync(scope, "CrossCloudKit.Memory.Redis.MemoryServiceRedis.SetKeyExpireTimeAsync", ""))
+                if (!await database.HashSetAsync(scope, "CrossCloudKit.Memory.Redis.MemoryServiceRedis.SetKeyExpireTimeAsync", "ignore"))
                     return false;
                 if (!await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false))
                     return false;
             }
 
-            var listPattern = $"{scope}:*";
+            var listPattern = BuildListKey(scope, "*");
 
             var server = RedisConnection!.GetServer(RedisConnection.GetEndPoints().First());
 

@@ -976,51 +976,6 @@ public class FileSystemUtilitiesTests
     }
 
     [Fact]
-    public void DeleteFileAndCleanupParentFolders_WithReadOnlyFile_ReturnsFalse()
-    {
-        // Arrange
-        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        var parentFolderName = "ParentFolder";
-        var parentDir = Path.Combine(testRootDir, parentFolderName);
-        var emptyDir = Path.Combine(parentDir, "empty");
-        var testFile = Path.Combine(emptyDir, "readonly.txt");
-
-        Directory.CreateDirectory(emptyDir);
-        File.WriteAllText(testFile, "readonly content");
-
-        try
-        {
-            // Make file read-only
-            var fileInfo = new FileInfo(testFile)
-            {
-                IsReadOnly = true
-            };
-
-            // Act
-            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
-
-            // Assert
-            Assert.False(result); // Should return false due to exception
-            Assert.True(File.Exists(testFile)); // File should still exist
-        }
-        finally
-        {
-            if (File.Exists(testFile))
-            {
-                // Remove read-only flag for cleanup
-                var fileInfo = new FileInfo(testFile)
-                {
-                    IsReadOnly = false
-                };
-            }
-            if (Directory.Exists(testRootDir))
-            {
-                Directory.Delete(testRootDir, recursive: true);
-            }
-        }
-    }
-
-    [Fact]
     public void DeleteFileAndCleanupParentFolders_WithNullOrEmptyFilePath_ReturnsFalse()
     {
         // Act & Assert

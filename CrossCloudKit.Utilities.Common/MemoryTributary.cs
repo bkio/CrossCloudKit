@@ -160,7 +160,7 @@ public sealed class MemoryTributary : Stream
 
     public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        return await ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+        return await ReadAsync(buffer.AsMemory(offset, count), cancellationToken);
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -232,7 +232,7 @@ public sealed class MemoryTributary : Stream
 
     public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        await WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+        await WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
     }
 
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
@@ -365,10 +365,10 @@ public sealed class MemoryTributary : Stream
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var toRead = (int)Math.Min(buffer.Length, length);
-                var bytesRead = await source.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                var bytesRead = await source.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken);
                 if (bytesRead == 0) break;
 
-                await WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+                await WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                 length -= bytesRead;
             }
         }
@@ -411,7 +411,7 @@ public sealed class MemoryTributary : Stream
         try
         {
             _position = 0;
-            await CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+            await CopyToAsync(destination, cancellationToken);
         }
         finally
         {

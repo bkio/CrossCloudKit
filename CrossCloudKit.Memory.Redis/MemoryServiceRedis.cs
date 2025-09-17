@@ -54,8 +54,12 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         {
             // Use Lua script for atomic hash field set with expiry
             const string lockScript = """
-                if redis.call('hexists', KEYS[1], ARGV[1]) == 0 then
+                local current = redis.call('hget', KEYS[1], ARGV[1])
+                if not current then
                     redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
+                    redis.call('expire', KEYS[1], ARGV[3])
+                    return ARGV[2]
+                elseif current == ARGV[2] then
                     redis.call('expire', KEYS[1], ARGV[3])
                     return ARGV[2]
                 else
@@ -63,14 +67,16 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
                 end
                 """;
 
+            var compiled = memoryScope.Compile();
+
             var result = await database.ScriptEvaluateAsync(
                 lockScript,
-                [memoryScope.Compile()],
-                [lockKey, lockId, (int)timeToLive.TotalSeconds]).ConfigureAwait(false);
+                [compiled],
+                [lockKey, lockId, (int)timeToLive.TotalSeconds]);
 
             // Return the lock ID if acquired, null if not acquired
-            return result.IsNull ? null : (string)result!;
-        }, cancellationToken).ConfigureAwait(false);
+            return result.IsNull ? null : ((string?)result).NotNull();
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -108,12 +114,12 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             var result = await database.ScriptEvaluateAsync(
                 unlockScript,
                 [memoryScope.Compile()],
-                [lockKey, lockId]).ConfigureAwait(false);
+                [lockKey, lockId]);
 
             // Return true if the hash field was deleted (lock was released by the correct holder)
             // Return false if the field didn't exist or had a different value (not our lock)
             return (bool)result;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -126,7 +132,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
-            var server = RedisConnection!.GetServer(RedisConnection.GetEndPoints().First());
+            var server = RedisConnection.NotNull().GetServer(RedisConnection.NotNull().GetEndPoints().First());
 
             var scopes = new List<string>();
 
@@ -137,10 +143,10 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
                 if (addKey.Contains(ScopeListDelimiter)
                     && TrySplittingScopeAndListName(addKey, out var justScope, out _))
                 {
-                    addKey = justScope!;
+                    addKey = justScope.NotNull();
                 }
 
-                var ttl = await database.KeyTimeToLiveAsync(key).ConfigureAwait(false);
+                var ttl = await database.KeyTimeToLiveAsync(key);
                 if (ttl.HasValue)
                 {
                     switch (ttl.Value.TotalMilliseconds)
@@ -159,7 +165,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             }
 
             return (IReadOnlyCollection<string>)scopes.AsReadOnly();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
         return result;
     }
 
@@ -176,30 +182,30 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         {
             var scope = memoryScope.Compile();
 
-            var exists = await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false);
+            var exists = await database.KeyExpireAsync(scope, timeToLive);
             if (!exists)
             {
                 // Create the key as a hash if it doesn't exist (since we use hash operations for key-value storage)
                 if (!await database.HashSetAsync(scope, "CrossCloudKit.Memory.Redis.MemoryServiceRedis.SetKeyExpireTimeAsync", "ignore"))
                     return false;
-                if (!await database.KeyExpireAsync(scope, timeToLive).ConfigureAwait(false))
+                if (!await database.KeyExpireAsync(scope, timeToLive))
                     return false;
             }
 
             var listPattern = BuildListKey(scope, "*");
 
-            var server = RedisConnection!.GetServer(RedisConnection.GetEndPoints().First());
+            var server = RedisConnection.NotNull().GetServer(RedisConnection.NotNull().GetEndPoints().First());
 
             await foreach (var key in server.KeysAsync(database: database.Database, pattern: listPattern, pageSize: 1000).WithCancellation(cancellationToken))
             {
                 if (await database.KeyTypeAsync(key) != RedisType.List) continue;
-                if (!await database.KeyExpireAsync(key, timeToLive).ConfigureAwait(false))
+                if (!await database.KeyExpireAsync(key, timeToLive))
                 {
                     return false;
                 }
             }
             return true;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -211,7 +217,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             return OperationResult<TimeSpan?>.Failure("Redis connection is not initialized");
 
         var scope = memoryScope.Compile();
-        return await ExecuteRedisOperationAsync(async database => await database.KeyTimeToLiveAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        return await ExecuteRedisOperationAsync(async database => await database.KeyTimeToLiveAsync(scope), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -239,14 +245,14 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
-            await database.HashSetAsync(scope, hashEntries).ConfigureAwait(false);
+            await database.HashSetAsync(scope, hashEntries);
             return true;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
             await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken).ConfigureAwait(false);
+                keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken);
         }
 
         return OperationResult<bool>.Success(true);
@@ -261,7 +267,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         CancellationToken cancellationToken = default)
     {
         var result = await SetKeyValueConditionallyAndReturnValueRegardlessAsync(memoryScope, key, value, publishChange, cancellationToken);
-        return result.IsSuccessful ? OperationResult<bool>.Success(result.Data.Item1) : OperationResult<bool>.Failure(result.ErrorMessage!);
+        return result.IsSuccessful ? OperationResult<bool>.Success(result.Data.Item1) : OperationResult<bool>.Failure(result.ErrorMessage.NotNull());
     }
 
     /// <inheritdoc />
@@ -293,16 +299,16 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         {
             var scriptResult = await database.ScriptEvaluateAsync(script,
                 [scope],
-                [key, redisValue]).ConfigureAwait(false);
+                [key, redisValue]);
 
-            var res = (RedisResult[])scriptResult!;
+            var res = ((RedisResult[]?)scriptResult).NotNull();
             return ((bool)res[0], ConvertRedisValueToPrimitiveType((RedisValue)res[1]));
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (result.IsSuccessful && publishChange && result.Data.Item1 && _pubSubService is not null)
         {
             await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
+                new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken);
         }
 
         return result;
@@ -321,9 +327,9 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            var value = await database.HashGetAsync(scope, key).ConfigureAwait(false);
+            var value = await database.HashGetAsync(scope, key);
             return ConvertRedisValueToPrimitiveType(value);
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -343,7 +349,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            var values = await database.HashGetAsync(scope, keyArray.Select(k => (RedisValue)k).ToArray()).ConfigureAwait(false);
+            var values = await database.HashGetAsync(scope, keyArray.Select(k => (RedisValue)k).ToArray());
 
             var result = new Dictionary<string, PrimitiveType>(keyArray.Length);
             for (var i = 0; i < keyArray.Length; i++)
@@ -356,7 +362,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             }
 
             return result;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -371,7 +377,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            var hashEntries = await database.HashGetAllAsync(scope).ConfigureAwait(false);
+            var hashEntries = await database.HashGetAllAsync(scope);
 
             var result = new Dictionary<string, PrimitiveType>(hashEntries.Length);
             foreach (var entry in hashEntries)
@@ -384,7 +390,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
             }
 
             return result;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -399,11 +405,11 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var scope = memoryScope.Compile();
 
-        var result = await ExecuteRedisOperationAsync(async database => await database.HashDeleteAsync(scope, key).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        var result = await ExecuteRedisOperationAsync(async database => await database.HashDeleteAsync(scope, key), cancellationToken);
 
         if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
-            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken).ConfigureAwait(false);
+            await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken);
         }
 
         return result;
@@ -420,11 +426,11 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var scope = memoryScope.Compile();
 
-        var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(scope), cancellationToken);
 
         if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
-            await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null, cancellationToken).ConfigureAwait(false);
+            await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null, cancellationToken);
         }
 
         return result;
@@ -442,12 +448,12 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            var keys = await database.HashKeysAsync(scope).ConfigureAwait(false);
+            var keys = await database.HashKeysAsync(scope);
             return keys.Where(k => !k.IsNullOrEmpty)
                 .Select(k => k.ToString())
                 .ToList()
                 .AsReadOnly();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -460,7 +466,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var scope = memoryScope.Compile();
 
-        return await ExecuteRedisOperationAsync(async database => await database.HashLengthAsync(scope).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        return await ExecuteRedisOperationAsync(async database => await database.HashLengthAsync(scope), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -485,17 +491,17 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
             foreach (var (key, increment) in incrementArray)
             {
-                var newValue = await database.HashIncrementAsync(scope, key, increment).ConfigureAwait(false);
+                var newValue = await database.HashIncrementAsync(scope, key, increment);
                 resultDict[key] = newValue;
             }
 
             return resultDict;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (result is { IsSuccessful: true, Data.Count: > 0 } && publishChange && _pubSubService is not null)
         {
             await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                result.Data.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken).ConfigureAwait(false);
+                result.Data.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken);
         }
 
         return result;
@@ -514,12 +520,12 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
         var scope = memoryScope.Compile();
 
-        var result = await ExecuteRedisOperationAsync(async database => await database.HashIncrementAsync(scope, key, incrementBy).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        var result = await ExecuteRedisOperationAsync(async database => await database.HashIncrementAsync(scope, key, incrementBy), cancellationToken);
 
         if (result.IsSuccessful && publishChange && _pubSubService is not null)
         {
             await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                new Dictionary<string, PrimitiveType> { [key] = new(result.Data) }, cancellationToken).ConfigureAwait(false);
+                new Dictionary<string, PrimitiveType> { [key] = new(result.Data) }, cancellationToken);
         }
 
         return result;
@@ -538,7 +544,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfListExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PushToListAsync(memoryScope, listName, values, true, onlyIfListExists, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -552,7 +558,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfListExists, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PushToListAsync(memoryScope, listName, values, false, onlyIfListExists, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -565,7 +571,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<PrimitiveType[]>.Failure("Redis connection is not initialized.");
-        return await Common_PushToListTailIfValuesNotExistsAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PushToListTailIfValuesNotExistsAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -577,7 +583,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<PrimitiveType?>.Failure("Redis connection is not initialized.");
-        return await Common_PopFromListAsync(memoryScope, listName, true, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PopFromListAsync(memoryScope, listName, true, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -589,7 +595,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<PrimitiveType?>.Failure("Redis connection is not initialized.");
-        return await Common_PopFromListAsync(memoryScope, listName, false, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_PopFromListAsync(memoryScope, listName, false, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -602,7 +608,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Redis connection is not initialized.");
-        return await Common_RemoveElementsFromListAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_RemoveElementsFromListAsync(memoryScope, listName, values, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -613,7 +619,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure("Redis connection is not initialized.");
-        return await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
+        return await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -625,7 +631,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_EmptyListAsync(memoryScope, listName, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_EmptyListAsync(memoryScope, listName, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -638,7 +644,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_EmptyListAndSublistsAsync(memoryScope, listName, sublistPrefix, publishChange, _pubSubService, cancellationToken).ConfigureAwait(false);
+        return await Common_EmptyListAndSublistsAsync(memoryScope, listName, sublistPrefix, publishChange, _pubSubService, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -649,7 +655,7 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<long>.Failure("Redis connection is not initialized.");
-        return await Common_GetListSizeAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
+        return await Common_GetListSizeAsync(memoryScope, listName, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -661,6 +667,6 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized.");
-        return await Common_ListContainsAsync(memoryScope, listName, value, cancellationToken).ConfigureAwait(false);
+        return await Common_ListContainsAsync(memoryScope, listName, value, cancellationToken);
     }
 }

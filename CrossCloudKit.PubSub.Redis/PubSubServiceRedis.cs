@@ -39,9 +39,9 @@ namespace CrossCloudKit.PubSub.Redis
 
             var result = await ExecuteRedisOperationAsync(async _ =>
             {
-                await RedisConnection.GetSubscriber().UnsubscribeAsync(RedisChannel.Literal(topic)).ConfigureAwait(false);
+                await RedisConnection.GetSubscriber().UnsubscribeAsync(RedisChannel.Literal(topic));
                 return true;
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken);
 
             return result;
         }
@@ -69,7 +69,7 @@ namespace CrossCloudKit.PubSub.Redis
             {
                 await RedisConnection.GetDatabase().PublishAsync(RedisChannel.Literal(topic), message);
                 return true;
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -92,10 +92,10 @@ namespace CrossCloudKit.PubSub.Redis
                     RedisChannel.Literal(topic),
                     (channel, value) =>
                     {
-                        onMessage.Invoke(channel!, value.ToString());
+                        onMessage.Invoke(((string?)channel).NotNull(), value.ToString());
                     });
                 return true;
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -110,7 +110,7 @@ namespace CrossCloudKit.PubSub.Redis
 
             var topics = await GetTopicsUsedOnBucketEventAsync(cancellationToken);
             if (!topics.IsSuccessful || topics.Data == null)
-                return OperationResult<bool>.Failure(topics.ErrorMessage!);
+                return OperationResult<bool>.Failure(topics.ErrorMessage.NotNull());
             if (topics.Data.Contains(topic))
                 return OperationResult<bool>.Success(true);
 
@@ -124,7 +124,7 @@ namespace CrossCloudKit.PubSub.Redis
                 false,
                 false,
                 this,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
         }
 
         /// <inheritdoc />
@@ -145,7 +145,7 @@ namespace CrossCloudKit.PubSub.Redis
                 ],
                 false,
                 this,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
             return result.IsSuccessful ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure(result.ErrorMessage ?? string.Empty);
         }
 
@@ -159,7 +159,7 @@ namespace CrossCloudKit.PubSub.Redis
             var result = await Common_GetAllElementsOfListAsync(
                 SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
             if (!result.IsSuccessful || result.Data == null) return OperationResult<List<string>>.Failure(result.ErrorMessage ?? string.Empty);
             return OperationResult<List<string>>.Success(result.Data.Select(x => x.ToString()).ToList());
         }
@@ -173,7 +173,7 @@ namespace CrossCloudKit.PubSub.Redis
                 return;
 
             _disposed = true;
-            await base.DisposeAsync().ConfigureAwait(false);
+            await base.DisposeAsync();
 
             GC.SuppressFinalize(this);
         }

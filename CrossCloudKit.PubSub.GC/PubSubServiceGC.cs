@@ -8,7 +8,6 @@ using Google.Protobuf;
 using Grpc.Core;
 using CrossCloudKit.Utilities.Common;
 using System.Collections.Concurrent;
-using System.Net;
 using Google.Api.Gax.ResourceNames;
 using Google.Protobuf.WellKnownTypes;
 using Newtonsoft.Json;
@@ -31,7 +30,7 @@ public enum CredentialType
 public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 {
     private readonly string _projectId;
-    private readonly GoogleCredential _credential = null!;
+    private readonly GoogleCredential? _credential;
     private readonly ConcurrentDictionary<string, PublisherServiceApiClient> _publishers = new();
     private readonly ConcurrentDictionary<string, ConcurrentBag<CancellationSiblings>> _subscriptions = new();
     private readonly ConcurrentDictionary<string, ConcurrentBag<SubscriptionName>> _topicSubscriptions = new();
@@ -57,8 +56,8 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         {
             _credential = credentialType switch
             {
-                CredentialType.ServiceAccountFile => LoadFromFile(credentialData!),
-                CredentialType.ServiceAccountJson => LoadFromJson(credentialData!, isBase64Encoded),
+                CredentialType.ServiceAccountFile => LoadFromFile(credentialData.NotNull()),
+                CredentialType.ServiceAccountJson => LoadFromJson(credentialData.NotNull(), isBase64Encoded),
                 CredentialType.ApplicationDefault => GoogleCredential.GetApplicationDefault(),
                 _ => throw new ArgumentException("Invalid credential type", nameof(credentialType))
             };
@@ -106,7 +105,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 
         var client = await new PublisherServiceApiClientBuilder
         {
-            Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+            Credential = _credential.NotNull().CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
         var encodedTopicName = new TopicName(_projectId, encodedTopic);
@@ -130,7 +129,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
         try
         {
             await EnsureTopicExistsAndGetPublisherAsync(topic, false, cancellationToken);
@@ -150,7 +149,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
         }
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         try
         {
@@ -173,7 +172,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         try
         {
@@ -218,7 +217,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             // Create subscription
             var subscriberApi = await new SubscriberServiceApiClientBuilder
             {
-                Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
+                Credential = _credential.NotNull().CreateScoped(SubscriberServiceApiClient.DefaultScopes)
             }.BuildAsync(cancellationToken);
 
             await subscriberApi.CreateSubscriptionAsync(subscriptionName, topicName, null, 600, cancellationToken);
@@ -232,7 +231,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             subscriber = await new SubscriberClientBuilder
             {
                 SubscriptionName = subscriptionName,
-                Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
+                Credential = _credential.NotNull().CreateScoped(SubscriberServiceApiClient.DefaultScopes)
             }.BuildAsync(cancellationToken);
 
             // Register cancellation to stop subscriber
@@ -283,11 +282,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
                         {
                             finalMsgObj["data"] = dataRaw;
                         }
-                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, finalMsgObj.ToString(Formatting.None));
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic).NotNull(), finalMsgObj.ToString(Formatting.None));
                     }
                     else
                     {
-                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, dataRaw);
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic).NotNull(), dataRaw);
                     }
                     return SubscriberClient.Reply.Ack;
                 }
@@ -312,7 +311,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         try
         {
@@ -335,7 +334,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
             {
                 var subscriberApi = await new SubscriberServiceApiClientBuilder
                 {
-                    Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
+                    Credential = _credential.NotNull().CreateScoped(SubscriberServiceApiClient.DefaultScopes)
                 }.BuildAsync(cancellationToken);
 
                 var errorMsg = new ConcurrentBag<string>();
@@ -368,7 +367,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 
             var publisherClient = await new PublisherServiceApiClientBuilder
             {
-                Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+                Credential = _credential.NotNull().CreateScoped(PublisherServiceApiClient.DefaultScopes)
             }.BuildAsync(cancellationToken);
 
             var topicName = new TopicName(_projectId, topic);
@@ -392,11 +391,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+        topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
-            Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+            Credential = _credential.NotNull().CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
         var topicNameObj = new TopicName(_projectId, topicName);
@@ -433,11 +432,11 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+        topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
         var publisherClient = await new PublisherServiceApiClientBuilder
         {
-            Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+            Credential = _credential.NotNull().CreateScoped(PublisherServiceApiClient.DefaultScopes)
         }.BuildAsync(cancellationToken);
 
         var topicNameObj = new TopicName(_projectId, topicName);
@@ -477,7 +476,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
         {
             var publisherClient = await new PublisherServiceApiClientBuilder
             {
-                Credential = _credential.CreateScoped(PublisherServiceApiClient.DefaultScopes)
+                Credential = _credential.NotNull().CreateScoped(PublisherServiceApiClient.DefaultScopes)
             }.BuildAsync(cancellationToken);
 
             var topics = new List<string>();
@@ -530,7 +529,7 @@ public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 
             var subscriberApi = await new SubscriberServiceApiClientBuilder
             {
-                Credential = _credential.CreateScoped(SubscriberServiceApiClient.DefaultScopes)
+                Credential = _credential.NotNull().CreateScoped(SubscriberServiceApiClient.DefaultScopes)
             }.BuildAsync(CancellationToken.None);
 
             await Task.WhenAll(subscriptions.Select(async sub =>

@@ -359,14 +359,14 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
     /// Reads JSON back into a PrimitiveType.
     /// Detects the JSON token type and reconstructs the appropriate PrimitiveType.
     /// </summary>
-    public override PrimitiveType ReadJson(JsonReader reader, Type objectType, PrimitiveType? existingValue, bool hasExistingValue, JsonSerializer serializer)
+    public override PrimitiveType? ReadJson(JsonReader reader, Type objectType, PrimitiveType? existingValue, bool hasExistingValue, JsonSerializer serializer)
     {
         if (reader.TokenType == JsonToken.Null)
-            return null!;
+            return null;
 
         if (reader.TokenType == JsonToken.String)
         {
-            var str = (string)reader.Value!;
+            var str = (string)reader.Value.NotNull();
             if (str.StartsWith("b-"))
             {
                 return new PrimitiveType(Convert.FromBase64String(str[2..]));

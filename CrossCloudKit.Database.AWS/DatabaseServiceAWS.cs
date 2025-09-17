@@ -169,12 +169,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                                 if (gsiRangeKeyAttr != null)
                                 {
                                     var gsiRangeKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(gsiRangeKeyAttr.AttributeType);
-                                    tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName!, gsiHashKey.AttributeName, gsiHashKeyType, gsiRangeKey.AttributeName, gsiRangeKeyType);
+                                    tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName.NotNull(), gsiHashKey.AttributeName, gsiHashKeyType, gsiRangeKey.AttributeName, gsiRangeKeyType);
                                 }
                             }
                             else
                             {
-                                tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName!, gsiHashKey.AttributeName, gsiHashKeyType);
+                                tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName.NotNull(), gsiHashKey.AttributeName, gsiHashKeyType);
                             }
                         }
                     }

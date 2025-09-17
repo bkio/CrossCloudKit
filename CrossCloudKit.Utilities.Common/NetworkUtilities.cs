@@ -29,7 +29,7 @@ public static class NetworkUtilities
 
         try
         {
-            var addresses = await Dns.GetHostAddressesAsync(hostNameOrAddress, cancellationToken).ConfigureAwait(false);
+            var addresses = await Dns.GetHostAddressesAsync(hostNameOrAddress, cancellationToken);
 
             return addresses.FirstOrDefault(addr => addr.AddressFamily == preferredFamily)
                    ?? addresses.FirstOrDefault()

@@ -48,7 +48,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// </summary>
     public long Length => Kind switch
     {
-        StringOrStreamKind.String => _stringValue!.Length,
+        StringOrStreamKind.String => _stringValue.NotNull().Length,
         StringOrStreamKind.Stream => _streamLength,
         _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
     };
@@ -131,7 +131,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
 
         return Kind switch
         {
-            StringOrStreamKind.String => _stringValue!,
+            StringOrStreamKind.String => _stringValue.NotNull(),
             StringOrStreamKind.Stream => ReadStreamAsString(),
             _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
         };
@@ -150,8 +150,8 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
 
         return Kind switch
         {
-            StringOrStreamKind.String => _stringValue!,
-            StringOrStreamKind.Stream => await ReadStreamAsStringAsync(cancellationToken).ConfigureAwait(false),
+            StringOrStreamKind.String => _stringValue.NotNull(),
+            StringOrStreamKind.Stream => await ReadStreamAsStringAsync(cancellationToken),
             _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
         };
     }
@@ -173,7 +173,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         return Kind switch
         {
             StringOrStreamKind.String => CreateStreamFromString,
-            StringOrStreamKind.Stream => _streamValue!,
+            StringOrStreamKind.Stream => _streamValue.NotNull(),
             _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
         };
     }
@@ -226,10 +226,10 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         switch (Kind)
         {
             case StringOrStreamKind.String:
-                onString?.Invoke(_stringValue!);
+                onString?.Invoke(_stringValue.NotNull());
                 break;
             case StringOrStreamKind.Stream:
-                onStream?.Invoke(_streamValue!, _streamLength);
+                onStream?.Invoke(_streamValue.NotNull(), _streamLength);
                 break;
         }
     }
@@ -248,8 +248,8 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
 
         return Kind switch
         {
-            StringOrStreamKind.String => onString(_stringValue!),
-            StringOrStreamKind.Stream => onStream(_streamValue!, _streamLength),
+            StringOrStreamKind.String => onString(_stringValue.NotNull()),
+            StringOrStreamKind.Stream => onStream(_streamValue.NotNull(), _streamLength),
             _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
         };
     }
@@ -270,8 +270,8 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
 
         return Kind switch
         {
-            StringOrStreamKind.String => await onString(_stringValue!).ConfigureAwait(false),
-            StringOrStreamKind.Stream => await onStream(_streamValue!, _streamLength).ConfigureAwait(false),
+            StringOrStreamKind.String => await onString(_stringValue.NotNull()),
+            StringOrStreamKind.Stream => await onStream(_streamValue.NotNull(), _streamLength),
             _ => throw new InvalidOperationException($"Unknown content kind: {Kind}")
         };
     }
@@ -295,15 +295,15 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
                 }
                 break;
             case StringOrStreamKind.Stream:
-                var originalPosition = _streamValue!.Position;
+                var originalPosition = _streamValue.NotNull().Position;
                 try
                 {
-                    _streamValue.Position = 0;
-                    _streamValue.CopyTo(destination);
+                    _streamValue.NotNull().Position = 0;
+                    _streamValue.NotNull().CopyTo(destination);
                 }
                 finally
                 {
-                    _streamValue.Position = originalPosition;
+                    _streamValue.NotNull().Position = originalPosition;
                 }
                 break;
         }
@@ -325,19 +325,19 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
             case StringOrStreamKind.String:
                 await using (var sourceStream = CreateStreamFromString)
                 {
-                    await sourceStream.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+                    await sourceStream.CopyToAsync(destination, cancellationToken);
                 }
                 break;
             case StringOrStreamKind.Stream:
-                var originalPosition = _streamValue!.Position;
+                var originalPosition = _streamValue.NotNull().Position;
                 try
                 {
-                    _streamValue.Position = 0;
-                    await _streamValue.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+                    _streamValue.NotNull().Position = 0;
+                    await _streamValue.NotNull().CopyToAsync(destination, cancellationToken);
                 }
                 finally
                 {
-                    _streamValue.Position = originalPosition;
+                    _streamValue.NotNull().Position = originalPosition;
                 }
                 break;
         }
@@ -349,38 +349,38 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     {
         get
         {
-            var bytes = _encoding.GetBytes(_stringValue!);
+            var bytes = _encoding.GetBytes(_stringValue.NotNull());
             return new MemoryTributary(bytes);
         }
     }
 
     private string ReadStreamAsString()
     {
-        var originalPosition = _streamValue!.Position;
+        var originalPosition = _streamValue.NotNull().Position;
         try
         {
-            _streamValue.Position = 0;
-            using var reader = new StreamReader(_streamValue, _encoding, leaveOpen: true);
+            _streamValue.NotNull().Position = 0;
+            using var reader = new StreamReader(_streamValue.NotNull(), _encoding, leaveOpen: true);
             return reader.ReadToEnd();
         }
         finally
         {
-            _streamValue.Position = originalPosition;
+            _streamValue.NotNull().Position = originalPosition;
         }
     }
 
     private async Task<string> ReadStreamAsStringAsync(CancellationToken cancellationToken)
     {
-        var originalPosition = _streamValue!.Position;
+        var originalPosition = _streamValue.NotNull().Position;
         try
         {
-            _streamValue.Position = 0;
-            using var reader = new StreamReader(_streamValue, _encoding, leaveOpen: true);
-            return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            _streamValue.NotNull().Position = 0;
+            using var reader = new StreamReader(_streamValue.NotNull(), _encoding, leaveOpen: true);
+            return await reader.ReadToEndAsync(cancellationToken);
         }
         finally
         {
-            _streamValue.Position = originalPosition;
+            _streamValue.NotNull().Position = originalPosition;
         }
     }
 
@@ -417,7 +417,7 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
         {
             if (_cleanupAction is not null)
             {
-                await _cleanupAction().ConfigureAwait(false);
+                await _cleanupAction();
             }
             _disposed = true;
         }

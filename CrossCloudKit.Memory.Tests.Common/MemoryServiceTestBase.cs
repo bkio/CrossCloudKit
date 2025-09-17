@@ -85,6 +85,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Clean up all key-value data
             await MemoryService.DeleteAllKeysAsync(TestScope, publishChange: false);
+
+            // Cleanup pub/sub topic
+            await PubSubService.DeleteTopicAsync(TestScope.Compile());
         }
         catch
         {
@@ -545,7 +548,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var lockDuration = TimeSpan.FromSeconds(5);
             var firstLockAcquired = false;
             var secondLockAcquired = false;
-            var secondLockBlocked = true;
+            var secondLockBlocked = false;
 
             // Act - First lock
             await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(

@@ -302,7 +302,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             JTokenType.Integer => new Value { IntegerValue = (long)value },
             JTokenType.Float => new Value { DoubleValue = (double)value },
             JTokenType.Boolean => new Value { BooleanValue = (bool)value },
-            JTokenType.String => new Value { StringValue = (string)value! },
+            JTokenType.String => new Value { StringValue = value.Value<string>() },
             _ => new Value { StringValue = value.ToString() }
         };
     }
@@ -393,7 +393,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 return OperationResult<bool>.Failure("Failed to load table key factory");
             }
 
-            var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+            var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
             var entity = await _dsdb.LookupAsync(key);
 
             if (entity == null)
@@ -440,7 +440,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 return OperationResult<JObject?>.Failure("Failed to load table key factory");
             }
 
-            var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+            var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
             var entity = await _dsdb.LookupAsync(key);
 
             if (entity == null)
@@ -488,7 +488,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
 
             var datastoreKeys = keyValues.Select(value =>
-                factory!.CreateKey(GetFinalKeyFromNameValue(keyName, value))).ToArray();
+                factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, value))).ToArray();
 
             var queryResult = await _dsdb.LookupAsync(datastoreKeys);
             var results = new List<JObject>();
@@ -571,7 +571,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
-                var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+                var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
 
@@ -914,7 +914,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
-                var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+                var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
                 var entity = await transaction.LookupAsync(key);
@@ -957,7 +957,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         entityJson[arrayAttributeName] = existingArray;
 
                         // Convert back to entity and update
-                        var updatedEntity = FromJsonToEntity(factory, keyName, keyValue, entityJson);
+                        var updatedEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, entityJson);
                         if (updatedEntity != null)
                         {
                             transaction.Upsert(updatedEntity);
@@ -994,7 +994,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                     newJson[arrayAttributeName] = newArray;
 
-                    var newEntity = FromJsonToEntity(factory, keyName, keyValue, newJson);
+                    var newEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, newJson);
                     if (newEntity != null)
                     {
                         transaction.Upsert(newEntity);
@@ -1059,7 +1059,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
-                var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+                var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnItem = null;
                 var entity = await transaction.LookupAsync(key);
@@ -1111,7 +1111,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                             }
 
                             // Convert back to entity and update
-                            var updatedEntity = FromJsonToEntity(factory, keyName, keyValue, entityJson);
+                            var updatedEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, entityJson);
                             if (updatedEntity != null)
                             {
                                 transaction.Upsert(updatedEntity);
@@ -1172,7 +1172,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
-                var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+                var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 var entity = await transaction.LookupAsync(key);
                 double newValue = incrementValue; // Default if entity doesn't exist
@@ -1206,7 +1206,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         entityJson[numericAttributeName] = newValue;
 
                         // Convert back to entity and update
-                        var updatedEntity = FromJsonToEntity(factory, keyName, keyValue, entityJson);
+                        var updatedEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, entityJson);
                         if (updatedEntity != null)
                         {
                             transaction.Upsert(updatedEntity);
@@ -1224,7 +1224,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         [numericAttributeName] = newValue
                     };
 
-                    var newEntity = FromJsonToEntity(factory, keyName, keyValue, newJson);
+                    var newEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, newJson);
                     if (newEntity != null)
                     {
                         transaction.Upsert(newEntity);
@@ -1287,7 +1287,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
-                var key = factory!.CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
+                var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
 
                 JObject? returnedPreOperationObject = null;
                 var entity = await transaction.LookupAsync(key);
@@ -1336,7 +1336,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     returnItem = returnedPreOperationObject ?? [];
                 }
 
-                var itemAsEntity = FromJsonToEntity(factory, keyName, keyValue, newItemCopy);
+                var itemAsEntity = FromJsonToEntity(factory.NotNull(), keyName, keyValue, newItemCopy);
                 if (itemAsEntity != null)
                 {
                     transaction.Upsert(itemAsEntity);
@@ -1478,7 +1478,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer or JTokenType.Float =>
                     ((long)token).CompareTo(primitive.AsInteger),
                 PrimitiveTypeKind.String when token.Type != JTokenType.Null =>
-                    string.Compare(((string)token!), primitive.AsString, StringComparison.InvariantCulture),
+                    string.Compare(token.Value<string>(), primitive.AsString, StringComparison.InvariantCulture),
                 _ => 0
             };
         }

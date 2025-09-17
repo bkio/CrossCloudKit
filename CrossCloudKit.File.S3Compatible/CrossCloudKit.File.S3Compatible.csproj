@@ -21,6 +21,7 @@
     <ProjectReference Include="..\CrossCloudKit.File.AWS\CrossCloudKit.File.AWS.csproj" />
       <None Include="..\README.md" Pack="true" PackagePath="\" />
 	  <None Include="$(OutputPath)\$(AssemblyName).xml" Pack="true" PackagePath="\" />
+	  <ProjectReference Include="..\CrossCloudKit.File.Common.MonitorBasedPubSub\CrossCloudKit.File.Common.MonitorBasedPubSub.csproj" />
   </ItemGroup>
 
 </Project>

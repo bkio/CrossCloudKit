@@ -17,18 +17,20 @@ namespace CrossCloudKit.PubSub.Basic;
 public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 {
     private readonly string _storageDirectory;
-    private readonly Dictionary<string, Timer> _messagePollingTimers = new();
+    private readonly ConcurrentDictionary<string, Timer> _messagePollingTimers = new();
     private readonly ConcurrentDictionary<string, List<SubscriptionInfo>> _localSubscriptions = new();
-    private readonly ConcurrentDictionary<string, HashSet<string>> _recentlyDeliveredMessages = new();
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _deliveredMessageIds = new();
     private readonly Timer _cleanupTimer;
     private readonly string _processId;
     private bool _disposed;
+
+    private const string RootFolderName = "CrossCloudKit.PubSub.Basic";
 
     private record SubscriptionInfo(Func<string, string, Task> OnMessage, Action<Exception>? OnError);
 
     public PubSubServiceBasic()
     {
-        _storageDirectory = Path.Combine(Path.GetTempPath(), "CrossCloudKit.PubSub.Basic");
+        _storageDirectory = Path.Combine(Path.GetTempPath(), RootFolderName);
         Directory.CreateDirectory(_storageDirectory);
 
         _processId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
@@ -116,15 +118,18 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         try
         {
+            // Generate message ID for deduplication
+            var messageId = $"{_processId}#{DateTime.UtcNow.Ticks}#{Guid.NewGuid():N}";
+
             // Store message in file system for cross-process delivery
-            var storeResult = await StoreMessageAsync(topic, message).ConfigureAwait(false);
+            var storeResult = await StoreMessageWithIdAsync(topic, message, messageId);
             if (!storeResult.IsSuccessful)
             {
                 return OperationResult<bool>.Failure($"Failed to store message to topic '{topic}': {storeResult.ErrorMessage}");
             }
 
-            // Deliver to local subscribers immediately
-            await DeliverToLocalSubscribersAsync(topic, message).ConfigureAwait(false);
+            // Deliver to local subscribers immediately with message ID
+            await DeliverToLocalSubscribersAsync(topic, message, messageId);
 
             return OperationResult<bool>.Success(true);
         }
@@ -149,10 +154,9 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         try
         {
             // Stop message polling for this topic
-            if (_messagePollingTimers.TryGetValue(topic, out var timer))
+            if ( _messagePollingTimers.TryRemove(topic, out var timer))
             {
                 timer.Dispose();
-                _messagePollingTimers.Remove(topic);
             }
 
             // Remove local subscriptions
@@ -289,7 +293,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             // Dispose cleanup timer
             try
             {
-                await _cleanupTimer.DisposeAsync().ConfigureAwait(false);
+                await _cleanupTimer.DisposeAsync();
             }
             catch (Exception)
             {
@@ -301,7 +305,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             {
                 try
                 {
-                    await timer.DisposeAsync().ConfigureAwait(false);
+                    await timer.DisposeAsync();
                 }
                 catch (Exception)
                 {
@@ -309,9 +313,6 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
                 }
             }
             _messagePollingTimers.Clear();
-
-            // Clear all subscriptions
-            _localSubscriptions.Clear();
 
             // Unregister this process's subscriptions
             UnregisterAllSubscriptions();
@@ -326,7 +327,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private record PubSubMessage(string Content, DateTime Timestamp, string PublisherId);
+    private record PubSubMessage(string MessageId, string Content, DateTime Timestamp, string PublisherId);
 
     private static OperationResult<AutoMutex> CreateMutex(string key)
     {
@@ -344,9 +345,9 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
     }
 
-    private Task<OperationResult<bool>> StoreMessageAsync(string topic, string message)
+    private Task<OperationResult<bool>> StoreMessageWithIdAsync(string topic, string message, string messageId)
     {
-        var pubSubMessage = new PubSubMessage(message, DateTime.UtcNow, _processId);
+        var pubSubMessage = new PubSubMessage(messageId, message, DateTime.UtcNow, _processId);
 
         var mutexWrapper = CreateMutex($"topic_{topic}");
         if (!mutexWrapper.IsSuccessful)
@@ -370,29 +371,34 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         return Task.FromResult(OperationResult<bool>.Success(true));
     }
 
-    private async Task DeliverToLocalSubscribersAsync(string topic, string message)
+    private async Task DeliverToLocalSubscribersAsync(string topic, string message, string? messageId = null)
     {
         if (!_localSubscriptions.TryGetValue(topic, out var subscribers))
             return;
 
-        // Simple deduplication: track recently delivered messages
-        var messageKey = $"{message}#{DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond / 1000}"; // Group by second
-        var deliveredSet = _recentlyDeliveredMessages.GetOrAdd(topic, _ => []);
-
-        bool shouldDeliver;
-        lock (deliveredSet)
+        // Use message ID for proper deduplication
+        if (!string.IsNullOrEmpty(messageId))
         {
-            shouldDeliver = deliveredSet.Add(messageKey);
+            var deliveredQueue = _deliveredMessageIds.GetOrAdd(topic, _ => new ConcurrentQueue<string>());
 
-            // Clean up old entries to prevent memory leak
-            if (deliveredSet.Count > 50)
+            // Check if already delivered (convert to HashSet for O(1) lookup during check)
+            var deliveredSet = new HashSet<string>(deliveredQueue);
+
+            if (deliveredSet.Contains(messageId))
+                return; // Already delivered this message
+
+            // Add to queue
+            deliveredQueue.Enqueue(messageId);
+
+            // Clean up old entries if queue gets too large
+            if (deliveredQueue.Count > 1000)
             {
-                deliveredSet.Clear(); // Simple cleanup - clear all old entries
+                for (var i = 0; i < 500 && deliveredQueue.TryDequeue(out _); i++)
+                {
+                    // Remove oldest 500 entries
+                }
             }
         }
-
-        if (!shouldDeliver)
-            return; // Already delivered this message recently
 
         List<SubscriptionInfo> subscribersCopy;
         lock (subscribers)
@@ -401,14 +407,14 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
 
         var deliveryTasks = subscribersCopy.Select(subscriber => DeliverMessageAsync(subscriber, topic, message));
-        await Task.WhenAll(deliveryTasks).ConfigureAwait(false);
+        await Task.WhenAll(deliveryTasks);
     }
 
     private static async Task DeliverMessageAsync(SubscriptionInfo subscriber, string topic, string message)
     {
         try
         {
-            await subscriber.OnMessage(topic, message).ConfigureAwait(false);
+            await subscriber.OnMessage(topic, message);
         }
         catch (Exception ex)
         {
@@ -436,7 +442,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         // Remove old subscriptions for this process
         subscriptions.RemoveAll(s => s == _processId);
 
-        // Add new subscription
+        // Add a new subscription
         subscriptions.Add(_processId);
 
         SaveSubscriptionsToFile(subscriptionsFilePath, subscriptions);
@@ -449,7 +455,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             {
                 try
                 {
-                    await PollForMessagesAsync(topic).ConfigureAwait(false);
+                    await PollForMessagesAsync(topic);
                 }
                 catch (Exception)
                 {
@@ -479,7 +485,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
             foreach (var message in undeliveredMessages)
             {
-                await DeliverToLocalSubscribersAsync(topic, message.Content).ConfigureAwait(false);
+                await DeliverToLocalSubscribersAsync(topic, message.Content, message.MessageId);
             }
 
             // Mark messages as processed by removing old ones
@@ -540,6 +546,28 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
                     // Ignore errors for individual files
                 }
             }
+
+            // Clean up delivered message IDs for topics that no longer have active subscriptions
+            foreach (var topic in _deliveredMessageIds.Keys.ToList())
+            {
+                if (!_localSubscriptions.ContainsKey(topic))
+                {
+                    _deliveredMessageIds.TryRemove(topic, out _);
+                }
+                else
+                {
+                    // Limit the size of delivered message queues
+                    var deliveredQueue = _deliveredMessageIds.GetOrAdd(topic, _ => new ConcurrentQueue<string>());
+
+                    if (deliveredQueue.Count <= 2000) continue;
+
+                    // Remove oldest entries from the queue
+                    for (var i = 0; i < 1000 && deliveredQueue.TryDequeue(out _); i++)
+                    {
+                    }
+                }
+            }
+
         }
         catch (Exception)
         {
@@ -568,6 +596,9 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
                 // Ignore errors during cleanup
             }
         }
+
+        // Clear all subscriptions
+        _localSubscriptions.Clear();
     }
 
     private List<string> GetBucketEventTopics()
@@ -590,8 +621,14 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     private void SaveBucketEventTopics(List<string> topics)
     {
         var filePath = GetBucketEventTopicsFilePath();
+        if (topics.Count == 0)
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+            return;
+        }
         var json = JsonConvert.SerializeObject(topics, Formatting.None);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
     }
 
     private static List<PubSubMessage> LoadMessagesFromFile(string filePath)
@@ -612,8 +649,14 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
     private static void SaveMessagesToFile(string filePath, List<PubSubMessage> messages)
     {
+        if (messages.Count == 0)
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+            return;
+        }
         var json = JsonConvert.SerializeObject(messages, Formatting.None);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
     }
 
     private static List<string> LoadSubscriptionsFromFile(string filePath)
@@ -634,8 +677,14 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
     private static void SaveSubscriptionsToFile(string filePath, List<string> subscriptions)
     {
+        if (subscriptions.Count == 0)
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+            return;
+        }
         var json = JsonConvert.SerializeObject(subscriptions, Formatting.None);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
     }
 
     private string GetTopicMessagesFilePath(string topic)

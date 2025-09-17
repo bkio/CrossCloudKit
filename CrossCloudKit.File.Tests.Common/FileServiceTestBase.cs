@@ -446,7 +446,6 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
                 // ignored
             }
 
-            // Clean up pub/sub topic
             try
             {
                 await pubsubService.DeleteTopicAsync(topic);
@@ -511,9 +510,12 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             // Wait for the S3Compatible background task to establish the baseline file state
             if (IsPubSubServiceS3Compatible(service))
             {
-                await Task.Delay(8000);
+                await Task.Delay(10000);
             }
-
+            else
+            {
+                await Task.Delay(5000);
+            }
             // Delete the file
             var deleteResult = await service.DeleteFileAsync(bucket, deletedKey);
             deleteResult.IsSuccessful.Should().BeTrue(deleteResult.ErrorMessage);

@@ -741,4 +741,295 @@ public class FileSystemUtilitiesTests
     }
 
     #endregion
+
+    #region DeleteFileAndCleanupParentFolders Tests
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithFileAndEmptyParents_DeletesFileAndCleansUpEmptyDirectories()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var emptyDir1 = Path.Combine(parentDir, "empty1");
+        var emptyDir2 = Path.Combine(emptyDir1, "empty2");
+        var testFile = Path.Combine(emptyDir2, "test.txt");
+
+        Directory.CreateDirectory(emptyDir2);
+        File.WriteAllText(testFile, "test content");
+
+        try
+        {
+            // Verify setup
+            Assert.True(File.Exists(testFile));
+            Assert.True(Directory.Exists(emptyDir2));
+            Assert.True(Directory.Exists(emptyDir1));
+            Assert.True(Directory.Exists(parentDir));
+
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
+
+            // Assert
+            Assert.True(result);
+            Assert.False(File.Exists(testFile));
+            Assert.False(Directory.Exists(emptyDir2));
+            Assert.False(Directory.Exists(emptyDir1));
+            Assert.True(Directory.Exists(parentDir)); // Should stop here
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithNonExistentFile_ReturnsTrue()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var emptyDir = Path.Combine(parentDir, "empty");
+        var nonExistentFile = Path.Combine(emptyDir, "nonexistent.txt");
+
+        Directory.CreateDirectory(emptyDir);
+
+        try
+        {
+            // Verify setup
+            Assert.False(File.Exists(nonExistentFile));
+            Assert.True(Directory.Exists(emptyDir));
+            Assert.True(Directory.Exists(parentDir));
+
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(nonExistentFile, parentFolderName);
+
+            // Assert
+            Assert.True(result);
+            Assert.False(Directory.Exists(emptyDir)); // Should be cleaned up
+            Assert.True(Directory.Exists(parentDir)); // Should remain
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithNonEmptyParentDirectory_StopsCleanupAtNonEmptyDirectory()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var nonEmptyDir = Path.Combine(parentDir, "nonempty");
+        var emptyDir = Path.Combine(nonEmptyDir, "empty");
+        var testFile = Path.Combine(emptyDir, "test.txt");
+        var otherFile = Path.Combine(nonEmptyDir, "other.txt");
+
+        Directory.CreateDirectory(emptyDir);
+        File.WriteAllText(testFile, "test content");
+        File.WriteAllText(otherFile, "other content");
+
+        try
+        {
+            // Verify setup
+            Assert.True(File.Exists(testFile));
+            Assert.True(File.Exists(otherFile));
+            Assert.True(Directory.Exists(emptyDir));
+            Assert.True(Directory.Exists(nonEmptyDir));
+
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
+
+            // Assert
+            Assert.True(result);
+            Assert.False(File.Exists(testFile));
+            Assert.False(Directory.Exists(emptyDir)); // Should be cleaned up
+            Assert.True(Directory.Exists(nonEmptyDir)); // Should remain (not empty)
+            Assert.True(File.Exists(otherFile));
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithCaseInsensitiveParentFolderName_StopsAtCorrectFolder()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder"; // Different case than what we'll pass
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var emptyDir = Path.Combine(parentDir, "empty");
+        var testFile = Path.Combine(emptyDir, "test.txt");
+
+        Directory.CreateDirectory(emptyDir);
+        File.WriteAllText(testFile, "test content");
+
+        try
+        {
+            // Act - Use different case
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, "parentfolder");
+
+            // Assert
+            Assert.True(result);
+            Assert.False(File.Exists(testFile));
+            Assert.False(Directory.Exists(emptyDir));
+            Assert.True(Directory.Exists(parentDir)); // Should stop here despite case difference
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithDeeplyNestedStructure_CleansUpCorrectly()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+
+        // Create deeply nested structure
+        var currentDir = parentDir;
+        for (int i = 1; i <= 5; i++)
+        {
+            currentDir = Path.Combine(currentDir, $"level{i}");
+        }
+        Directory.CreateDirectory(currentDir);
+
+        var testFile = Path.Combine(currentDir, "deep.txt");
+        File.WriteAllText(testFile, "deep content");
+
+        try
+        {
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
+
+            // Assert
+            Assert.True(result);
+            Assert.False(File.Exists(testFile));
+
+            // All nested directories should be cleaned up
+            currentDir = parentDir;
+            for (int i = 1; i <= 5; i++)
+            {
+                currentDir = Path.Combine(currentDir, $"level{i}");
+                Assert.False(Directory.Exists(currentDir));
+            }
+
+            Assert.True(Directory.Exists(parentDir)); // Should remain
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithFileInParentFolder_DoesNotDeleteParentFolder()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var testFile = Path.Combine(parentDir, "test.txt");
+
+        Directory.CreateDirectory(parentDir);
+        File.WriteAllText(testFile, "test content");
+
+        try
+        {
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
+
+            // Assert
+            Assert.True(result);
+            Assert.False(File.Exists(testFile));
+            Assert.True(Directory.Exists(parentDir)); // Should remain as it's the stop folder
+        }
+        finally
+        {
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithReadOnlyFile_ReturnsFalse()
+    {
+        // Arrange
+        var testRootDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var parentFolderName = "ParentFolder";
+        var parentDir = Path.Combine(testRootDir, parentFolderName);
+        var emptyDir = Path.Combine(parentDir, "empty");
+        var testFile = Path.Combine(emptyDir, "readonly.txt");
+
+        Directory.CreateDirectory(emptyDir);
+        File.WriteAllText(testFile, "readonly content");
+
+        try
+        {
+            // Make file read-only
+            var fileInfo = new FileInfo(testFile)
+            {
+                IsReadOnly = true
+            };
+
+            // Act
+            var result = FileSystemUtilities.DeleteFileAndCleanupParentFolders(testFile, parentFolderName);
+
+            // Assert
+            Assert.False(result); // Should return false due to exception
+            Assert.True(File.Exists(testFile)); // File should still exist
+        }
+        finally
+        {
+            if (File.Exists(testFile))
+            {
+                // Remove read-only flag for cleanup
+                var fileInfo = new FileInfo(testFile)
+                {
+                    IsReadOnly = false
+                };
+            }
+            if (Directory.Exists(testRootDir))
+            {
+                Directory.Delete(testRootDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DeleteFileAndCleanupParentFolders_WithNullOrEmptyFilePath_ReturnsFalse()
+    {
+        // Act & Assert
+        var result1 = FileSystemUtilities.DeleteFileAndCleanupParentFolders(null!, "ParentFolder");
+        var result2 = FileSystemUtilities.DeleteFileAndCleanupParentFolders(string.Empty, "ParentFolder");
+
+        Assert.False(result1);
+        Assert.False(result2);
+    }
+
+    #endregion
 }

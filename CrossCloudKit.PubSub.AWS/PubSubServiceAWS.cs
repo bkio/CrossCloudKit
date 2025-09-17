@@ -20,7 +20,7 @@ namespace CrossCloudKit.PubSub.AWS;
 public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 {
     private readonly string _region;
-    private readonly Amazon.Runtime.AWSCredentials _credentials;
+    private readonly Amazon.Runtime.AWSCredentials? _credentials;
     private readonly ConcurrentDictionary<string, (string topicArn, AmazonSimpleNotificationServiceClient client)> _publishers = new();
     private readonly ConcurrentDictionary<string, ConcurrentBag<CancellationSiblings>> _subscriptions = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, string>> _topicSubscriptions = new();
@@ -54,7 +54,6 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         {
             errorMessageAction?.Invoke($"PubSubServiceAWS initialization failed: {e.Message}");
             IsInitialized = false;
-            _credentials = null!;
         }
     }
 
@@ -94,7 +93,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
         try
         {
             await EnsureTopicExistsAndGetPublisherAsync(topic, false, cancellationToken);
@@ -114,7 +113,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
         }
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         try
         {
@@ -140,7 +139,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         try
         {
@@ -148,9 +147,9 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
             // Start subscription in the background
             var ctsRegResult = await StartSubscriptionAsync(topic, onMessage, onError, cts.Token);
-            if (!ctsRegResult.IsSuccessful) return OperationResult<bool>.Failure(ctsRegResult.ErrorMessage!);
+            if (!ctsRegResult.IsSuccessful) return OperationResult<bool>.Failure(ctsRegResult.ErrorMessage.NotNull());
 
-            var sib = new CancellationSiblings(cts, ctsRegResult.Data!);
+            var sib = new CancellationSiblings(cts, ctsRegResult.Data.NotNull());
             _subscriptions.AddOrUpdate(topic,
                 [sib],
                 (_, existing) => { existing.Add(sib); return existing; });
@@ -199,7 +198,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                 cancellationToken);
             if (!policySetResult.IsSuccessful)
             {
-                return OperationResult<Func<Task>?>.Failure(policySetResult.ErrorMessage!);
+                return OperationResult<Func<Task>?>.Failure(policySetResult.ErrorMessage.NotNull());
             }
 
             // Subscribe SQS queue to SNS topic
@@ -328,7 +327,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                             && typeTok.Value<string>() == "Notification"
                             && bodyObject.TryGetValue("Message", out var messageTok) && messageTok.Type == JTokenType.String)
                         {
-                            finalMessage = bodyObject["Message"]!.Value<string>()!;
+                            finalMessage = bodyObject["Message"].NotNull().Value<string>().NotNull();
                         }
                         else
                         {
@@ -349,7 +348,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
                     try
                     {
-                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic)!, finalMessage);
+                        await onMessage(EncodingUtilities.DecodeTopic(encodedTopic).NotNull(), finalMessage);
 
                         // Delete message after successful processing
                         await sqsClient.DeleteMessageAsync(new DeleteMessageRequest
@@ -514,7 +513,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                             arnLike.Type != JTokenType.Object) continue;
 
                         var arnLikeObj = (JObject)arnLike;
-                        if ((string)arnLikeObj["aws:SourceArn"]! == bucketArn)
+                        if (arnLikeObj["aws:SourceArn"].NotNull().Value<string>() == bucketArn)
                         {
                             removeStatements.Add(statementObj);
                         }
@@ -550,7 +549,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topic = EncodingUtilities.EncodeTopic(topic)!;
+        topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
         var errorMsg = new ConcurrentBag<string>();
 
@@ -684,7 +683,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+        topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
         try
         {
@@ -717,7 +716,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
             return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
 
-        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+        topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
         try
         {
@@ -771,7 +770,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                         true) continue;
 
                     var topicName = topicSummary.TopicArn.Split(':').Last();
-                    result.Add(EncodingUtilities.DecodeTopic(topicName)!);
+                    result.Add(EncodingUtilities.DecodeTopic(topicName).NotNull());
 
                 }
                 catch (Exception)

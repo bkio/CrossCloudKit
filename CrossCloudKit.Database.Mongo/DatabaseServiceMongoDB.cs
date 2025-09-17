@@ -106,7 +106,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
             // Parse the Client Config Json if it's a base64 encoded (for running on local environment with launchSettings.json)
             Span<byte> buffer = stackalloc byte[clientConfigString.Length];
-            if (Convert.TryFromBase64String(clientConfigString, buffer, out int bytesParsed))
+            if (Convert.TryFromBase64String(clientConfigString, buffer, out var bytesParsed))
             {
                 if (bytesParsed > 0)
                 {
@@ -117,7 +117,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var clientConfigJObject = JObject.Parse(clientConfigString);
 
             var hostTokens = clientConfigJObject.SelectTokens("$...hostname");
-            var hosts = hostTokens.Select(item => item.ToObject<string>()!).ToList();
+            var hosts = hostTokens.Select(item => item.ToObject<string>().NotNull()).ToList();
 
             var portTokens = clientConfigJObject.SelectTokens("$....port");
             var ports = portTokens.Select(item => item.ToObject<int>()).ToList();
@@ -751,12 +751,12 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var scanResult = ProcessScanResults(keyNames, documents);
             if (!scanResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage!);
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage.NotNull());
             }
 
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data!, nextPageToken, totalCount));
+                (scanResult.Data.NotNull(), nextPageToken, totalCount));
         }
         catch (Exception e)
         {
@@ -826,12 +826,12 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var scanResult = ProcessScanResults(keyNames, documents);
             if (!scanResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage!);
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage.NotNull());
             }
 
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data!, nextPageToken, totalCount));
+                (scanResult.Data.NotNull(), nextPageToken, totalCount));
         }
         catch (Exception e)
         {

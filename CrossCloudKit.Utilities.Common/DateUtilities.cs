@@ -8,7 +8,7 @@ namespace CrossCloudKit.Utilities.Common;
 /// <summary>
 /// Utility class for date and time operations.
 /// </summary>
-public class DateUtilities
+public static class DateUtilities
 {
     /// <summary>
     /// Gets the first date (Monday) of a specific ISO 8601 week in a given year.

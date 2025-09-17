@@ -1,13 +1,12 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using System.Collections.Concurrent;
 using Amazon;
 using Amazon.S3;
 using Amazon.S3.Transfer;
 using CrossCloudKit.File.AWS;
+using CrossCloudKit.File.Common.MonitorBasedPubSub;
 using CrossCloudKit.Interfaces;
-using Newtonsoft.Json;
 using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.File.S3Compatible;
@@ -40,10 +39,6 @@ public class FileServiceS3Compatible : FileServiceAWS
             ArgumentException.ThrowIfNullOrWhiteSpace(secretKey);
             ArgumentException.ThrowIfNullOrWhiteSpace(region);
 
-            _memoryService = memoryService;
-            _pubSubService = pubSubService;
-            _errorMessageAction = errorMessageAction;
-
             AWSCredentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
             RegionEndpoint = RegionEndpoint.GetBySystemName(region);
 
@@ -64,8 +59,7 @@ public class FileServiceS3Compatible : FileServiceAWS
 
             IsInitialized = true;
 
-            // Start background task
-            _backgroundTask = Task.Run(async () => await RunBackgroundTaskAsync(_backgroundTaskCancellationTokenSource.Token));
+            _monitorBasedPubSub = new MonitorBasedPubSub(this, memoryService, pubSubService, errorMessageAction);
         }
         catch
         {
@@ -73,11 +67,7 @@ public class FileServiceS3Compatible : FileServiceAWS
         }
     }
 
-    private readonly IMemoryService? _memoryService;
-    private readonly IPubSubService? _pubSubService;
-    private readonly CancellationTokenSource _backgroundTaskCancellationTokenSource = new();
-    private readonly Task? _backgroundTask;
-    private readonly Action<string>? _errorMessageAction;
+    private readonly MonitorBasedPubSub? _monitorBasedPubSub;
     private bool _disposed;
 
     /// <inheritdoc />
@@ -92,34 +82,13 @@ public class FileServiceS3Compatible : FileServiceAWS
         if (!IsInitialized || _disposed)
             return OperationResult<string>.Failure("File service is not initialized.");
 
-        if (_memoryService is not { IsInitialized: true })
-            return OperationResult<string>.Failure("Memory service is not initialized.");
-
-        var sortedEventTypes = eventTypes.OrderBy(e => e).Select(s => s.ToString()).ToList();
-
-        var valueCompiled = JsonConvert.SerializeObject(new EventNotificationConfig
-        {
-            TopicName = topicName,
-            BucketName = bucketName,
-            PathPrefix = pathPrefix,
-            EventTypes = sortedEventTypes
-        }, Formatting.None);
-
-        var newNotification = await _memoryService.PushToListTailIfValuesNotExistsAsync(
-            SystemClassMemoryScopeInstance,
-            EventNotificationConfigsListName,
-            new List<PrimitiveType> { valueCompiled },
-            false,
+        return await _monitorBasedPubSub.NotNull().CreateNotificationAsync(
+            bucketName,
+            topicName,
+            pathPrefix,
+            eventTypes,
+            pubSubService,
             cancellationToken);
-
-        if (!newNotification.IsSuccessful || newNotification.Data is null)
-            return OperationResult<string>.Failure(newNotification.ErrorMessage!);
-
-        if (newNotification.Data.Length == 0) //Notification already exists
-            return OperationResult<string>.Success(topicName);
-
-        var markResult = await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken);
-        return !markResult.IsSuccessful ? OperationResult<string>.Failure(markResult.ErrorMessage!) : OperationResult<string>.Success(topicName);
     }
 
     /// <inheritdoc />
@@ -132,391 +101,26 @@ public class FileServiceS3Compatible : FileServiceAWS
         if (!IsInitialized || _disposed)
             return OperationResult<int>.Failure("File service is not initialized.");
 
-        if (_memoryService is not { IsInitialized: true })
-            return OperationResult<int>.Failure("Memory service is not initialized.");
-
-        var eventListenConfigsResult = await _memoryService.GetAllElementsOfListAsync(
-            SystemClassMemoryScopeInstance,
-            EventNotificationConfigsListName,
+        return await _monitorBasedPubSub.NotNull().DeleteNotificationsAsync(
+            pubSubService,
+            bucketName,
+            topicName,
             cancellationToken);
-        if (!eventListenConfigsResult.IsSuccessful || eventListenConfigsResult.Data is null)
-            return OperationResult<int>.Failure(eventListenConfigsResult.ErrorMessage!);
-
-        var malformedConfigs = new List<PrimitiveType>();
-        var deleteConfigs = new List<PrimitiveType>();
-        var deleteConfigsParsed = new List<EventNotificationConfig>();
-
-        foreach (var eventListenConfigPt in eventListenConfigsResult.Data)
-        {
-            var eventListenConfig = JsonConvert.DeserializeObject<EventNotificationConfig>(eventListenConfigPt.AsString);
-            if (eventListenConfig == null)
-            {
-                malformedConfigs.Add(eventListenConfigPt);
-                continue;
-            }
-            if (eventListenConfig.BucketName != bucketName)
-                continue;
-
-            if (topicName != null && eventListenConfig.TopicName != topicName)
-                continue;
-
-            deleteConfigs.Add(eventListenConfigPt);
-            deleteConfigsParsed.Add(eventListenConfig);
-        }
-
-        var removeResult = await _memoryService.RemoveElementsFromListAsync(
-            SystemClassMemoryScopeInstance,
-            EventNotificationConfigsListName,
-            deleteConfigs.Union(malformedConfigs),
-            false,
-            cancellationToken);
-        if (!removeResult.IsSuccessful)
-            return OperationResult<int>.Failure(removeResult.ErrorMessage!);
-
-        foreach (var deleteConfig in deleteConfigsParsed)
-        {
-            var unmarkResult = await pubSubService.UnmarkUsedOnBucketEvent(deleteConfig.TopicName, cancellationToken);
-            if (!unmarkResult.IsSuccessful)
-                return OperationResult<int>.Failure(unmarkResult.ErrorMessage!);
-        }
-
-        return OperationResult<int>.Success(deleteConfigs.Count);
     }
 
-    public override async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public override async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName,
+        CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+        if (!IsInitialized || _disposed)
+            return OperationResult<bool>.Failure("File service is not initialized.");
 
         var baseSuccess = await base.CleanupBucketAsync(bucketName, cancellationToken);
 
-        if (_memoryService is not { IsInitialized: true })
-            return baseSuccess;
-
-        //Lock mutex for this operation
-        await using var _ = await MemoryServiceScopeMutex.CreateScopeAsync(
-            _memoryService,
-            ObserveFileServiceAndDispatchEventsMemoryServiceScope,
-            "lock",
-            TimeSpan.FromMinutes(5),
+        var result = await _monitorBasedPubSub.NotNull().CleanupBucketAsync(
+            bucketName,
             cancellationToken);
-
-        await _memoryService.EmptyListAsync(SystemClassMemoryScopeInstance, GetFileStateBucketListName(bucketName), false, cancellationToken);
-
-        return baseSuccess;
-    }
-
-    private static readonly LambdaMemoryServiceScope ObserveFileServiceAndDispatchEventsMemoryServiceScope =
-        new(
-            "CrossCloudKit.File.S3Compatible.FileServiceS3Compatible.ObserveFileServiceAndDispatchEvents");
-
-    private static readonly LambdaMemoryServiceScope SystemClassMemoryScopeInstance =
-        new(
-            "CrossCloudKit.File.S3Compatible.FileServiceS3Compatible");
-
-    private class EventNotificationConfig
-    {
-        public string TopicName = "";
-        public string BucketName = "";
-        public string PathPrefix = "";
-        public List<string> EventTypes = [];
-    }
-    private const string EventNotificationConfigsListName = "notification_events";
-
-    private async Task ObserveFileServiceAndDispatchEvents(CancellationToken cancellationToken = default)
-    {
-        if (_memoryService == null)
-            throw new InvalidOperationException("Memory service is not initialized.");
-        if (_pubSubService == null)
-            throw new InvalidOperationException("Pub/Sub service is not initialized.");
-
-        //Lock mutex for this operation
-        await using var _ = await MemoryServiceScopeMutex.CreateScopeAsync(
-            _memoryService,
-            ObserveFileServiceAndDispatchEventsMemoryServiceScope,
-            "lock",
-            TimeSpan.FromMinutes(5),
-            cancellationToken);
-
-        var elements = await _memoryService.GetAllElementsOfListAsync(
-            SystemClassMemoryScopeInstance,
-            EventNotificationConfigsListName,
-            cancellationToken);
-
-        if (!elements.IsSuccessful || elements.Data == null)
-            throw new InvalidOperationException($"GetAllElementsOfListAsync failed with: {elements.ErrorMessage!}");
-
-        var malformedConfigs = new List<PrimitiveType>();
-        var bucketNameToPathPrefixToConfigs = new Dictionary<string, Dictionary<string, List<EventNotificationConfig>>>();
-
-        foreach (var element in elements.Data)
-        {
-            var eventNotificationConfig = JsonConvert.DeserializeObject<EventNotificationConfig>(element.AsString);
-            if (eventNotificationConfig == null)
-            {
-                malformedConfigs.Add(element);
-                continue;
-            }
-
-            if (!bucketNameToPathPrefixToConfigs.ContainsKey(eventNotificationConfig.BucketName))
-                bucketNameToPathPrefixToConfigs.Add(eventNotificationConfig.BucketName, []);
-            if (!bucketNameToPathPrefixToConfigs[eventNotificationConfig.BucketName].ContainsKey(eventNotificationConfig.PathPrefix))
-                bucketNameToPathPrefixToConfigs[eventNotificationConfig.BucketName].Add(eventNotificationConfig.PathPrefix, []);
-
-            bucketNameToPathPrefixToConfigs[eventNotificationConfig.BucketName][eventNotificationConfig.PathPrefix].Add(eventNotificationConfig);
-        }
-
-        foreach (var (bucketName, pathPrefixToConfigs) in bucketNameToPathPrefixToConfigs)
-        {
-            // Get all files in the bucket (once per bucket, not per path prefix)
-            var allFileKeys = new List<string>();
-            string? continuationToken = null;
-            do
-            {
-                var listResult = await ListFilesAsync(bucketName, new ListFilesOptions()
-                {
-                    ContinuationToken = continuationToken
-                }, cancellationToken);
-
-                if (!listResult.IsSuccessful || listResult.Data == null)
-                {
-                    throw new InvalidOperationException($"ListFilesAsync failed with: {listResult.ErrorMessage!}");
-                }
-
-                allFileKeys.AddRange(listResult.Data.FileKeys);
-                continuationToken = listResult.Data.NextContinuationToken;
-            }
-            while (!string.IsNullOrEmpty(continuationToken));
-
-            // Get previous file states from memory service using list storage
-            var bucketFileStatesListName = GetFileStateBucketListName(bucketName);
-            var previousFileStatesResult = await _memoryService.GetAllElementsOfListAsync(
-                SystemClassMemoryScopeInstance,
-                bucketFileStatesListName,
-                cancellationToken);
-
-            var previousFileStates = new Dictionary<string, FileState>();
-            if (previousFileStatesResult is { IsSuccessful: true, Data: not null })
-            {
-                foreach (var element in previousFileStatesResult.Data)
-                {
-                    var fileStateEntry = JsonConvert.DeserializeObject<FileStateEntry>(element.AsString);
-                    if (fileStateEntry != null)
-                    {
-                        previousFileStates[fileStateEntry.FileKey] = fileStateEntry.State;
-                    }
-                }
-            }
-
-            var currentFileStates = new ConcurrentDictionary<string, FileState>();
-
-            // Get current file states
-            var getMetadataTasks = allFileKeys.Select(fileKey => Task.Run(async () =>
-            {
-                var metadataResult = await GetFileMetadataAsync(bucketName, fileKey, cancellationToken);
-                if (metadataResult is { IsSuccessful: true, Data: not null })
-                {
-                    currentFileStates[fileKey] = new FileState { LastModified = metadataResult.Data.LastModified ?? DateTimeOffset.UtcNow, Size = metadataResult.Data.Size, Exists = true };
-                }
-            }, cancellationToken))
-            .ToList();
-
-            await Task.WhenAll(getMetadataTasks);
-
-            // Detect changes and publish events for each path prefix configuration
-            foreach (var (pathPrefix, configs) in pathPrefixToConfigs)
-            {
-                foreach (var config in configs)
-                {
-                    foreach (var eventType in config.EventTypes)
-                    {
-                        if (!Enum.TryParse(eventType, out FileNotificationEventType eventTypeEnum))
-                            continue;
-
-                        switch (eventTypeEnum)
-                        {
-                            case FileNotificationEventType.Uploaded:
-                                // Check for new or modified files matching the path prefix
-                                foreach (var (fileKey, currentState) in currentFileStates)
-                                {
-                                    if (!fileKey.StartsWith(pathPrefix)) continue;
-
-                                    var isNewFile = !previousFileStates.ContainsKey(fileKey);
-                                    var isModified = !isNewFile &&
-                                                   (previousFileStates[fileKey].LastModified != currentState.LastModified ||
-                                                    previousFileStates[fileKey].Size != currentState.Size);
-
-                                    if (!isNewFile && !isModified) continue;
-                                    var message = JsonConvert.SerializeObject(new
-                                    {
-                                        bucket = bucketName,
-                                        key = fileKey,
-                                        eventType = "Uploaded",
-                                        timestamp = DateTimeOffset.UtcNow.ToString("O"),
-                                        size = currentState.Size,
-                                        lastModified = currentState.LastModified.ToString("O")
-                                    });
-
-                                    await _pubSubService.PublishAsync(config.TopicName, message, cancellationToken);
-                                }
-                                break;
-
-                            case FileNotificationEventType.Deleted:
-                                // Check for deleted files matching the path prefix
-                                foreach (var (fileKey, previousState) in previousFileStates)
-                                {
-                                    if (!fileKey.StartsWith(pathPrefix)) continue;
-
-                                    if (!previousState.Exists || currentFileStates.ContainsKey(fileKey)) continue;
-
-                                    var message = JsonConvert.SerializeObject(new
-                                    {
-                                        bucket = bucketName,
-                                        key = fileKey,
-                                        eventType = "Deleted",
-                                        timestamp = DateTimeOffset.UtcNow.ToString("O")
-                                    });
-
-                                    await _pubSubService.PublishAsync(config.TopicName, message, cancellationToken);
-                                }
-                                break;
-                        }
-                    }
-                }
-            }
-
-            // Update stored file states for the entire bucket (once per bucket)
-            // Use a more efficient update method: only update changed/new files and remove deleted files
-            var filesToRemove = previousFileStates.Keys
-                .Where(key => !currentFileStates.ContainsKey(key))
-                .ToList();
-
-            var filesToUpdate = currentFileStates
-                .Where(kvp => !previousFileStates.ContainsKey(kvp.Key) ||
-                             !AreFileStatesEqual(previousFileStates[kvp.Key], kvp.Value))
-                .ToList();
-
-            // Remove deleted files from storage
-            if (filesToRemove.Count > 0)
-            {
-                var elementsToRemove = filesToRemove.Select(fileKey => new FileStateEntry { FileKey = fileKey, State = previousFileStates[fileKey] }).Select(fileStateEntry => JsonConvert.SerializeObject(fileStateEntry, Formatting.None)).Select(dummy => (PrimitiveType)dummy).ToList();
-
-                var removeResult = await _memoryService.RemoveElementsFromListAsync(
-                    SystemClassMemoryScopeInstance,
-                    bucketFileStatesListName,
-                    elementsToRemove,
-                    false,
-                    cancellationToken);
-                if (!removeResult.IsSuccessful)
-                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeResult.ErrorMessage!}");
-            }
-
-            // Add/update changed files section
-            //
-            if (filesToUpdate.Count <= 0) continue;
-
-            // For updates, we need to remove old entries first, then add new ones
-            var oldElementsToRemove = new List<PrimitiveType>();
-            var newElementsToAdd = new List<PrimitiveType>();
-
-            foreach (var (fileKey, newState) in filesToUpdate)
-            {
-                if (previousFileStates.TryGetValue(fileKey, out var state))
-                {
-                    var oldFileStateEntry = new FileStateEntry { FileKey = fileKey, State = state };
-                    oldElementsToRemove.Add(JsonConvert.SerializeObject(oldFileStateEntry, Formatting.None));
-                }
-
-                var newFileStateEntry = new FileStateEntry { FileKey = fileKey, State = newState };
-                newElementsToAdd.Add(JsonConvert.SerializeObject(newFileStateEntry, Formatting.None));
-            }
-
-            if (oldElementsToRemove.Count > 0)
-            {
-                var removeOldResult = await _memoryService.RemoveElementsFromListAsync(
-                    SystemClassMemoryScopeInstance,
-                    bucketFileStatesListName,
-                    oldElementsToRemove,
-                    false,
-                    cancellationToken);
-                if (!removeOldResult.IsSuccessful)
-                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeOldResult.ErrorMessage!}");
-            }
-
-            var addResult = await _memoryService.PushToListTailAsync(
-                SystemClassMemoryScopeInstance,
-                bucketFileStatesListName,
-                newElementsToAdd,
-                false,
-                false,
-                cancellationToken);
-            if (!addResult.IsSuccessful)
-                throw new InvalidOperationException($"PushToListTailAsync failed with: {addResult.ErrorMessage!}");
-        }
-
-        if (malformedConfigs.Count > 0)
-        {
-            await _memoryService.RemoveElementsFromListAsync(
-                SystemClassMemoryScopeInstance,
-                EventNotificationConfigsListName,
-                malformedConfigs,
-                false,
-                cancellationToken);
-        }
-    }
-
-    private static string GetFileStateBucketListName(string bucketName) => $"file_states_{bucketName}";
-
-    private class FileState
-    {
-        public DateTimeOffset LastModified { get; init; }
-        public long Size { get; init; }
-        public bool Exists { get; init; }
-    }
-
-    private class FileStateEntry
-    {
-        public string FileKey = "";
-        public FileState State = new();
-    }
-
-    private static bool AreFileStatesEqual(FileState state1, FileState state2)
-    {
-        return state1.LastModified == state2.LastModified &&
-               state1.Size == state2.Size &&
-               state1.Exists == state2.Exists;
-    }
-
-    /// <summary>
-    /// Background task that runs continuously while the service instance is alive
-    /// </summary>
-    private async Task RunBackgroundTaskAsync(CancellationToken cancellationToken, int errorRetryCount = 0)
-    {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-
-                await ObserveFileServiceAndDispatchEvents(cancellationToken);
-                errorRetryCount = 0; //Reset
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when cancellation is requested
-        }
-        catch (Exception e)
-        {
-            _errorMessageAction?.Invoke($"Background task error: {e.Message}");
-
-            if (errorRetryCount == 10)
-            {
-                _errorMessageAction?.Invoke($"Background task has been terminated after {errorRetryCount} times of errors occurred.");
-                return;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-            await RunBackgroundTaskAsync(cancellationToken, errorRetryCount + 1);
-        }
+        return !result.IsSuccessful ? baseSuccess : result;
     }
 
     /// <summary>
@@ -526,32 +130,17 @@ public class FileServiceS3Compatible : FileServiceAWS
     {
         try
         {
-            // Cancel the background task
-            await _backgroundTaskCancellationTokenSource.CancelAsync();
-
-            // Wait for the background task to complete (with timeout)
-            await _backgroundTask?.WaitAsync(TimeSpan.FromSeconds(5))!;
+            await _monitorBasedPubSub.NotNull().DisposeAsync();
         }
-        catch
+        catch (Exception)
         {
-            // Ignore exceptions during disposal
+            // ignored
         }
-        finally
-        {
-            try
-            {
-                _backgroundTaskCancellationTokenSource.Dispose();
-            }
-            catch (Exception)
-            {
-                // ignored
-            }
 
-            _disposed = true;
+        _disposed = true;
 
-            await base.DisposeAsync().ConfigureAwait(false);
+        await base.DisposeAsync();
 
-            GC.SuppressFinalize(this);
-        }
+        GC.SuppressFinalize(this);
     }
 }

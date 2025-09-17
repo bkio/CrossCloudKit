@@ -18,8 +18,8 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 
 - **Unified Cloud Interfaces**: Single interfaces for all cloud service categories
 - **Multi-Service Support**:
-  - **Database Services**: AWS DynamoDB, MongoDB, Google Cloud Datastore
-  - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers
+  - **Database Services**: AWS DynamoDB, MongoDB, Google Cloud Datastore, Cross-Process Basic
+  - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers, Cross-Process Basic
   - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
   - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
 - **Type-Safe Operations**: Strongly-typed primitive operations with `PrimitiveType` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
@@ -41,10 +41,12 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | `CrossCloudKit.Database.AWS` | AWS DynamoDB implementation             |
 | `CrossCloudKit.Database.Mongo` | MongoDB implementation                  |
 | `CrossCloudKit.Database.GC` | Google Cloud Datastore implementation   |
+| `CrossCloudKit.Database.Basic` | Cross-process file-based database implementation |
 | **File Storage Services** |                                         |
 | `CrossCloudKit.File.AWS` | AWS S3 file storage implementation      |
 | `CrossCloudKit.File.GC` | Google Cloud Storage implementation     |
 | `CrossCloudKit.File.S3Compatible` | S3-compatible storage providers         |
+| `CrossCloudKit.File.Basic` | Cross-process file-based storage implementation |
 | **PubSub Messaging Services** |                                         |
 | `CrossCloudKit.PubSub.AWS` | AWS SNS/SQS Hybrid implementation       |
 | `CrossCloudKit.PubSub.GC` | Google Cloud Pub/Sub implementation     |
@@ -64,11 +66,13 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 dotnet add package CrossCloudKit.Database.AWS
 dotnet add package CrossCloudKit.Database.Mongo
 dotnet add package CrossCloudKit.Database.GC
+dotnet add package CrossCloudKit.Database.Basic
 
 # File Storage Services
 dotnet add package CrossCloudKit.File.AWS
 dotnet add package CrossCloudKit.File.GC
 dotnet add package CrossCloudKit.File.S3Compatible
+dotnet add package CrossCloudKit.File.Basic
 
 # PubSub Services
 dotnet add package CrossCloudKit.PubSub.AWS
@@ -488,16 +492,20 @@ dotnet test
 dotnet test CrossCloudKit.Database.AWS.Tests
 dotnet test CrossCloudKit.Database.Mongo.Tests
 dotnet test CrossCloudKit.Database.GC.Tests
+dotnet test CrossCloudKit.Database.Basic.Tests
 
 dotnet test CrossCloudKit.File.AWS.Tests
 dotnet test CrossCloudKit.File.GC.Tests
 dotnet test CrossCloudKit.File.S3Compatible.Tests
+dotnet test CrossCloudKit.File.Basic.Tests
 
 dotnet test CrossCloudKit.PubSub.AWS.Tests
 dotnet test CrossCloudKit.PubSub.GC.Tests
 dotnet test CrossCloudKit.PubSub.Redis.Tests
+dotnet test CrossCloudKit.PubSub.Basic.Tests
 
 dotnet test CrossCloudKit.Memory.Redis.Tests
+dotnet test CrossCloudKit.Memory.Basic.Tests
 ```
 
 ### Test Configuration
@@ -553,7 +561,7 @@ REDIS_PASSWORD=your-redis-password
 │ AWS DynamoDB     │    AWS S3        │   AWS SNS/SQS    │     Redis Memory           │
 │ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)        │
 │ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │     Basic Memory           │
-│                  │                  │ Basic Cross-Proc │  (Cross-Proc, Lists)       │
+│ Basic File-Based │ Basic File-Based │ Basic Cross-Proc │  (Cross-Proc, Lists)       │
 ├──────────────────┴──────────────────┴──────────────────┴────────────────────────────┤
 │                            CrossCloudKit.Utilities.Common                           │
 │                   (PrimitiveType, OperationResult, etc.)                            │
@@ -644,6 +652,24 @@ REDIS_PASSWORD=your-redis-password
 - Automatic file cleanup and expiration handling
 - No external dependencies required (perfect for development and single-machine deployments)
 
+#### Basic Database Service
+- File-based JSON document storage with cross-process synchronization
+- Full CRUD operations with atomic updates and conditional operations
+- Cross-process mutex locking using memory service for data consistency
+- Support for complex queries, filtering, and pagination
+- Automatic file organization with table-based directory structure
+- Type-safe key handling for strings, numbers, and binary data
+- No external dependencies beyond memory service (perfect for development and testing)
+
+#### Basic File Service
+- Local file system storage with metadata support
+- Cross-process file operations with mutex synchronization
+- Support for signed URLs via ASP.NET Core endpoint registration
+- File upload/download with streaming and partial content support
+- Metadata persistence with tags and custom properties support
+- Automatic cleanup of expired signed URL tokens
+- Optional web integration for HTTP-based file access
+
 ### PubSub Services
 
 #### Basic Pub/Sub Service
@@ -660,16 +686,27 @@ REDIS_PASSWORD=your-redis-password
 
 ```csharp
 // Switch between providers seamlessly
-IDatabaseService dbService = useAws
-    ? new DatabaseServiceAWS(/*Parameters*/) : new DatabaseServiceMongoDB(/*Parameters*/);
-IFileService fileService = useGcp
-    ? new FileServiceGC(/*Parameters*/) : new FileServiceAWS(/*Parameters*/);
+IDatabaseService dbService = useCloud switch
+{
+    "aws" => new DatabaseServiceAWS(/*Parameters*/),
+    "mongo" => new DatabaseServiceMongoDB(/*Parameters*/),
+    "gcp" => new DatabaseServiceGC(/*Parameters*/),
+    _ => new DatabaseServiceBasic(/*Parameters*/) // Local fallback
+};
+
+IFileService fileService = useCloud switch
+{
+    "aws" => new FileServiceAWS(/*Parameters*/),
+    "gcp" => new FileServiceGC(/*Parameters*/),
+    "s3" => new FileServiceS3Compatible(/*Parameters*/),
+    _ => new FileServiceBasic(/*Parameters*/) // Local fallback
+};
 
 // Use Basic implementations for development or single-machine multi-process deployments
 IMemoryService memoryService = useRedis
-    ? new MemoryServiceRedis(/*Parameters*/) : new MemoryServiceBasic();
+    ? new MemoryServiceRedis(/*Parameters*/) : new MemoryServiceBasic(/*Parameters*/);
 IPubSubService pubSubService = useCloud
-    ? new PubSubServiceAWS(/*Parameters*/) : new PubSubServiceBasic();
+    ? new PubSubServiceAWS(/*Parameters*/) : new PubSubServiceBasic(/*Parameters*/);
 ```
 
 

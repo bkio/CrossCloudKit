@@ -321,7 +321,7 @@ public static class JsonUtilities
             return false;
 
         if (vToken.Type != JTokenType.Boolean)
-            return vToken.Type == JTokenType.String && bool.TryParse((string)vToken!, out value);
+            return vToken.Type == JTokenType.String && bool.TryParse(vToken.Value<string>(), out value);
 
         value = (bool)vToken;
         return true;
@@ -513,7 +513,7 @@ public static class JsonUtilities
             {
                 if (t.Type != JTokenType.String)
                     return false;
-                var tStr = (string)t!;
+                var tStr = t.Value<string>().NotNull();
                 value.Add((T)(object)tStr);
             }
         }

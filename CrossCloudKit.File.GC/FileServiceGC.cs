@@ -759,7 +759,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
             return OperationResult<string>.Failure("Google Storage client is not initialized");
         }
 
-        topicName = EncodingUtilities.EncodeTopic(topicName)!;
+        topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
         var fullTopicName = $"//pubsub.googleapis.com/projects/{_projectId}/topics/{topicName}";
 
@@ -888,7 +888,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
                     if (!deleteFileResult.IsSuccessful)
                     {
                         success = false;
-                        errorMessages.Add(deleteFileResult.ErrorMessage!);
+                        errorMessages.Add(deleteFileResult.ErrorMessage.NotNull());
                     }
                 }
             }

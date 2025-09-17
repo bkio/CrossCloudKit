@@ -3,6 +3,7 @@
 
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace CrossCloudKit.Utilities.Common;
@@ -90,7 +91,7 @@ public static class FileSystemUtilities
         {
             var directoryInfo = new DirectoryInfo(directoryPath);
             return BuildDirectoryTree(null, directoryInfo);
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     private static DirectoryTreeNode BuildDirectoryTree(DirectoryTreeNode? parent, DirectoryInfo directoryInfo)
@@ -250,6 +251,54 @@ public static class FileSystemUtilities
     }
 
     /// <summary>
+    /// Writes the specified content to a file and ensures it is fully flushed to disk.
+    /// </summary>
+    /// <param name="content">The string content to write to the file.</param>
+    /// <param name="filePath">The full path of the file to write.</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation.</param>
+    /// <remarks>
+    /// This method writes the content using UTF-8 encoding, flushes both the .NET stream buffers
+    /// and the OS buffers to ensure the data is persisted to disk. It uses <see cref="FileOptions.WriteThrough"/>
+    /// to bypass OS-level caching where possible.
+    /// </remarks>
+    /// <exception cref="IOException">Thrown if an I/O error occurs.</exception>
+    /// <exception cref="OperationCanceledException">Thrown if the operation is canceled via <paramref name="cancellationToken"/>.</exception>
+    public static async Task WriteToFileEnsureWrittenToDiskAsync(string content, string filePath, CancellationToken cancellationToken = default)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        await using var fs = new FileStream(
+            filePath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 4096,
+            FileOptions.WriteThrough);
+        await fs.WriteAsync(bytes, cancellationToken);
+        await fs.FlushAsync(cancellationToken);       // flush .NET buffers
+        fs.Flush(true);   // flush OS buffers to disk
+    }
+
+    /// <summary>
+    /// Writes the specified content to a file and ensures it is fully flushed to disk.
+    /// This is a synchronous wrapper around <see cref="WriteToFileEnsureWrittenToDisk"/>.
+    /// </summary>
+    /// <param name="content">The string content to write to the file.</param>
+    /// <param name="filePath">The full path of the file to write.</param>
+    /// <remarks>
+    /// This method blocks the calling thread until the write operation is complete.
+    /// It ensures that both .NET buffers and OS buffers are flushed to disk for durability.
+    /// </remarks>
+    /// <exception cref="IOException">Thrown if an I/O error occurs.</exception>
+    /// <exception cref="AggregateException">
+    /// Thrown if the underlying asynchronous operation throws an exception. The original exception
+    /// can be accessed via <see cref="AggregateException.InnerException"/>.
+    /// </exception>
+    public static void WriteToFileEnsureWrittenToDisk(string content, string filePath)
+    {
+        WriteToFileEnsureWrittenToDiskAsync(content, filePath, CancellationToken.None).Wait();
+    }
+
+    /// <summary>
     /// Checks if a filename is reserved on Windows
     /// </summary>
     private static bool IsReservedFileName(string fileName)
@@ -266,5 +315,73 @@ public static class FileSystemUtilities
 
         var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
         return reservedNames.Contains(nameWithoutExtension.ToUpperInvariant());
+    }
+
+    /// <summary>
+    /// Deletes a file if it exists and recursively deletes its parent directories
+    /// if they become empty, stopping when the specified parent folder is reached.
+    /// </summary>
+    /// <param name="filePath">The full path of the file to delete.</param>
+    /// <param name="untilParentFolderName">
+    /// The name of the parent folder at which to stop cleanup.
+    /// This folder will not be deleted, even if empty.
+    /// </param>
+    /// <returns>
+    /// True if the file was deleted (or did not exist but cleanup ran successfully),
+    /// false if an error occurred.
+    /// </returns>
+    public static bool DeleteFileAndCleanupParentFolders(string filePath, string untilParentFolderName)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+
+            return CleanupEmptyParentDirectories(Path.GetDirectoryName(filePath).NotNull(), untilParentFolderName);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Recursively deletes empty parent directories until reaching a specified parent folder.
+    /// </summary>
+    /// <param name="directory">The directory to check for emptiness.</param>
+    /// <param name="untilParentFolderName">
+    /// The name of the parent folder at which to stop cleanup.
+    /// This folder will not be deleted.
+    /// </param>
+    /// <returns>
+    /// True if cleanup completed without errors, false otherwise.
+    /// </returns>
+    private static bool CleanupEmptyParentDirectories(string? directory, string untilParentFolderName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(directory))
+                return true;
+
+            var dirInfo = new DirectoryInfo(directory);
+
+            // Stop if we reached the designated parent folder
+            if (dirInfo.Name.Equals(untilParentFolderName, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (dirInfo.Exists && dirInfo.GetFileSystemInfos().Length == 0)
+            {
+                dirInfo.Delete();
+
+                // Recurse upwards
+                return CleanupEmptyParentDirectories(dirInfo.Parent?.FullName, untilParentFolderName);
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

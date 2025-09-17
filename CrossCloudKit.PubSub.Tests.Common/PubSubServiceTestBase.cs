@@ -497,6 +497,15 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
         finally
         {
+            try
+            {
+                await service.UnmarkUsedOnBucketEvent(topic);
+            }
+            catch (Exception)
+            {
+                // Ignore
+            }
+
             // Cleanup
             await service.DeleteTopicAsync(topic);
         }
@@ -560,11 +569,27 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
             }
             finally
             {
+                try
+                {
+                    await service.UnmarkUsedOnBucketEvent(topic2);
+                }
+                catch (Exception)
+                {
+                    // Ignore
+                }
                 await service.DeleteTopicAsync(topic2);
             }
         }
         finally
         {
+            try
+            {
+                await service.UnmarkUsedOnBucketEvent(topic1);
+            }
+            catch (Exception)
+            {
+                // Ignore
+            }
             await service.DeleteTopicAsync(topic1);
         }
     }
@@ -594,6 +619,15 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         }
         finally
         {
+            try
+            {
+                await service.UnmarkUsedOnBucketEvent(topic);
+            }
+            catch (Exception)
+            {
+                // Ignore
+            }
+
             // Cleanup
             await service.DeleteTopicAsync(topic);
         }

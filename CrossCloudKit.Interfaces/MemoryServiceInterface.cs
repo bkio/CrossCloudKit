@@ -123,14 +123,13 @@ public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task LockAsync()
     {
-        string? lockId;
-        do
+        while (!_cancellationToken.IsCancellationRequested)
         {
             var lockResult = await _memoryService.MemoryMutexLock(_memoryScope, _mutexValue, _timeToLive, _cancellationToken);
             if (!lockResult.IsSuccessful)
                 throw new Exception($"Memory service - Lock failed with: {lockResult.ErrorMessage}");
 
-            lockId = lockResult.Data;
+            var lockId = lockResult.Data;
             if (lockId != null)
             {
                 _lockId = lockId;
@@ -139,7 +138,10 @@ public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
 
             // Backoff before retrying
             await Task.Delay(100, _cancellationToken);
-        } while (!_cancellationToken.IsCancellationRequested && lockId == null);
+        }
+
+        // If we exit the loop, cancellation was requested
+        _cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>
@@ -153,7 +155,6 @@ public sealed class MemoryServiceScopeMutex : IDisposable, IAsyncDisposable
         var unlockResult = await _memoryService.MemoryMutexUnlock(_memoryScope, _mutexValue, _lockId, _cancellationToken);
         if (!unlockResult.IsSuccessful)
         {
-            // Consider logging instead of throwing here
             throw new Exception($"Memory service - Unlock failed with: {unlockResult.ErrorMessage}");
         }
 

@@ -24,10 +24,12 @@ public sealed class MemoryServiceBasic : IMemoryService
     private readonly Timer _cleanupTimer;
     private bool _disposed;
 
+    private const string RootFolderName = "CrossCloudKit.Memory.Basic";
+
     public MemoryServiceBasic(IPubSubService? pubSubService = null)
     {
         _pubSubService = pubSubService;
-        _storageDirectory = Path.Combine(Path.GetTempPath(), "CrossCloudKit.Memory.Basic");
+        _storageDirectory = Path.Combine(Path.GetTempPath(), RootFolderName);
         Directory.CreateDirectory(_storageDirectory);
 
         // Start background cleanup every 5 minutes
@@ -71,12 +73,21 @@ public sealed class MemoryServiceBasic : IMemoryService
             // Check if mutex already exists and is not expired
             if (mutexData.TryGetValue(lockKey, out var existingMutex))
             {
-                if (existingMutex.ExpiryTime > DateTime.UtcNow)
+                var isExistingMutexSameOwner = existingMutex.LockId == lockId;
+                if (existingMutex.ExpiryTime <= DateTime.UtcNow
+                    || isExistingMutexSameOwner)
+                {
+                    // Remove the expired lock
+                    mutexData.Remove(lockKey);
+
+                    // Cancel expiration timer
+                    if (_expirationTimers.TryRemove(lockKey, out var expiredTimer))
+                        expiredTimer.Dispose();
+                }
+                else if (!isExistingMutexSameOwner)
                 {
                     return Task.FromResult(OperationResult<string?>.Success(null)); // Lock already taken
                 }
-                // Remove the expired lock
-                mutexData.Remove(lockKey);
             }
 
             // Acquire the lock
@@ -365,7 +376,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken).ConfigureAwait(false);
+                    keyValueArray.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken);
             }
 
             return OperationResult<bool>.Success(true);
@@ -429,7 +440,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (addedSuccessfully && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken).ConfigureAwait(false);
+                    new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken);
             }
 
             return OperationResult<(bool newlySet, PrimitiveType? value)>.Success((addedSuccessfully, existingValue));
@@ -561,7 +572,7 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             if (wasRemoved && publishChange && _pubSubService is not null)
             {
-                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken).ConfigureAwait(false);
+                await PublishChangeNotificationAsync(_pubSubService, memoryScope, "DeleteKey", key, cancellationToken);
             }
 
             return OperationResult<bool>.Success(wasRemoved);
@@ -602,7 +613,7 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             if (wasRemoved && publishChange && _pubSubService is not null)
             {
-                await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null, cancellationToken).ConfigureAwait(false);
+                await PublishChangeNotificationAsync<string>(_pubSubService, memoryScope, "DeleteAllKeys", null, cancellationToken);
             }
 
             return OperationResult<bool>.Success(wasRemoved);
@@ -705,7 +716,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (result.Count > 0 && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    result.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken).ConfigureAwait(false);
+                    result.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken);
             }
 
             return OperationResult<Dictionary<string, long>>.Success(result);
@@ -745,7 +756,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    new Dictionary<string, PrimitiveType> { [key] = new(newValue) }, cancellationToken).ConfigureAwait(false);
+                    new Dictionary<string, PrimitiveType> { [key] = new(newValue) }, cancellationToken);
             }
 
             return OperationResult<long>.Success(newValue);
@@ -797,7 +808,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListTail",
-                    new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, Values = valueArray }, cancellationToken);
             }
 
             return OperationResult<bool>.Success(true);
@@ -847,7 +858,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListHead",
-                    new { ListName = listName, Values = valueArray }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, Values = valueArray }, cancellationToken);
             }
 
             return OperationResult<bool>.Success(true);
@@ -902,7 +913,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (addedValues.Count > 0 && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PushToListTailIfNotExists",
-                    new { ListName = listName, Values = addedValues }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, Values = addedValues }, cancellationToken);
             }
 
             return OperationResult<PrimitiveType[]>.Success(addedValues.ToArray());
@@ -944,7 +955,7 @@ public sealed class MemoryServiceBasic : IMemoryService
                 if (publishChange && _pubSubService is not null)
                 {
                     await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PopLastElementOfList",
-                        new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+                        new { ListName = listName, Value = poppedValue }, cancellationToken);
                 }
 
                 return OperationResult<PrimitiveType?>.Success(poppedValue);
@@ -990,7 +1001,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (poppedValue != null && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "PopFirstElementOfList",
-                    new { ListName = listName, Value = poppedValue }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, Value = poppedValue }, cancellationToken);
             }
 
             return OperationResult<PrimitiveType?>.Success(poppedValue);
@@ -1040,7 +1051,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (removedValues.Count > 0 && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "RemoveElementsFromList",
-                    new { ListName = listName, Values = removedValues }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, Values = removedValues }, cancellationToken);
             }
 
             return OperationResult<IEnumerable<PrimitiveType?>>.Success(removedValues);
@@ -1119,7 +1130,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (wasNotEmpty && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "EmptyList",
-                    new { ListName = listName }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName }, cancellationToken);
             }
 
             return OperationResult<bool>.Success(wasNotEmpty);
@@ -1181,7 +1192,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (clearedAny && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "EmptyListAndSublists",
-                    new { ListName = listName, SublistPrefix = sublistPrefix, ClearedLists = clearedLists }, cancellationToken).ConfigureAwait(false);
+                    new { ListName = listName, SublistPrefix = sublistPrefix, ClearedLists = clearedLists }, cancellationToken);
             }
 
             return OperationResult<bool>.Success(clearedAny);
@@ -1405,8 +1416,15 @@ public sealed class MemoryServiceBasic : IMemoryService
     private void SaveStoredData(string scope, StoredData data)
     {
         var filePath = GetScopeFilePath(scope);
+        if ((data.ExpiryTime.HasValue && data.ExpiryTime <= DateTime.UtcNow)
+            || (!data.ExpiryTime.HasValue && data.KeyValues.Count == 0
+                                          && (data.Lists.Count == 0 || data.Lists.Values.All(d => d.Count == 0))))
+        {
+            File.Delete(filePath);
+            return;
+        }
         var json = JsonConvert.SerializeObject(data, Formatting.None);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
     }
 
     private Dictionary<string, MutexLockData> GetOrCreateMutexData(string scope)
@@ -1442,8 +1460,13 @@ public sealed class MemoryServiceBasic : IMemoryService
     private void SaveMutexData(string scope, Dictionary<string, MutexLockData> data)
     {
         var filePath = GetScopeFilePath(scope, "_mutex");
+        if (data.Count == 0)
+        {
+            File.Delete(filePath);
+            return;
+        }
         var json = JsonConvert.SerializeObject(data, Formatting.None);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
     }
 
     private static async Task PublishChangeNotificationAsync<T>(IPubSubService? pubSubService,
@@ -1468,7 +1491,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             };
 
             var message = JsonConvert.SerializeObject(notification);
-            await pubSubService.PublishAsync(scope, message, cancellationToken).ConfigureAwait(false);
+            await pubSubService.PublishAsync(scope, message, cancellationToken);
         }
         catch (Exception)
         {

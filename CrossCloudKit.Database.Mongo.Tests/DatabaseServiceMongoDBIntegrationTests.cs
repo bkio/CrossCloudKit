@@ -6,7 +6,6 @@ using CrossCloudKit.Interfaces;
 using FluentAssertions;
 using MongoDB.Driver;
 using xRetry;
-using Xunit;
 
 namespace CrossCloudKit.Database.Mongo.Tests;
 

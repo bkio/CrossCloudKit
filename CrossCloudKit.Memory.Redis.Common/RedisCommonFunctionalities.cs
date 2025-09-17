@@ -89,7 +89,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
             _errorMessageAction?.Invoke($"Initializing Redis connection to {_options.Host}:{_options.Port}");
 
-            RedisConnection = await ConnectionMultiplexer.ConnectAsync(_redisConfig).ConfigureAwait(false);
+            RedisConnection = await ConnectionMultiplexer.ConnectAsync(_redisConfig);
             Initialized = RedisConnection.IsConnected;
 
             if (Initialized)
@@ -132,14 +132,14 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (Initialized && RedisConnection is { IsConnected: true })
             return true;
 
-        await _connectionSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _connectionSemaphore.WaitAsync(cancellationToken);
         try
         {
             if (Initialized && RedisConnection is { IsConnected: true })
                 return true;
 
             _errorMessageAction?.Invoke("Attempting to reconnect to Redis");
-            await InitializeConnectionAsync().ConfigureAwait(false);
+            await InitializeConnectionAsync();
 
             return Initialized;
         }
@@ -187,7 +187,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (RedisConnection == null)
             return OperationResult<T>.Failure("Redis connection is not initialized");
 
-        if (!await EnsureConnectionAsync(cancellationToken).ConfigureAwait(false))
+        if (!await EnsureConnectionAsync(cancellationToken))
         {
             return OperationResult<T>.Failure("Redis connection is not available");
         }
@@ -198,7 +198,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             try
             {
-                return OperationResult<T>.Success(await operation(database).ConfigureAwait(false));
+                return OperationResult<T>.Success(await operation(database));
             }
             catch (Exception ex)
             {
@@ -214,17 +214,17 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             try
             {
-                return OperationResult<T>.Success(await operation(database).ConfigureAwait(false));
+                return OperationResult<T>.Success(await operation(database));
             }
             catch (Exception ex) when (IsRetriableException(ex) && attempts < maxAttempts - 1)
             {
                 attempts++;
                 lastException = ex;
 
-                await Task.Delay(_options.RetryDelay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(_options.RetryDelay, cancellationToken);
 
                 // Try to ensure connection is still valid
-                if (!await EnsureConnectionAsync(cancellationToken).ConfigureAwait(false))
+                if (!await EnsureConnectionAsync(cancellationToken))
                 {
                     return OperationResult<T>.Failure("Redis connection lost and could not be restored");
                 }
@@ -278,7 +278,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             };
 
             var message = JsonConvert.SerializeObject(notification);
-            return await pubSubService.PublishAsync(scope, message, cancellationToken).ConfigureAwait(false);
+            return await pubSubService.PublishAsync(scope, message, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -316,33 +316,33 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                     ? transaction.ListRightPushAsync(listKey, redisValues)
                     : transaction.ListLeftPushAsync(listKey, redisValues);
 
-                var committed = await transaction.ExecuteAsync().ConfigureAwait(false);
+                var committed = await transaction.ExecuteAsync();
                 success = committed;
             }
             else
             {
                 var count = toTail
-                    ? await database.ListRightPushAsync(listKey, redisValues).ConfigureAwait(false)
-                    : await database.ListLeftPushAsync(listKey, redisValues).ConfigureAwait(false);
+                    ? await database.ListRightPushAsync(listKey, redisValues)
+                    : await database.ListLeftPushAsync(listKey, redisValues);
                 success = count > 0;
             }
 
             if (!success) return false;
 
-            var ttl = await database.KeyTimeToLiveAsync(scope).ConfigureAwait(false);
+            var ttl = await database.KeyTimeToLiveAsync(scope);
             if (ttl.HasValue)
             {
-                await database.KeyExpireAsync(listKey, ttl.Value).ConfigureAwait(false);
+                await database.KeyExpireAsync(listKey, ttl.Value);
             }
             return true;
 
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null)
         {
             var operation = toTail ? "PushToListTail" : "PushToListHead";
             await PublishChangeNotificationAsync(pubSubService, memoryScope, operation,
-                new { List = listName, Pushed = valueArray }, cancellationToken).ConfigureAwait(false);
+                new { List = listName, Pushed = valueArray }, cancellationToken);
         }
 
         return result;
@@ -402,11 +402,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             var scriptResult = await database.ScriptEvaluateAsync(script,
                 [listKey, scope],
-                redisValues).ConfigureAwait(false);
+                redisValues);
 
-            var pushedRedisValues = (RedisValue[])scriptResult!;
+            var pushedRedisValues = ((RedisValue[]?)scriptResult).NotNull();
             return pushedRedisValues.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>().ToArray();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (!result.IsSuccessful || result.Data == null)
             return OperationResult<PrimitiveType[]>.Failure($"Redis operation failed: {result.ErrorMessage}");
@@ -414,7 +414,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (result.IsSuccessful && publishChange && pubSubService is not null && result.Data.Length != 0)
         {
             await PublishChangeNotificationAsync(pubSubService, memoryScope, "PushToListTailIfNotExists",
-                new { List = listName, Pushed = result.Data }, cancellationToken).ConfigureAwait(false);
+                new { List = listName, Pushed = result.Data }, cancellationToken);
         }
 
         return result;
@@ -430,8 +430,8 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         var listKey = BuildListKey(memoryScope, listName);
 
         var poppedValue = await ExecuteRedisOperationAsync(async database => fromTail
-            ? await database.ListRightPopAsync(listKey).ConfigureAwait(false)
-            : await database.ListLeftPopAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            ? await database.ListRightPopAsync(listKey)
+            : await database.ListLeftPopAsync(listKey), cancellationToken);
 
         if (!poppedValue.IsSuccessful)
             return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(1): {poppedValue.ErrorMessage}");
@@ -444,7 +444,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             var operation = fromTail ? "PopLastElementOfList" : "PopFirstElementOfList";
             await PublishChangeNotificationAsync(pubSubService, memoryScope, operation,
-                new { List = listName, Popped = primitiveValue }, cancellationToken).ConfigureAwait(false);
+                new { List = listName, Popped = primitiveValue }, cancellationToken);
         }
 
         return OperationResult<PrimitiveType?>.Success(primitiveValue);
@@ -475,12 +475,12 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             var res = await Task.WhenAll(tasks);
             return res.Where(r => r.hasRemoved).Select(s => s.redisValue).Select(ConvertRedisValueToPrimitiveType);
 
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null)
         {
             await PublishChangeNotificationAsync(pubSubService, memoryScope, "RemoveElementsFromList",
-                new { List = listName, Removed = valueArray }, cancellationToken).ConfigureAwait(false);
+                new { List = listName, Removed = valueArray }, cancellationToken);
         }
 
         return result;
@@ -494,7 +494,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            var values = await database.ListRangeAsync(listKey).ConfigureAwait(false);
+            var values = await database.ListRangeAsync(listKey);
             if (values.Length == 0)
                 return new List<PrimitiveType>(0).AsReadOnly();
 
@@ -502,7 +502,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             result.AddRange(values.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>());
 
             return result.AsReadOnly();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
     }
     protected async Task<OperationResult<bool>> Common_EmptyListAsync(
         IMemoryServiceScope memoryScope,
@@ -513,11 +513,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var listKey = BuildListKey(memoryScope, listName);
 
-        var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        var result = await ExecuteRedisOperationAsync(async database => await database.KeyDeleteAsync(listKey), cancellationToken);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null)
         {
-            await PublishChangeNotificationAsync(pubSubService, memoryScope, "EmptyList", new { List = listName }, cancellationToken).ConfigureAwait(false);
+            await PublishChangeNotificationAsync(pubSubService, memoryScope, "EmptyList", new { List = listName }, cancellationToken);
         }
 
         return result;
@@ -543,10 +543,10 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             await database.ScriptEvaluateAsync(script,
                 [BuildListKey(scope, listName)],
-                [BuildListKey(scope, sublistPrefix)]).ConfigureAwait(false);
+                [BuildListKey(scope, sublistPrefix)]);
 
             return ValueTask.CompletedTask;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
 
         if (!result.IsSuccessful)
             return OperationResult<bool>.Failure($"Redis operation failed: {result.ErrorMessage}");
@@ -554,7 +554,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         if (publishChange && pubSubService is not null)
         {
             await PublishChangeNotificationAsync(pubSubService, memoryScope, "EmptyListAndSublists",
-                new { List = listName, SublistPrefix = sublistPrefix }, cancellationToken).ConfigureAwait(false);
+                new { List = listName, SublistPrefix = sublistPrefix }, cancellationToken);
         }
 
         return OperationResult<bool>.Success(true);
@@ -566,7 +566,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var listKey = BuildListKey(memoryScope, listName);
 
-        return await ExecuteRedisOperationAsync(async database => await database.ListLengthAsync(listKey).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        return await ExecuteRedisOperationAsync(async database => await database.ListLengthAsync(listKey), cancellationToken);
     }
 
     /// <summary>
@@ -579,7 +579,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             RedisConnection.ConnectionFailed -= OnConnectionFailed;
             RedisConnection.ConnectionRestored -= OnConnectionRestored;
 
-            await RedisConnection.DisposeAsync().ConfigureAwait(false);
+            await RedisConnection.DisposeAsync();
         }
 
         _connectionSemaphore.Dispose();
@@ -592,7 +592,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         PrimitiveType value,
         CancellationToken cancellationToken = default)
     {
-        var elements = await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken).ConfigureAwait(false);
+        var elements = await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken);
         if (!elements.IsSuccessful || elements.Data == null)
             return OperationResult<bool>.Failure($"Redis operation failed: {elements.ErrorMessage}");
         return OperationResult<bool>.Success(elements.Data.Any(element => element.Equals(value)));

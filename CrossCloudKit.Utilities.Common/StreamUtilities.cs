@@ -22,7 +22,7 @@ public static class StreamUtilities
         }
 
         await using var buffer = new MemoryTributary();
-        await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+        await stream.CopyToAsync(buffer, cancellationToken);
         return buffer.ToArray();
     }
 

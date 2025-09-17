@@ -127,7 +127,7 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
         {
             try
             {
-                _lastMemoryInfo = await GetMemoryInfoAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
+                _lastMemoryInfo = await GetMemoryInfoAsync(_cancellationTokenSource.Token);
             }
             catch (Exception ex)
             {
@@ -152,10 +152,10 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _semaphore.WaitAsync(cancellationToken);
         try
         {
-            return await Task.Run(GetMemoryInfoInternal, cancellationToken).ConfigureAwait(false);
+            return await Task.Run(GetMemoryInfoInternal, cancellationToken);
         }
         finally
         {
@@ -233,7 +233,7 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
         {
             try
             {
-                await GetMemoryInfoAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
+                await GetMemoryInfoAsync(_cancellationTokenSource.Token);
             }
             catch (OperationCanceledException)
             {
@@ -284,7 +284,7 @@ public sealed class PerformanceMonitor : IDisposable, IAsyncDisposable
 
             if (_updateTimer is not null)
             {
-                await _updateTimer.DisposeAsync().ConfigureAwait(false);
+                await _updateTimer.DisposeAsync();
             }
 
             _semaphore.Dispose();
@@ -363,7 +363,7 @@ public static class PerformanceInfo
             Default.ErrorHandler = errorHandler;
         }
 
-        return await Default.GetMemoryInfoAsync(cancellationToken).ConfigureAwait(false);
+        return await Default.GetMemoryInfoAsync(cancellationToken);
     }
 
     /// <summary>

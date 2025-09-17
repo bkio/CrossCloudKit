@@ -21,7 +21,7 @@ public static class CryptographyUtilities
     public static async Task<string> CalculateFileSha256Async(string filePath, CancellationToken cancellationToken = default)
     {
         await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
-        return await CalculateStreamSha256Async(fileStream, cancellationToken).ConfigureAwait(false);
+        return await CalculateStreamSha256Async(fileStream, cancellationToken);
     }
 
     /// <summary>
@@ -42,7 +42,7 @@ public static class CryptographyUtilities
             }
 
             using var sha256 = SHA256.Create();
-            var hashBytes = await sha256.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
+            var hashBytes = await sha256.ComputeHashAsync(stream, cancellationToken);
             return Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
         finally
@@ -77,7 +77,7 @@ public static class CryptographyUtilities
     public static async Task<string> CalculateFileMd5Async(string filePath, CancellationToken cancellationToken = default)
     {
         await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
-        return await CalculateStreamMd5Async(fileStream, cancellationToken).ConfigureAwait(false);
+        return await CalculateStreamMd5Async(fileStream, cancellationToken);
     }
 
     /// <summary>
@@ -99,7 +99,7 @@ public static class CryptographyUtilities
             }
 
             using var md5 = MD5.Create();
-            var hashBytes = await md5.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
+            var hashBytes = await md5.ComputeHashAsync(stream, cancellationToken);
             return Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
         finally

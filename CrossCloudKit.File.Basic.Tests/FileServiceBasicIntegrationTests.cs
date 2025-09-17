@@ -23,21 +23,31 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
     {
         _webApp = CreateWebApplication();
 
-        // Start the web application in the background
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _webApp.RunAsync();
-            }
-            catch (Exception ex)
-            {
-                _testOutputHelper.WriteLine($"Web application error: {ex.Message}");
-            }
-        });
+        using var waitEvent = new ManualResetEvent(false);
 
-        // Wait a bit for the server to start
-        Thread.Sleep(1000);
+        if (_webApp != null)
+        {
+            // Start the web application in the background
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // ReSharper disable once AccessToDisposedClosure
+                    waitEvent.Set();
+
+                    await _webApp.RunAsync();
+                }
+                catch (Exception)
+                {
+                    _webApp = null;
+                }
+            });
+        }
+
+        waitEvent.WaitOne();
+
+        // Wait a bit for the server to be ready
+        Task.Delay(1000).Wait();
 
         return new FileServiceBasic(
             memoryService: CreateMemoryService(),
@@ -46,23 +56,31 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
             publicEndpointBaseForSignedUrls: TestBaseUrl);
     }
 
-    private WebApplication CreateWebApplication()
+    private WebApplication? CreateWebApplication()
     {
-        var builder = WebApplication.CreateBuilder();
+        WebApplication? app;
+        try
+        {
+            var builder = WebApplication.CreateBuilder();
 
-        // Configure to listen on specific port
-        builder.WebHost.UseUrls(TestBaseUrl);
+            // Configure to listen on specific port
+            builder.WebHost.UseUrls(TestBaseUrl);
 
-        // Add minimal services needed
-        builder.Services.AddEndpointsApiExplorer();
+            // Add minimal services needed
+            builder.Services.AddEndpointsApiExplorer();
 
-        var app = builder.Build();
+            app = builder.Build();
 
-        // Add a simple health check endpoint for testing
-        app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+            // Add a simple health check endpoint for testing
+            app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-        _testOutputHelper.WriteLine($"Created web application listening on {TestBaseUrl}");
+            _testOutputHelper.WriteLine($"Created web application listening on {TestBaseUrl}");
 
+        }
+        catch (Exception)
+        {
+            app = null;
+        }
         return app;
     }
 

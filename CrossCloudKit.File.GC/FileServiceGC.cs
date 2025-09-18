@@ -872,6 +872,7 @@ public sealed class FileServiceGC : IFileService, IAsyncDisposable
         return OperationResult<int>.Success(deletedCount);
     }
 
+    /// <inheritdoc />
     public async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");

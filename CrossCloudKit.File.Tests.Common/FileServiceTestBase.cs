@@ -298,7 +298,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
     public virtual async Task CreateSignedUploadUrlAsync_ShouldCreateSignedUploadUrl()
     {
         var service = CreateFileService();
-        if (IsFileServiceBasic(service)) return; //Manually tested and verified. Github actions do not support http server creation.
+        if (IsFileServiceBasicAndHttpServerFailedToBeCreated()) return;
 
         var bucket = GetTestBucketName();
         try
@@ -334,7 +334,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
     public virtual async Task CreateSignedDownloadUrlAsync_ShouldCreateSignedDownloadUrl()
     {
         var service = CreateFileService();
-        if (IsFileServiceBasic(service)) return; //Manually tested and verified. Github actions do not support http server creation.
+        if (IsFileServiceBasicAndHttpServerFailedToBeCreated()) return;
         var bucket = GetTestBucketName();
         try
         {
@@ -1043,9 +1043,9 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
         return !IsServiceDerivedFrom(obj, "S3Compatible") && IsServiceDerivedFrom(obj, "AWS");
     }
 
-    private static bool IsFileServiceBasic(object obj)
+    protected virtual bool IsFileServiceBasicAndHttpServerFailedToBeCreated()
     {
-        return IsServiceDerivedFrom(obj, "Basic");
+        return false;
     }
     private static bool IsServiceDerivedFrom(object obj, string from)
     {

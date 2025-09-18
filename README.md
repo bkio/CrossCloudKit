@@ -670,6 +670,11 @@ REDIS_PASSWORD=your-redis-password
 - Automatic cleanup of expired signed URL tokens
 - Optional web integration for HTTP-based file access
 
+##### Signed URL Setup for FileServiceBasic
+
+The Basic File Service supports HTTP-based signed URLs through ASP.NET Core endpoint registration.
+You can see FileServiceBasicIntegrationTest.cs for an example of how to set up the endpoint for signed urls to work with asp.net core.
+
 ### PubSub Services
 
 #### Basic Pub/Sub Service

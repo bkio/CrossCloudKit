@@ -22,14 +22,10 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     public FileServiceBasic(
         IMemoryService? memoryService = null,
         IPubSubService? pubSubService = null,
-        string? basePath = null,
-        WebApplication? webApplicationForSignedUrls = null,
-        string? publicEndpointBaseForSignedUrls = null)
+        string? basePath = null)
     {
         // Use a default path in the temp directory if not specified
         _basePath = basePath ?? Path.Combine(Path.GetTempPath(), RootFolderName);
-        _webApplication = webApplicationForSignedUrls;
-        _publicEndpointBase = publicEndpointBaseForSignedUrls?.TrimEnd('/') ?? "";
 
         try
         {
@@ -39,12 +35,6 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             IsInitialized = true;
 
             _monitorBasedPubSub = new MonitorBasedPubSub(this, memoryService, pubSubService);
-
-            // Register endpoints if a WebApplication is provided
-            if (_webApplication != null)
-            {
-                RegisterSignedUrlEndpoints();
-            }
 
             // Start a timer to clean up expired tokens every minute
             _tokenCleanupTimer = new Timer(CleanupExpiredTokens, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
@@ -59,9 +49,11 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     private bool _disposed;
 
     private readonly string _basePath;
-    private readonly WebApplication? _webApplication;
-    private readonly string _publicEndpointBase;
     private readonly Timer? _tokenCleanupTimer;
+
+    private string? _publicEndpointBase;
+    private string? _signedUploadPath;
+    private string? _signedDownloadPath;
 
     public bool IsInitialized { get; }
 
@@ -541,12 +533,86 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
     }
 
-    private void RegisterSignedUrlEndpoints()
+    /// <summary>
+    /// Registers the public endpoint base URL that will be used to generate signed URLs for file operations.
+    /// This method must be called after RegisterSignedUrlEndpoints to complete the signed URL setup.
+    /// </summary>
+    /// <param name="publicEndpointBase">The base URL (e.g., "http://localhost:8080" or "https://api.example.com")
+    /// that clients will use to access the signed URL endpoints. This URL should be publicly accessible to clients.</param>
+    /// <returns>The current IFileService instance for method chaining.</returns>
+    /// <remarks>
+    /// This method works in conjunction with RegisterSignedUrlEndpoints to enable HTTP-based signed URL functionality.
+    /// The typical setup flow is:
+    /// 1. Create and configure a WebApplication
+    /// 2. Call RegisterSignedUrlEndpoints(webApp) to register the HTTP endpoints
+    /// 3. Start the web application and get its public URL
+    /// 4. Call RegisterSignedUrlEndpointBase(publicUrl) to set the base URL for signed URL generation
+    ///
+    /// The base URL will be combined with the endpoint paths ("/signed-upload/{token}" and "/signed-download/{token}")
+    /// to create complete signed URLs that clients can use for file uploads and downloads.
+    ///
+    /// Example usage:
+    /// <code>
+    /// var app = WebApplication.CreateBuilder().Build();
+    /// fileService.RegisterSignedUrlEndpoints(app);
+    /// await app.StartAsync();
+    /// fileService.RegisterSignedUrlEndpointBase("http://localhost:5000");
+    /// </code>
+    /// </remarks>
+    public IFileService RegisterSignedUrlEndpointBase(string publicEndpointBase)
     {
-        if (_webApplication == null) return;
+        _publicEndpointBase =  publicEndpointBase;
+        return this;
+    }
+    /// <summary>
+    /// Registers HTTP endpoints for signed URL functionality with the provided ASP.NET Core WebApplication.
+    /// This method must be called before RegisterSignedUrlEndpointBase to enable signed URL operations.
+    /// </summary>
+    /// <param name="webApplication">The ASP.NET Core WebApplication instance that will host the signed URL endpoints.</param>
+    /// <param name="signedUploadPath">The custom path for the upload endpoint (default: "/signed-upload"). The path will be trimmed of trailing slashes.</param>
+    /// <param name="signedDownloadPath">The custom path for the download endpoint (default: "/signed-download"). The path will be trimmed of trailing slashes.</param>
+    /// <returns>The current IFileService instance for method chaining.</returns>
+    /// <remarks>
+    /// This method registers two customizable HTTP endpoints:
+    ///
+    /// 1. PUT {signedUploadPath}/{token} - Handles file uploads using signed upload tokens
+    ///    - Validates the upload token and its expiration
+    ///    - Verifies content type if specified in the token
+    ///    - Stores the uploaded file in the appropriate bucket and key location
+    ///    - Automatically cleans up the token after successful upload
+    ///
+    /// 2. GET {signedDownloadPath}/{token} - Handles file downloads using signed download tokens
+    ///    - Validates the download token and its expiration
+    ///    - Returns the file with appropriate content type and headers
+    ///    - Automatically cleans up the token after successful download
+    ///
+    /// Both endpoints include comprehensive error handling and return appropriate HTTP status codes.
+    /// Expired or invalid tokens are automatically cleaned up to prevent accumulation.
+    ///
+    /// This method should be called during application startup, typically before starting the web application:
+    /// <code>
+    /// var app = WebApplication.CreateBuilder().Build();
+    /// // Using default paths
+    /// fileService.RegisterSignedUrlEndpoints(app);
+    ///
+    /// // Using custom paths
+    /// fileService.RegisterSignedUrlEndpoints(app, "/api/upload", "/api/download");
+    ///
+    /// await app.StartAsync();
+    /// fileService.RegisterSignedUrlEndpointBase("http://localhost:5000");
+    /// </code>
+    ///
+    /// The endpoints require the service to be properly initialized and will return appropriate error responses
+    /// if files don't exist or if there are permission issues. Custom paths allow for better integration with
+    /// existing API routing schemes and organizational preferences.
+    /// </remarks>
+    public IFileService RegisterSignedUrlEndpoints(WebApplication webApplication, string signedUploadPath = "/signed-upload", string signedDownloadPath = "/signed-download")
+    {
+        _signedUploadPath = signedUploadPath.TrimEnd('/');
+        _signedDownloadPath = signedDownloadPath.TrimEnd('/');
 
         // Register upload endpoint
-        _webApplication.MapPut("/signed-upload/{token}", async (string token, HttpRequest request, CancellationToken cancellationToken) =>
+        webApplication.MapPut($"{_signedUploadPath}/{{token}}", async (string token, HttpRequest request, CancellationToken cancellationToken) =>
         {
             try
             {
@@ -591,7 +657,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         });
 
         // Register download endpoint
-        _webApplication.MapGet("/signed-download/{token}", async (string token, CancellationToken cancellationToken) =>
+        webApplication.MapGet($"{_signedDownloadPath}/{{token}}", async (string token, CancellationToken cancellationToken) =>
         {
             try
             {
@@ -630,6 +696,25 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
                 return Results.Problem($"Download failed: {ex.Message}");
             }
         });
+        return this;
+    }
+    /// <summary>
+    /// Resets the signed URL setup by clearing the registered public endpoint base URL.
+    /// This disables signed URL functionality until both RegisterSignedUrlEndpoints and RegisterSignedUrlEndpointBase are called again.
+    /// </summary>
+    /// <remarks>
+    /// This method is typically called when:
+    /// - The web application setup fails during initialization
+    /// - The service needs to be reconfigured with a different endpoint base
+    /// - Signed URL functionality needs to be temporarily disabled
+    ///
+    /// After calling this method, CreateSignedUploadUrlAsync and CreateSignedDownloadUrlAsync will return failures
+    /// until the signed URL setup is completed again, CreateSignedUploadUrlAsync and CreateSignedDownloadUrlAsync will return failures
+    /// until the signed URL setup is completed again.
+    /// </remarks>
+    public void ResetSignedUrlSetup()
+    {
+        _publicEndpointBase = null;
     }
 
     /// <inheritdoc />
@@ -639,7 +724,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         if (!IsInitialized)
             return OperationResult<SignedUrl>.Failure("Service not initialized");
 
-        if (_webApplication == null)
+        if (_publicEndpointBase == null)
             return OperationResult<SignedUrl>.Failure("WebApplication not registered");
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
@@ -668,7 +753,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             await FileSystemUtilities.WriteToFileEnsureWrittenToDiskAsync(tokenJson, tokenPath, cancellationToken);
 
             // Generate a proper HTTP URL if WebApplication is registered, otherwise fallback to file:// protocol
-            var signedUrlString = $"{_publicEndpointBase}/signed-upload/{token}";
+            var signedUrlString = $"{_publicEndpointBase}{_signedUploadPath}/{token}";
 
             var signedUrl = new SignedUrl(signedUrlString, expires);
             return OperationResult<SignedUrl>.Success(signedUrl);
@@ -686,7 +771,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         if (!IsInitialized)
             return OperationResult<SignedUrl>.Failure("Service not initialized");
 
-        if (_webApplication == null)
+        if (_publicEndpointBase == null)
             return OperationResult<SignedUrl>.Failure("WebApplication not registered");
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
@@ -717,7 +802,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             await FileSystemUtilities.WriteToFileEnsureWrittenToDiskAsync(tokenJson, tokenPath, cancellationToken);
 
             // Generate a proper HTTP URL if WebApplication is registered, otherwise fallback to file:// protocol
-            var signedUrlString = $"{_publicEndpointBase}/signed-download/{token}";
+            var signedUrlString = $"{_publicEndpointBase}{_signedDownloadPath}/{token}";
 
             var signedUrl = new SignedUrl(signedUrlString, expires);
             return OperationResult<SignedUrl>.Success(signedUrl);

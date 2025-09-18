@@ -1,12 +1,15 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using CrossCloudKit.File.Tests.Common;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Memory.Basic;
 using CrossCloudKit.PubSub.Basic;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit.Abstractions;
@@ -17,76 +20,39 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
 {
     private WebApplication? _webApp;
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
-    private const string TestBaseUrl = "http://localhost:57147";
 
     protected override IFileService CreateFileService()
     {
-        _webApp = CreateWebApplication();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Timeout for server startup
 
-        using var waitEvent = new ManualResetEvent(false);
+        var fileService = new FileServiceBasic(
+            memoryService: new MemoryServiceBasic(),
+            pubSubService: CreatePubSubService());
 
-        if (_webApp != null)
-        {
-            // Start the web application in the background
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    // ReSharper disable once AccessToDisposedClosure
-                    waitEvent.Set();
-
-                    await _webApp.RunAsync();
-                }
-                catch (Exception)
-                {
-                    _webApp = null;
-                }
-            });
-        }
-
-        waitEvent.WaitOne();
-
-        // Wait a bit for the server to be ready
-        Task.Delay(1000).Wait();
-
-        return new FileServiceBasic(
-            memoryService: CreateMemoryService(),
-            pubSubService: CreatePubSubService(),
-            webApplicationForSignedUrls: _webApp,
-            publicEndpointBaseForSignedUrls: TestBaseUrl);
-    }
-
-    private WebApplication? CreateWebApplication()
-    {
-        WebApplication? app;
+        // Start the web application and wait for it to be ready
         try
         {
-            var builder = WebApplication.CreateBuilder();
+            _webApp = CreateWebServer();
 
-            // Configure to listen on specific port
-            builder.WebHost.UseUrls(TestBaseUrl);
+            fileService.RegisterSignedUrlEndpoints(_webApp);
 
-            // Add minimal services needed
-            builder.Services.AddEndpointsApiExplorer();
+            var testBaseUrl = StartWebServer(_webApp, cts.Token).GetAwaiter().GetResult();
 
-            app = builder.Build();
+            fileService.RegisterSignedUrlEndpointBase(testBaseUrl);
 
-            // Add a simple health check endpoint for testing
-            app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
-
-            _testOutputHelper.WriteLine($"Created web application listening on {TestBaseUrl}");
-
+            // Verify the server is ready by polling the /health endpoint
+            if (!PollHealthEndpoint(testBaseUrl, TimeSpan.FromSeconds(5)).GetAwaiter().GetResult())
+            {
+                throw new InvalidOperationException("Failed to verify server health.");
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            app = null;
+            _testOutputHelper.WriteLine($"Failed to start web application: {ex.Message}");
+            _webApp = null;
+            fileService.ResetSignedUrlSetup();
         }
-        return app;
-    }
-
-    private IMemoryService CreateMemoryService()
-    {
-        return new MemoryServiceBasic();
+        return fileService;
     }
 
     protected override IPubSubService CreatePubSubService()
@@ -99,6 +65,71 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
         return "cross-cloud-kit-tests-bucket";
     }
 
+    private WebApplication CreateWebServer()
+    {
+        var builder = WebApplication.CreateBuilder();
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.Listen(IPAddress.Loopback, 0);
+        });
+
+        // Add minimal services needed
+        builder.Services.AddEndpointsApiExplorer();
+
+        var app = builder.Build();
+
+        // Add a simple health check endpoint for testing
+        app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+        return app;
+    }
+
+    private async Task<string> StartWebServer(WebApplication app, CancellationToken cancellationToken)
+    {
+        await app.StartAsync(cancellationToken);
+
+        // Get the assigned port
+        var server = app.Services.GetRequiredService<IServer>();
+        var addressFeature = server.Features.Get<IServerAddressesFeature>();
+        var address = addressFeature?.Addresses.FirstOrDefault()
+            ?? throw new InvalidOperationException("No server address found.");
+        var port = new Uri(address).Port;
+        var testBaseUrl = $"http://localhost:{port}";
+
+        _testOutputHelper.WriteLine($"Created web application listening on {testBaseUrl}");
+
+        return testBaseUrl;
+    }
+
+    private static async Task<bool> PollHealthEndpoint(string baseUrl, TimeSpan timeout)
+    {
+        using var httpClient = new HttpClient();
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var response = await httpClient.GetAsync($"{baseUrl}/health");
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Ignore transient errors and retry
+            }
+            await Task.Delay(100);
+        }
+        return false;
+    }
+
+    protected override bool IsFileServiceBasicAndHttpServerFailedToBeCreated()
+    {
+        return _webApp == null;
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -106,10 +137,9 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
             if (_webApp != null)
             {
                 _testOutputHelper.WriteLine("Stopping web application...");
-                await _webApp.StopAsync(CancellationToken.None);
-                _testOutputHelper.WriteLine(
-                    "Web application stopped. Disposing web application..."
-                );
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _webApp.StopAsync(cts.Token);
+                _testOutputHelper.WriteLine("Web application stopped. Disposing web application...");
                 await _webApp.DisposeAsync();
                 _testOutputHelper.WriteLine("Web application stopped and disposed.");
             }

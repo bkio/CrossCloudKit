@@ -290,8 +290,7 @@ public static class FileSystemUtilities
     /// </remarks>
     /// <exception cref="IOException">Thrown if an I/O error occurs.</exception>
     /// <exception cref="AggregateException">
-    /// Thrown if the underlying asynchronous operation throws an exception. The original exception
-    /// can be accessed via <see cref="AggregateException.InnerException"/>.
+    /// Thrown if the underlying asynchronous operation throws an exception.
     /// </exception>
     public static void WriteToFileEnsureWrittenToDisk(string content, string filePath)
     {

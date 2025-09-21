@@ -1,6 +1,8 @@
 // Copyright (c) 2022- Burak Kara, AGPL-3.0 license
 // See LICENSE file in the project root for full license information.
 
+using System.Reflection;
+
 namespace CrossCloudKit.Utilities.Common;
 
 public static class ExceptionExtensions

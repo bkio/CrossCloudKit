@@ -241,7 +241,7 @@ var newAge = await memoryService.IncrementKeyByValueAndGetAsync(scope, "age", 1)
 Console.WriteLine($"New age: {newAge.Data}");
 
 // Distributed mutex locking
-using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+using var mutex = await MemoryScopeMutex.CreateScopeAsync(
     memoryService, scope, "user-lock", TimeSpan.FromMinutes(5)
 );
 await mutex.LockAsync();
@@ -377,7 +377,7 @@ var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(
 var metadata = await fileService.GetFileMetadataAsync("my-bucket", "files/document.pdf");
 if (metadata.IsSuccessful)
 {
-    Console.WriteLine($"Size: {metadata.Data!.Size} bytes");
+    Console.WriteLine($"Size: {metadata.Data.Size} bytes");
     Console.WriteLine($"Content-Type: {metadata.Data.ContentType}");
     Console.WriteLine($"Last Modified: {metadata.Data.LastModified}");
 }
@@ -399,7 +399,7 @@ var listResult = await fileService.ListFilesAsync("my-bucket", new ListFilesOpti
     MaxResults = 100
 });
 
-foreach (var fileKey in listResult.Data!.FileKeys)
+foreach (var fileKey in listResult.Data.FileKeys)
 {
     Console.WriteLine($"File: {fileKey}");
 }

@@ -2,7 +2,10 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Globalization;
+using System.Net;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Datastore.V1;
 using Newtonsoft.Json.Linq;
@@ -379,18 +382,18 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<bool>.Failure("DatabaseServiceGC->ItemExistsAsync: DSDB is null.");
+            return OperationResult<bool>.Failure("DatabaseServiceGC->ItemExistsAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return OperationResult<bool>.Failure("Failed to load table key factory");
+                return OperationResult<bool>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
             }
 
             var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
@@ -417,7 +420,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"DatabaseServiceGC->ItemExistsAsync: {e.Message}");
+            return OperationResult<bool>.Failure($"DatabaseServiceGC->ItemExistsAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -431,13 +434,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return OperationResult<JObject?>.Failure("DatabaseServiceGC->GetItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->GetItemAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return OperationResult<JObject?>.Failure("Failed to load table key factory");
+                return OperationResult<JObject?>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
             }
 
             var key = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(keyName, keyValue));
@@ -459,7 +462,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         }
         catch (Exception e)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceGC->GetItemAsync: {e.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceGC->GetItemAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -473,7 +476,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->GetItemsAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->GetItemsAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
@@ -484,7 +487,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
             if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to load table key factory");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
             }
 
             var datastoreKeys = keyValues.Select(value =>
@@ -512,7 +515,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->GetItemsAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->GetItemsAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -522,7 +525,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         string keyName,
         PrimitiveType keyValue,
         JObject item,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -536,8 +539,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         string keyName,
         PrimitiveType keyValue,
         JObject updateData,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
@@ -549,8 +552,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         const int maxRetryNumber = 5;
@@ -558,7 +561,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
         if (_dsdb == null)
         {
-            return OperationResult<JObject?>.Failure("DatabaseServiceGC->DeleteItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->DeleteItemAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
 
         while (++retryCount <= maxRetryNumber)
@@ -567,7 +570,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -575,7 +578,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                 JObject? returnItem = null;
 
-                if (returnBehavior == ReturnItemBehavior.ReturnOldValues || condition != null)
+                if (returnBehavior == DbReturnItemBehavior.ReturnOldValues || condition != null)
                 {
                     var entity = await transaction.LookupAsync(key);
                     if (entity != null)
@@ -588,10 +591,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                             if (condition != null && !ConditionCheck(entityJson, condition))
                             {
-                                return OperationResult<JObject?>.Failure("Condition not satisfied");
+                                return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                             }
 
-                            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+                            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
                             {
                                 returnItem = entityJson;
                             }
@@ -610,11 +613,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: {e.Message}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->DeleteItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times", HttpStatusCode.TooManyRequests);
     }
 
     /// <inheritdoc />
@@ -625,7 +628,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
@@ -661,7 +664,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->ScanTableAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceGC->ScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -675,7 +678,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     {
         if (_dsdb == null)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.");
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
@@ -737,7 +740,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceGC->ScanTablePaginatedAsync: {e.Message}");
+                $"DatabaseServiceGC->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -745,12 +748,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableWithFilterAsync: DSDB is null.");
+            return OperationResult<IReadOnlyList<JObject>>.Failure("DatabaseServiceGC->ScanTableWithFilterAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
@@ -794,7 +797,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         catch (Exception e)
         {
             return OperationResult<IReadOnlyList<JObject>>.Failure(
-                $"DatabaseServiceGC->ScanTableWithFilterAsync: {e.Message}");
+                $"DatabaseServiceGC->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -802,14 +805,14 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
     public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.");
+            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
         try
         {
@@ -876,7 +879,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: {e.Message}");
+                $"DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -887,13 +890,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<JObject?>.Failure("DatabaseServiceGC->AddElementsToArrayAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->AddElementsToArrayAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
 
         const int maxRetryNumber = 5;
@@ -905,12 +908,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (elementsToAdd.Length == 0)
                 {
-                    return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.");
+                    return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.", HttpStatusCode.BadRequest);
                 }
 
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -929,10 +932,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
 
-                        if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+                        if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
                         {
                             returnItem = (JObject)entityJson.DeepClone();
                         }
@@ -963,7 +966,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                             transaction.Upsert(updatedEntity);
                             await transaction.CommitAsync();
 
-                            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+                            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                             {
                                 var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
                                 return getResult;
@@ -1000,7 +1003,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                         transaction.Upsert(newEntity);
                         await transaction.CommitAsync();
 
-                        if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+                        if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                         {
                             var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
                             return getResult;
@@ -1010,7 +1013,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     }
                 }
 
-                return OperationResult<JObject?>.Failure("Failed to process array update");
+                return OperationResult<JObject?>.Failure("Failed to process array update", HttpStatusCode.InternalServerError);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1018,11 +1021,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: {e.Message}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->AddElementsToArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times", HttpStatusCode.TooManyRequests);
     }
 
     /// <inheritdoc />
@@ -1032,13 +1035,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<JObject?>.Failure("DatabaseServiceGC->RemoveElementsFromArrayAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->RemoveElementsFromArrayAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
 
         const int maxRetryNumber = 5;
@@ -1050,12 +1053,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (elementsToRemove.Length == 0)
                 {
-                    return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.");
+                    return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.", HttpStatusCode.BadRequest);
                 }
 
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1074,10 +1077,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
 
-                        if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+                        if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
                         {
                             returnItem = (JObject)entityJson.DeepClone();
                         }
@@ -1117,7 +1120,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                                 transaction.Upsert(updatedEntity);
                                 await transaction.CommitAsync();
 
-                                if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+                                if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                                 {
                                     var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
                                     return getResult;
@@ -1137,11 +1140,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: {e.Message}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->RemoveElementsFromArrayAsync: Too much contention on datastore entities; tried {maxRetryNumber} times", HttpStatusCode.TooManyRequests);
     }
 
     /// <inheritdoc />
@@ -1151,12 +1154,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         PrimitiveType keyValue,
         string numericAttributeName,
         double incrementValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<double>.Failure("DatabaseServiceGC->IncrementAttributeAsync: DSDB is null.");
+            return OperationResult<double>.Failure("DatabaseServiceGC->IncrementAttributeAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
 
         const int maxRetryNumber = 5;
@@ -1168,7 +1171,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return OperationResult<double>.Failure("Failed to load table key factory");
+                    return OperationResult<double>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1187,7 +1190,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
                         if (condition != null && !ConditionCheck(entityJson, condition))
                         {
-                            return OperationResult<double>.Failure("Condition not satisfied");
+                            return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
 
                         // Get current value and increment
@@ -1234,7 +1237,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     }
                 }
 
-                return OperationResult<double>.Failure("Failed to increment attribute");
+                return OperationResult<double>.Failure("Failed to increment attribute", HttpStatusCode.InternalServerError);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1242,11 +1245,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: {e.Message}");
+                return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: {e.Message}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<double>.Failure($"DatabaseServiceGC->IncrementAttributeAsync: Too much contention on datastore entities; tried {maxRetryNumber} times", HttpStatusCode.TooManyRequests);
     }
 
     private enum PutOrUpdateItemType
@@ -1261,14 +1264,14 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         string keyName,
         PrimitiveType keyValue,
         JObject newItem,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? conditionExpression = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? conditionExpression = null,
         bool shouldOverrideIfExist = false,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
         {
-            return OperationResult<JObject?>.Failure("DatabaseServiceGC->PutOrUpdateItemAsync: DSDB is null.");
+            return OperationResult<JObject?>.Failure("DatabaseServiceGC->PutOrUpdateItemAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
         }
 
         const int maxRetryNumber = 5;
@@ -1283,7 +1286,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             {
                 if (!LoadStoreAndGetKindKeyFactory(tableName, out var factory))
                 {
-                    return OperationResult<JObject?>.Failure("Failed to load table key factory");
+                    return OperationResult<JObject?>.Failure("Failed to load table key factory", HttpStatusCode.InternalServerError);
                 }
 
                 using var transaction = await _dsdb.BeginTransactionAsync();
@@ -1308,7 +1311,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     {
                         if (!ConditionCheck(returnedPreOperationObject, conditionExpression))
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
                     }
 
@@ -1326,12 +1329,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                 {
                     if (!shouldOverrideIfExist && returnedPreOperationObject != null)
                     {
-                        return OperationResult<JObject?>.Failure("Item already exists");
+                        return OperationResult<JObject?>.Failure("Item already exists", HttpStatusCode.Conflict);
                     }
                 }
 
                 JObject? returnItem = null;
-                if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+                if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
                 {
                     returnItem = returnedPreOperationObject ?? [];
                 }
@@ -1342,7 +1345,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     transaction.Upsert(itemAsEntity);
                     await transaction.CommitAsync();
 
-                    if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+                    if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                     {
                         var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
                         return getResult;
@@ -1351,7 +1354,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
                     return OperationResult<JObject?>.Success(returnItem);
                 }
 
-                return OperationResult<JObject?>.Failure("Failed to convert JSON to entity");
+                return OperationResult<JObject?>.Failure("Failed to convert JSON to entity", HttpStatusCode.InternalServerError);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1359,20 +1362,20 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
             }
             catch (Exception e)
             {
-                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: {e.Message}");
+                return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: {e.Message}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times");
+        return OperationResult<JObject?>.Failure($"DatabaseServiceGC->PutOrUpdateItemAsync: Too much contention on datastore entities; tried {maxRetryNumber} times", HttpStatusCode.TooManyRequests);
     }
 
     private void ApplyOptions(JObject jsonObject)
     {
-        if (Options.AutoSortArrays == AutoSortArrays.Yes)
+        if (Options.AutoSortArrays == DbAutoSortArrays.Yes)
         {
-            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes);
+            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes);
         }
-        else if (Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes)
+        else if (Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes)
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
         }
@@ -1420,39 +1423,39 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         return false;
     }
 
-    private static bool ConditionCheck(JObject? jsonObjectToCheck, DatabaseAttributeCondition? conditionExpression)
+    private static bool ConditionCheck(JObject? jsonObjectToCheck, DbAttributeCondition? conditionExpression)
     {
         if (jsonObjectToCheck == null || conditionExpression == null)
             return true;
 
         return conditionExpression.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeExists => jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
-            DatabaseAttributeConditionType.AttributeNotExists => !jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
-            _ when conditionExpression is ValueCondition valueCondition => CheckValueCondition(jsonObjectToCheck, valueCondition),
-            _ when conditionExpression is ArrayElementCondition arrayCondition => CheckArrayElementCondition(jsonObjectToCheck, arrayCondition),
+            DbAttributeConditionType.AttributeExists => jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
+            DbAttributeConditionType.AttributeNotExists => !jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
+            _ when conditionExpression is DbValueCondition valueCondition => CheckValueCondition(jsonObjectToCheck, valueCondition),
+            _ when conditionExpression is DbArrayElementCondition arrayCondition => CheckArrayElementCondition(jsonObjectToCheck, arrayCondition),
             _ => true
         };
     }
 
-    private static bool CheckValueCondition(JObject jsonObject, ValueCondition condition)
+    private static bool CheckValueCondition(JObject jsonObject, DbValueCondition condition)
     {
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token))
             return false;
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeEquals => CompareJTokenWithPrimitive(token, condition.Value),
-            DatabaseAttributeConditionType.AttributeNotEquals => !CompareJTokenWithPrimitive(token, condition.Value),
-            DatabaseAttributeConditionType.AttributeGreater => CompareJTokenValues(token, condition.Value) > 0,
-            DatabaseAttributeConditionType.AttributeGreaterOrEqual => CompareJTokenValues(token, condition.Value) >= 0,
-            DatabaseAttributeConditionType.AttributeLess => CompareJTokenValues(token, condition.Value) < 0,
-            DatabaseAttributeConditionType.AttributeLessOrEqual => CompareJTokenValues(token, condition.Value) <= 0,
+            DbAttributeConditionType.AttributeEquals => CompareJTokenWithPrimitive(token, condition.Value),
+            DbAttributeConditionType.AttributeNotEquals => !CompareJTokenWithPrimitive(token, condition.Value),
+            DbAttributeConditionType.AttributeGreater => CompareJTokenValues(token, condition.Value) > 0,
+            DbAttributeConditionType.AttributeGreaterOrEqual => CompareJTokenValues(token, condition.Value) >= 0,
+            DbAttributeConditionType.AttributeLess => CompareJTokenValues(token, condition.Value) < 0,
+            DbAttributeConditionType.AttributeLessOrEqual => CompareJTokenValues(token, condition.Value) <= 0,
             _ => false
         };
     }
 
-    private static bool CheckArrayElementCondition(JObject jsonObject, ArrayElementCondition condition)
+    private static bool CheckArrayElementCondition(JObject jsonObject, DbArrayElementCondition condition)
     {
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
             return false;
@@ -1461,8 +1464,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.ArrayElementExists => elementExists,
-            DatabaseAttributeConditionType.ArrayElementNotExists => !elementExists,
+            DbAttributeConditionType.ArrayElementExists => elementExists,
+            DbAttributeConditionType.ArrayElementNotExists => !elementExists,
             _ => false
         };
     }
@@ -1488,26 +1491,26 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IDatabaseService, I
         }
     }
 
-    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeNotExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreater, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLess, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
+    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
+    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
+    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
+    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     public async ValueTask DisposeAsync()
     {

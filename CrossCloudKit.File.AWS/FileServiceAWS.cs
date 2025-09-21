@@ -9,6 +9,9 @@ using Amazon.S3.Transfer;
 using Amazon.SecurityToken;
 using Amazon.SecurityToken.Model;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
 using Tag = Amazon.S3.Model.Tag;
 
@@ -75,7 +78,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || TransferUtil is null)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
@@ -139,7 +142,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Upload failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Upload failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -148,29 +151,29 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         string bucketName,
         string keyInBucket,
         StringOrStream destination,
-        DownloadOptions? options = null,
+        FileDownloadOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<long>.Failure("Service not initialized");
+            return OperationResult<long>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
             // Check if file exists
             var existsResult = await FileExistsAsync(bucketName, keyInBucket, cancellationToken);
             if (!existsResult.IsSuccessful || !existsResult.Data)
-                return OperationResult<long>.Failure("File does not exist");
+                return OperationResult<long>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             return await destination.MatchAsync(
                 async filePath =>
                 {
                     if (TransferUtil is null)
-                        return OperationResult<long>.Failure("Transfer utility not initialized");
+                        return OperationResult<long>.Failure("Transfer utility not initialized", HttpStatusCode.ServiceUnavailable);
 
                     await TransferUtil.DownloadAsync(filePath, bucketName, keyInBucket, cancellationToken);
 
                     if (!System.IO.File.Exists(filePath))
-                        return OperationResult<long>.Failure("Download completed but file doesn't exist locally");
+                        return OperationResult<long>.Failure("Download completed but file doesn't exist locally", HttpStatusCode.InternalServerError);
 
                     var size = new FileInfo(filePath).Length;
                     return OperationResult<long>.Success(size);
@@ -205,7 +208,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<long>.Failure($"Download failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Download failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -219,7 +222,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -240,11 +243,11 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 return OperationResult<FileMetadata>.Success(metadataResult.Data);
             }
 
-            return OperationResult<FileMetadata>.Failure("Copy completed but metadata retrieval failed");
+            return OperationResult<FileMetadata>.Failure("Copy completed but metadata retrieval failed", HttpStatusCode.InternalServerError);
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Copy failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Copy failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -255,7 +258,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -270,7 +273,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Delete failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Delete failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -281,7 +284,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<int>.Failure("Service not initialized");
+            return OperationResult<int>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -332,7 +335,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<int>.Failure($"Delete folder failed: {ex.Message}");
+            return OperationResult<int>.Failure($"Delete folder failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -343,7 +346,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -362,7 +365,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"File existence check failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"File existence check failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -373,7 +376,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<long>.Failure("Service not initialized");
+            return OperationResult<long>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -388,7 +391,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<long>.Failure($"Get file size failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Get file size failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -399,7 +402,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<string>.Failure("Service not initialized");
+            return OperationResult<string>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -413,12 +416,12 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             var checksum = response.ETag?.Trim('"').ToLowerInvariant();
 
             return string.IsNullOrWhiteSpace(checksum)
-                ? OperationResult<string>.Failure("No checksum available")
+                ? OperationResult<string>.Failure("No checksum available", HttpStatusCode.NotFound)
                 : OperationResult<string>.Success(checksum);
         }
         catch (Exception ex)
         {
-            return OperationResult<string>.Failure($"Get file checksum failed: {ex.Message}");
+            return OperationResult<string>.Failure($"Get file checksum failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -429,7 +432,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -449,10 +452,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 if (tagsResult.IsSuccessful)
                 {
                     var data = tagsResult.Data;
-                    if (data != null)
-                    {
-                        tags = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                    }
+                    tags = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
                 }
             }
             catch
@@ -489,7 +489,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -500,7 +500,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<IReadOnlyDictionary<string, string>>.Failure("Service not initialized");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -517,7 +517,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {ex.Message}");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure($"Get file tags failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -529,7 +529,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -551,7 +551,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Set file tags failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file tags failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -563,7 +563,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -581,19 +581,19 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Set file accessibility failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file accessibility failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(
+    public async Task<OperationResult<FileSignedUrl>> CreateSignedUploadUrlAsync(
         string bucketName,
         string keyInBucket,
-        SignedUploadUrlOptions? options = null,
+        FileSignedUploadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<SignedUrl>.Failure("Service not initialized");
+            return OperationResult<FileSignedUrl>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -609,25 +609,25 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             var url = await S3Client.GetPreSignedURLAsync(preSignedRequest);
-            var signedUrl = new SignedUrl(url, DateTime.UtcNow.Add(validFor));
+            var signedUrl = new FileSignedUrl(url, DateTime.UtcNow.Add(validFor));
 
-            return OperationResult<SignedUrl>.Success(signedUrl);
+            return OperationResult<FileSignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return OperationResult<SignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}");
+            return OperationResult<FileSignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(
+    public async Task<OperationResult<FileSignedUrl>> CreateSignedDownloadUrlAsync(
         string bucketName,
         string keyInBucket,
-        SignedDownloadUrlOptions? options = null,
+        FileSignedDownloadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<SignedUrl>.Failure("Service not initialized");
+            return OperationResult<FileSignedUrl>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -642,24 +642,24 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             };
 
             var url = await S3Client.GetPreSignedURLAsync(preSignedRequest);
-            var signedUrl = new SignedUrl(url, DateTime.UtcNow.Add(validFor));
+            var signedUrl = new FileSignedUrl(url, DateTime.UtcNow.Add(validFor));
 
-            return OperationResult<SignedUrl>.Success(signedUrl);
+            return OperationResult<FileSignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return OperationResult<SignedUrl>.Failure($"Create signed download URL failed: {ex.Message}");
+            return OperationResult<FileSignedUrl>.Failure($"Create signed download URL failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<ListFilesResult>> ListFilesAsync(
+    public async Task<OperationResult<FileListResult>> ListFilesAsync(
         string bucketName,
-        ListFilesOptions? options = null,
+        FileListOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<ListFilesResult>.Failure("Service not initialized");
+            return OperationResult<FileListResult>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -674,7 +674,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             var response = await S3Client.ListObjectsV2Async(listRequest, cancellationToken);
             var fileKeys = response.S3Objects is null ? [] : response.S3Objects.Select(obj => obj.Key).ToList();
 
-            var result = new ListFilesResult
+            var result = new FileListResult
             {
                 FileKeys = fileKeys,
                 NextContinuationToken = response.NextContinuationToken
@@ -682,11 +682,11 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             // Note: HasMore property might be read-only, so we create the result without setting it
             // The AWS SDK response.IsTruncated indicates if there are more results
 
-            return OperationResult<ListFilesResult>.Success(result);
+            return OperationResult<FileListResult>.Success(result);
         }
         catch (Exception ex)
         {
-            return OperationResult<ListFilesResult>.Failure($"List files failed: {ex.Message}");
+            return OperationResult<FileListResult>.Failure($"List files failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -700,7 +700,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<string>.Failure("Service not initialized");
+            return OperationResult<string>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
@@ -726,7 +726,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
             {
                 return topicToSnsArnResult;
             }
-            var topicArn = topicToSnsArnResult.Data.NotNull();
+            var topicArn = topicToSnsArnResult.Data;
 
             // Ensure SNS topic exists
             await pubSubService.EnsureTopicExistsAsync(topicName, cancellationToken);
@@ -778,7 +778,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 cancellationToken);
             if (!setPolicyResult.IsSuccessful)
             {
-                return OperationResult<string>.Failure($"Add SNS policy failed: {setPolicyResult.ErrorMessage}");
+                return OperationResult<string>.Failure($"Add SNS policy failed: {setPolicyResult.ErrorMessage}", setPolicyResult.StatusCode);
             }
 
             var notificationRequest = new PutBucketNotificationRequest
@@ -796,7 +796,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<string>.Failure($"Create notification failed: {ex.Message}");
+            return OperationResult<string>.Failure($"Create notification failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -808,7 +808,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || S3Client is null)
-            return OperationResult<int>.Failure("Service not initialized");
+            return OperationResult<int>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -838,9 +838,9 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                 await S3Client.PutBucketNotificationAsync(putRequest, cancellationToken);
 
                 var topicsToDelete = await pubSubService.GetTopicsUsedOnBucketEventAsync(cancellationToken: cancellationToken);
-                if (!topicsToDelete.IsSuccessful || topicsToDelete.Data == null)
+                if (!topicsToDelete.IsSuccessful)
                 {
-                    return OperationResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.");
+                    return OperationResult<int>.Failure("GetTopicsUsedOnBucketEventAsync has failed.", HttpStatusCode.InternalServerError);
                 }
 
                 foreach (var topic in topicsToDelete.Data)
@@ -849,11 +849,13 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                         cancellationToken);
                     if (!removePolicyResult.IsSuccessful)
                     {
-                        return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}");
+                        return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}", removePolicyResult.StatusCode);
                     }
-                    if (!(await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken)).IsSuccessful)
+
+                    var unmarkResult = await pubSubService.UnmarkUsedOnBucketEvent(topic, cancellationToken);
+                    if (!unmarkResult.IsSuccessful)
                     {
-                        return OperationResult<int>.Failure("Unable to unmark topic as used on bucket event.");
+                        return OperationResult<int>.Failure($"Unable to unmark topic as used on bucket event: {unmarkResult.ErrorMessage}", unmarkResult.StatusCode);
                     }
                 }
             }
@@ -883,12 +885,13 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                     cancellationToken);
                 if (!removePolicyResult.IsSuccessful)
                 {
-                    return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}");
+                    return OperationResult<int>.Failure($"Remove SNS policy failed: {removePolicyResult.ErrorMessage}", removePolicyResult.StatusCode);
                 }
 
-                if (!(await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken)).IsSuccessful)
+                var unmarkResult = await pubSubService.UnmarkUsedOnBucketEvent(topicName, cancellationToken);
+                if (!unmarkResult.IsSuccessful)
                 {
-                    return OperationResult<int>.Failure("Unable to unmark topic as used on bucket event.");
+                    return OperationResult<int>.Failure($"Unable to unmark topic as used on bucket event: {unmarkResult.ErrorMessage}", unmarkResult.StatusCode);
                 }
             }
 
@@ -896,13 +899,13 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<int>.Failure($"Delete notifications failed: {ex.Message}");
+            return OperationResult<int>.Failure($"Delete notifications failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     public virtual async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.", HttpStatusCode.ServiceUnavailable);
         var success = true;
         var errorMessages = new List<string>();
         try
@@ -916,13 +919,13 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                     if (!deleteFileResult.IsSuccessful)
                     {
                         success = false;
-                        errorMessages.Add(deleteFileResult.ErrorMessage.NotNull());
+                        errorMessages.Add(deleteFileResult.ErrorMessage);
                     }
                 }
             }
         }
         catch { /* Ignore cleanup errors in tests */ }
-        return success ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure($"Cleanup bucket failed: {string.Join(Environment.NewLine, errorMessages)}");
+        return success ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure($"Cleanup bucket failed: {string.Join(Environment.NewLine, errorMessages)}", HttpStatusCode.InternalServerError);
     }
 
     private static S3CannedACL ConvertAccessibilityToAcl(FileAccessibility accessibility) => accessibility switch
@@ -935,7 +938,7 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
     {
         if (S3Client == null)
         {
-            return OperationResult<string>.Failure("Service not initialized");
+            return OperationResult<string>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
         }
 
         using var stsClient = new AmazonSecurityTokenServiceClient(AWSCredentials, RegionEndpoint);
@@ -945,7 +948,9 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
 
         if (encodedTopic.StartsWith("arn:aws:sns:", StringComparison.OrdinalIgnoreCase))
             return OperationResult<string>.Success(encodedTopic);
-        return RegionSystemName is null ? OperationResult<string>.Failure("AWS region not available for ARN construction") : OperationResult<string>.Success($"arn:aws:sns:{RegionSystemName}:{accountId}:{encodedTopic}");
+        return RegionSystemName is null
+            ? OperationResult<string>.Failure("AWS region not available for ARN construction", HttpStatusCode.NotFound)
+            : OperationResult<string>.Success($"arn:aws:sns:{RegionSystemName}:{accountId}:{encodedTopic}");
     }
     private static bool IsTopicMatch(string configuredTopic, string targetTopic)
     {

@@ -2,8 +2,11 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using MongoDB.Bson;
 using MongoDB.Bson.IO;
 using MongoDB.Driver;
@@ -242,7 +245,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -250,7 +253,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<bool>.Failure("Failed to get table");
+                return OperationResult<bool>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -269,7 +272,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"DatabaseServiceMongoDB->ItemExistsAsync: {ex.Message}");
+            return OperationResult<bool>.Failure($"DatabaseServiceMongoDB->ItemExistsAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -286,7 +289,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -308,7 +311,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->GetItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->GetItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -330,7 +333,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = keyValues.Aggregate(
@@ -361,7 +364,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceMongoDB->GetItemsAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceMongoDB->GetItemsAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -371,7 +374,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         string keyName,
         PrimitiveType keyValue,
         JObject item,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -385,8 +388,8 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         string keyName,
         PrimitiveType keyValue,
         JObject updateData,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
@@ -398,8 +401,8 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -407,7 +410,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -421,13 +424,13 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
                     if (!await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
                     {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied");
+                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
                 }
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 var document = await FindOneAsync(table, BuildEqFilter(keyName, keyValue), cancellationToken);
                 if (document != null)
@@ -446,7 +449,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->DeleteItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->DeleteItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -457,27 +460,27 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
             if (elementsToAdd.Length == 0)
             {
-                return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.", HttpStatusCode.BadRequest);
             }
 
             var expectedKind = elementsToAdd[0].Kind;
             if (elementsToAdd.Any(element => element.Kind != expectedKind))
             {
-                return OperationResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -490,13 +493,13 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
                     if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                     {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied");
+                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
                 }
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 var document = await FindOneAsync(table, filter, cancellationToken);
                 if (document != null)
@@ -522,7 +525,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var update = Builders<BsonDocument>.Update.PushEach(arrayAttributeName, elementsToAddList);
             await table.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 var document = await FindOneAsync(table, filter, cancellationToken);
                 if (document != null)
@@ -540,7 +543,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->AddElementsToArrayAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->AddElementsToArrayAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -551,27 +554,27 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
             if (elementsToRemove.Length == 0)
             {
-                return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.", HttpStatusCode.BadRequest);
             }
 
             var expectedKind = elementsToRemove[0].Kind;
             if (elementsToRemove.Any(element => element.Kind != expectedKind))
             {
-                return OperationResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -584,13 +587,13 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
                     if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                     {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied");
+                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
                 }
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 var document = await FindOneAsync(table, filter, cancellationToken);
                 if (document != null)
@@ -616,7 +619,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var update = Builders<BsonDocument>.Update.PullAll(arrayAttributeName, elementsToRemoveList);
             await table.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 var document = await FindOneAsync(table, filter, cancellationToken);
                 if (document != null)
@@ -634,7 +637,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->RemoveElementsFromArrayAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->RemoveElementsFromArrayAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -645,7 +648,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         PrimitiveType keyValue,
         string numericAttributeName,
         double incrementValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -653,7 +656,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<double>.Failure("Failed to get table");
+                return OperationResult<double>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -666,7 +669,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
                     if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                     {
-                        return OperationResult<double>.Failure("Condition not satisfied");
+                        return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
                 }
             }
@@ -685,11 +688,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<double>.Success(value.AsDouble);
             }
 
-            return OperationResult<double>.Failure("Failed to get updated value");
+            return OperationResult<double>.Failure("Failed to get updated value", HttpStatusCode.InternalServerError);
         }
         catch (Exception ex)
         {
-            return OperationResult<double>.Failure($"DatabaseServiceMongoDB->IncrementAttributeAsync: {ex.Message}");
+            return OperationResult<double>.Failure($"DatabaseServiceMongoDB->IncrementAttributeAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -704,7 +707,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = Builders<BsonDocument>.Filter.Empty;
@@ -714,7 +717,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceMongoDB->ScanTableAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceMongoDB->ScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -731,7 +734,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = Builders<BsonDocument>.Filter.Empty;
@@ -751,17 +754,17 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var scanResult = ProcessScanResults(keyNames, documents);
             if (!scanResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage.NotNull());
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage, scanResult.StatusCode);
             }
 
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data.NotNull(), nextPageToken, totalCount));
+                (scanResult.Data, nextPageToken, totalCount));
         }
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceMongoDB->ScanTablePaginatedAsync: {e.Message}");
+                $"DatabaseServiceMongoDB->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -769,7 +772,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         CancellationToken cancellationToken = default)
     {
         try
@@ -777,7 +780,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table");
+                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildFilterFromCondition(filterCondition) ?? Builders<BsonDocument>.Filter.Empty;
@@ -788,7 +791,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         catch (Exception e)
         {
             return OperationResult<IReadOnlyList<JObject>>.Failure(
-                $"DatabaseServiceMongoDB->ScanTableWithFilterAsync: {e.Message}");
+                $"DatabaseServiceMongoDB->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -796,7 +799,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -806,7 +809,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table");
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildFilterFromCondition(filterCondition) ?? Builders<BsonDocument>.Filter.Empty;
@@ -826,17 +829,17 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var scanResult = ProcessScanResults(keyNames, documents);
             if (!scanResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage.NotNull());
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage, scanResult.StatusCode);
             }
 
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data.NotNull(), nextPageToken, totalCount));
+                (scanResult.Data, nextPageToken, totalCount));
         }
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceMongoDB->ScanTableWithFilterPaginatedAsync: {e.Message}");
+                $"DatabaseServiceMongoDB->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -856,8 +859,8 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         string keyName,
         PrimitiveType keyValue,
         JObject newItem,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? conditionExpression = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? conditionExpression = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -866,7 +869,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table");
+                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = BuildEqFilter(keyName, keyValue);
@@ -877,7 +880,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 {
                     if (await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
                     {
-                        return OperationResult<JObject?>.Failure("Item already exists");
+                        return OperationResult<JObject?>.Failure("Item already exists", HttpStatusCode.Conflict);
                     }
                 }
             }
@@ -891,14 +894,14 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                         var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
                         if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied");
+                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
                     }
                 }
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 var document = await FindOneAsync(table, filter, cancellationToken);
                 if (document != null)
@@ -919,7 +922,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var updateDocument = new BsonDocument { { "$set", JObjectToBson(newObject) } };
             await table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = newObject;
             }
@@ -928,7 +931,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->PutOrUpdateItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceMongoDB->PutOrUpdateItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -961,11 +964,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
         catch (JsonReaderException e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"JSON parsing error: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"JSON parsing error: {e.Message}", HttpStatusCode.InternalServerError);
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"Processing error: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"Processing error: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -1014,21 +1017,21 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildFilterFromCondition(DatabaseAttributeCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildFilterFromCondition(DbAttributeCondition condition)
     {
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeExists =>
+            DbAttributeConditionType.AttributeExists =>
                 Builders<BsonDocument>.Filter.Exists(condition.AttributeName),
-            DatabaseAttributeConditionType.AttributeNotExists =>
+            DbAttributeConditionType.AttributeNotExists =>
                 Builders<BsonDocument>.Filter.Exists(condition.AttributeName, false),
-            _ when condition is ValueCondition valueCondition => BuildValueFilter(valueCondition),
-            _ when condition is ArrayElementCondition arrayCondition => BuildArrayElementFilter(arrayCondition),
+            _ when condition is DbValueCondition valueCondition => BuildValueFilter(valueCondition),
+            _ when condition is DbArrayElementCondition arrayCondition => BuildArrayElementFilter(arrayCondition),
             _ => null
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildValueFilter(ValueCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildValueFilter(DbValueCondition condition)
     {
         var value = condition.Value.Kind switch
         {
@@ -1041,23 +1044,23 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeEquals =>
+            DbAttributeConditionType.AttributeEquals =>
                 Builders<BsonDocument>.Filter.Eq(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeNotEquals =>
+            DbAttributeConditionType.AttributeNotEquals =>
                 Builders<BsonDocument>.Filter.Ne(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeGreater =>
+            DbAttributeConditionType.AttributeGreater =>
                 Builders<BsonDocument>.Filter.Gt(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeGreaterOrEqual =>
+            DbAttributeConditionType.AttributeGreaterOrEqual =>
                 Builders<BsonDocument>.Filter.Gte(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeLess =>
+            DbAttributeConditionType.AttributeLess =>
                 Builders<BsonDocument>.Filter.Lt(condition.AttributeName, value),
-            DatabaseAttributeConditionType.AttributeLessOrEqual =>
+            DbAttributeConditionType.AttributeLessOrEqual =>
                 Builders<BsonDocument>.Filter.Lte(condition.AttributeName, value),
             _ => null
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildArrayElementFilter(ArrayElementCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildArrayElementFilter(DbArrayElementCondition condition)
     {
         object[] elementValue = condition.ElementValue.Kind switch
         {
@@ -1070,9 +1073,9 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.ArrayElementExists =>
+            DbAttributeConditionType.ArrayElementExists =>
                 Builders<BsonDocument>.Filter.AnyIn(condition.AttributeName, elementValue),
-            DatabaseAttributeConditionType.ArrayElementNotExists =>
+            DbAttributeConditionType.ArrayElementNotExists =>
                 Builders<BsonDocument>.Filter.AnyNin(condition.AttributeName, elementValue),
             _ => null
         };
@@ -1104,11 +1107,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
     private void ApplyOptions(JObject jsonObject)
     {
-        if (Options.AutoSortArrays == AutoSortArrays.Yes)
+        if (Options.AutoSortArrays == DbAutoSortArrays.Yes)
         {
-            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes);
+            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes);
         }
-        else if (Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes)
+        else if (Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes)
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
         }
@@ -1142,26 +1145,26 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
     #region Condition Builders
 
-    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeNotExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreater, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLess, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
+    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
+    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
+    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
+    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
 

@@ -1,92 +1,13 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.Interfaces;
-
-/// <summary>
-/// After performing an operation that causes a change in an item, defines what service shall return
-/// </summary>
-public enum ReturnItemBehavior
-{
-    DoNotReturn,
-    ReturnOldValues,
-    ReturnNewValues
-}
-
-public enum DatabaseAttributeConditionType
-{
-    AttributeEquals,
-    AttributeNotEquals,
-    AttributeGreater,
-    AttributeGreaterOrEqual,
-    AttributeLess,
-    AttributeLessOrEqual,
-    AttributeExists,
-    AttributeNotExists,
-    ArrayElementExists,
-    ArrayElementNotExists
-}
-
-public enum AutoSortArrays
-{
-    No,
-    Yes
-}
-
-public enum AutoConvertRoundableFloatToInt
-{
-    No,
-    Yes
-}
-
-public class DatabaseOptions
-{
-    public AutoSortArrays AutoSortArrays { get; set; } = AutoSortArrays.No;
-    public AutoConvertRoundableFloatToInt AutoConvertRoundableFloatToInt { get; set; } = AutoConvertRoundableFloatToInt.No;
-}
-
-public abstract class DatabaseAttributeCondition(DatabaseAttributeConditionType conditionType, string attributeName)
-{
-    public DatabaseAttributeConditionType ConditionType { get; } = conditionType;
-    public string AttributeName { get; } = attributeName ?? throw new ArgumentNullException(nameof(attributeName));
-}
-
-public class ExistenceCondition : DatabaseAttributeCondition
-{
-    public ExistenceCondition(DatabaseAttributeConditionType conditionType, string attributeName)
-        : base(conditionType, attributeName)
-    {
-        if (conditionType != DatabaseAttributeConditionType.AttributeExists &&
-            conditionType != DatabaseAttributeConditionType.AttributeNotExists)
-        {
-            throw new ArgumentException("Invalid condition type for existence condition", nameof(conditionType));
-        }
-    }
-}
-
-public class ValueCondition(DatabaseAttributeConditionType conditionType, string attributeName, PrimitiveType value) : DatabaseAttributeCondition(conditionType, attributeName)
-{
-    public PrimitiveType Value { get; } = value ?? throw new ArgumentNullException(nameof(value));
-}
-
-public class ArrayElementCondition : DatabaseAttributeCondition
-{
-    public PrimitiveType ElementValue { get; }
-
-    public ArrayElementCondition(DatabaseAttributeConditionType conditionType, string attributeName, PrimitiveType elementValue)
-        : base(conditionType, attributeName)
-    {
-        if (conditionType != DatabaseAttributeConditionType.ArrayElementExists &&
-            conditionType != DatabaseAttributeConditionType.ArrayElementNotExists)
-        {
-            throw new ArgumentException("Invalid condition type for array element condition", nameof(conditionType));
-        }
-        ElementValue = elementValue ?? throw new ArgumentNullException(nameof(elementValue));
-    }
-}
 
 public abstract class DatabaseServiceBase
 {
@@ -106,12 +27,12 @@ public abstract class DatabaseServiceBase
         destination[keyName] = FromPrimitiveTypeToJToken(keyValue);
     }
 
-    public void SetOptions(DatabaseOptions newOptions)
+    public void SetOptions(DbOptions newOptions)
     {
         Options = newOptions ?? throw new ArgumentNullException(nameof(newOptions));
     }
 
-    protected DatabaseOptions Options { get; private set; } = new();
+    protected DbOptions Options { get; private set; } = new();
 }
 
 /// <summary>
@@ -127,19 +48,19 @@ public interface IDatabaseService
     /// <summary>
     /// Sets the database options for this service instance
     /// </summary>
-    void SetOptions(DatabaseOptions newOptions);
+    void SetOptions(DbOptions newOptions);
 
     // Condition builders
-    DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName);
-    DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName);
-    DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value);
-    DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue);
-    DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue);
+    DbAttributeCondition BuildAttributeExistsCondition(string attributeName);
+    DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName);
+    DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value);
+    DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue);
+    DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue);
 
     /// <summary>
     /// Checks if an item exists and optionally satisfies a condition
@@ -148,7 +69,7 @@ public interface IDatabaseService
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -179,7 +100,7 @@ public interface IDatabaseService
         string keyName,
         PrimitiveType keyValue,
         JObject item,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default);
 
@@ -191,8 +112,8 @@ public interface IDatabaseService
         string keyName,
         PrimitiveType keyValue,
         JObject updateData,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -202,8 +123,8 @@ public interface IDatabaseService
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -215,8 +136,8 @@ public interface IDatabaseService
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -228,8 +149,8 @@ public interface IDatabaseService
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -241,7 +162,7 @@ public interface IDatabaseService
         PrimitiveType keyValue,
         string numericAttributeName,
         double incrementValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -268,7 +189,7 @@ public interface IDatabaseService
     Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -277,7 +198,7 @@ public interface IDatabaseService
     Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default);

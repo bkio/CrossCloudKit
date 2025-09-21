@@ -1,9 +1,13 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using System.Security.Cryptography;
 using CrossCloudKit.File.Common.MonitorBasedPubSub;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
 using Microsoft.AspNetCore.Builder;
@@ -63,7 +67,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
@@ -128,22 +132,22 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Upload failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Upload failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<long>> DownloadFileAsync(string bucketName, string keyInBucket, StringOrStream destination,
-        DownloadOptions? options = null, CancellationToken cancellationToken = default)
+        FileDownloadOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<long>.Failure("Service not initialized");
+            return OperationResult<long>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<long>.Failure("File does not exist");
+                return OperationResult<long>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             return await destination.MatchAsync(
                 async targetFilePath =>
@@ -205,7 +209,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<long>.Failure($"Download failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Download failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -215,7 +219,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex1 = await CreateFileMutexScopeAsync(sourceBucketName, cancellationToken);
         await using var mutex2 = await
@@ -227,7 +231,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var sourceFilePath = GetFilePath(sourceBucketName, sourceKeyInBucket);
             if (!System.IO.File.Exists(sourceFilePath))
-                return OperationResult<FileMetadata>.Failure("Source file does not exist");
+                return OperationResult<FileMetadata>.Failure("Source file does not exist", HttpStatusCode.NotFound);
 
             var destinationFilePath = GetFilePath(destinationBucketName, destinationKeyInBucket);
             var directory = Path.GetDirectoryName(destinationFilePath).NotNull();
@@ -237,8 +241,8 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
 
             // Copy metadata and update accessibility
             var sourceMetadataResult = await InternalGetFileMetadataUnsafeAsync(sourceBucketName, sourceKeyInBucket, cancellationToken);
-            if (!sourceMetadataResult.IsSuccessful || sourceMetadataResult.Data == null)
-                return OperationResult<FileMetadata>.Failure("Failed to get source file metadata");
+            if (!sourceMetadataResult.IsSuccessful)
+                return OperationResult<FileMetadata>.Failure("Failed to get source file metadata", HttpStatusCode.InternalServerError);
 
             var newMetadata = new FileMetadata
             {
@@ -257,7 +261,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Copy failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Copy failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -270,7 +274,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     private Task<OperationResult<bool>> InternalDeleteFileUnsafeAsync(string bucketName, string keyInBucket)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
@@ -278,16 +282,16 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             var metadataPath = GetMetadataPath(bucketName, keyInBucket);
 
             if (!FileSystemUtilities.DeleteFileAndCleanupParentFolders(filePath, RootFolderName))
-                return Task.FromResult(OperationResult<bool>.Failure("Failed to delete file (or cleanup parent folders)"));
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to delete file (or cleanup parent folders)", HttpStatusCode.InternalServerError));
 
             if (!FileSystemUtilities.DeleteFileAndCleanupParentFolders(metadataPath, RootFolderName))
-                return Task.FromResult(OperationResult<bool>.Failure("Failed to delete metadata file (or cleanup parent folders)"));
+                return Task.FromResult(OperationResult<bool>.Failure("Failed to delete metadata file (or cleanup parent folders)", HttpStatusCode.InternalServerError));
 
             return Task.FromResult(OperationResult<bool>.Success(true));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"Delete failed: {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Delete failed: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -295,15 +299,15 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     public async Task<OperationResult<int>> DeleteFolderAsync(string bucketName, string folderPrefix, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<int>.Failure("Service not initialized");
+            return OperationResult<int>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
         try
         {
-            var listResult = await InternalListFilesUnsafeAsync(bucketName, new ListFilesOptions { Prefix = folderPrefix });
-            if (!listResult.IsSuccessful || listResult.Data == null)
-                return OperationResult<int>.Failure("Failed to list files for deletion");
+            var listResult = await InternalListFilesUnsafeAsync(bucketName, new FileListOptions { Prefix = folderPrefix });
+            if (!listResult.IsSuccessful)
+                return OperationResult<int>.Failure("Failed to list files for deletion", HttpStatusCode.InternalServerError);
 
             var deletedCount = 0;
             foreach (var fileKey in listResult.Data.FileKeys)
@@ -317,7 +321,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<int>.Failure($"Delete folder failed: {ex.Message}");
+            return OperationResult<int>.Failure($"Delete folder failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -325,7 +329,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     public Task<OperationResult<bool>> FileExistsAsync(string bucketName, string keyInBucket, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
@@ -334,7 +338,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"File existence check failed: {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"File existence check failed: {ex.Message}", HttpStatusCode.ServiceUnavailable));
         }
     }
 
@@ -342,7 +346,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     public async Task<OperationResult<long>> GetFileSizeAsync(string bucketName, string keyInBucket, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<long>.Failure("Service not initialized");
+            return OperationResult<long>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -350,14 +354,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<long>.Failure("File does not exist");
+                return OperationResult<long>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var fileInfo = new FileInfo(filePath);
             return OperationResult<long>.Success(fileInfo.Length);
         }
         catch (Exception ex)
         {
-            return OperationResult<long>.Failure($"Get file size failed: {ex.Message}");
+            return OperationResult<long>.Failure($"Get file size failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -365,7 +369,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     public async Task<OperationResult<string>> GetFileChecksumAsync(string bucketName, string keyInBucket, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<string>.Failure("Service not initialized");
+            return OperationResult<string>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -373,14 +377,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<string>.Failure("File does not exist");
+                return OperationResult<string>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var checksum = await CalculateFileChecksumAsync(filePath, cancellationToken);
             return OperationResult<string>.Success(checksum);
         }
         catch (Exception ex)
         {
-            return OperationResult<string>.Failure($"Get file checksum failed: {ex.Message}");
+            return OperationResult<string>.Failure($"Get file checksum failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -397,13 +401,13 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     private async Task<OperationResult<FileMetadata>> InternalGetFileMetadataUnsafeAsync(string bucketName, string keyInBucket, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<FileMetadata>.Failure("Service not initialized");
+            return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<FileMetadata>.Failure("File does not exist");
+                return OperationResult<FileMetadata>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var fileInfo = new FileInfo(filePath);
             var metadataPath = GetMetadataPath(bucketName, keyInBucket);
@@ -450,7 +454,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}");
+            return OperationResult<FileMetadata>.Failure($"Get file metadata failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -460,8 +464,8 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
         var metadataResult = await InternalGetFileMetadataUnsafeAsync(bucketName, keyInBucket, cancellationToken);
-        if (!metadataResult.IsSuccessful || metadataResult.Data == null)
-            return OperationResult<IReadOnlyDictionary<string, string>>.Failure(metadataResult.ErrorMessage.NotNull());
+        if (!metadataResult.IsSuccessful )
+            return OperationResult<IReadOnlyDictionary<string, string>>.Failure(metadataResult.ErrorMessage, metadataResult.StatusCode);
 
         return OperationResult<IReadOnlyDictionary<string, string>>.Success(metadataResult.Data.Tags);
     }
@@ -471,7 +475,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -479,11 +483,11 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<bool>.Failure("File does not exist");
+                return OperationResult<bool>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var metadataResult = await InternalGetFileMetadataUnsafeAsync(bucketName, keyInBucket, cancellationToken);
-            if (!metadataResult.IsSuccessful || metadataResult.Data == null)
-                return OperationResult<bool>.Failure("Failed to get existing metadata");
+            if (!metadataResult.IsSuccessful)
+                return OperationResult<bool>.Failure($"Failed to get existing metadata: {metadataResult.ErrorMessage}", metadataResult.StatusCode);
 
             var updatedMetadata = new FileMetadata
             {
@@ -501,7 +505,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Set file tags failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file tags failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -510,7 +514,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<bool>.Failure("Service not initialized");
+            return OperationResult<bool>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -518,18 +522,18 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<bool>.Failure("File does not exist");
+                return OperationResult<bool>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var metadataResult = await InternalGetFileMetadataUnsafeAsync(bucketName, keyInBucket, cancellationToken);
-            if (!metadataResult.IsSuccessful || metadataResult.Data == null)
-                return OperationResult<bool>.Failure("Failed to get existing metadata");
+            if (!metadataResult.IsSuccessful)
+                return OperationResult<bool>.Failure($"Failed to get existing metadata: {metadataResult.ErrorMessage}", metadataResult.StatusCode);
 
             await SaveFileMetadataAsync(bucketName, keyInBucket, metadataResult.Data, cancellationToken);
             return OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Set file accessibility failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Set file accessibility failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -718,14 +722,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(string bucketName, string keyInBucket, SignedUploadUrlOptions? options = null,
+    public async Task<OperationResult<FileSignedUrl>> CreateSignedUploadUrlAsync(string bucketName, string keyInBucket, FileSignedUploadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<SignedUrl>.Failure("Service not initialized");
+            return OperationResult<FileSignedUrl>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         if (_publicEndpointBase == null)
-            return OperationResult<SignedUrl>.Failure("WebApplication not registered");
+            return OperationResult<FileSignedUrl>.Failure("WebApplication not registered", HttpStatusCode.NotImplemented);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -755,24 +759,24 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             // Generate a proper HTTP URL if WebApplication is registered, otherwise fallback to file:// protocol
             var signedUrlString = $"{_publicEndpointBase}{_signedUploadPath}/{token}";
 
-            var signedUrl = new SignedUrl(signedUrlString, expires);
-            return OperationResult<SignedUrl>.Success(signedUrl);
+            var signedUrl = new FileSignedUrl(signedUrlString, expires);
+            return OperationResult<FileSignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return OperationResult<SignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}");
+            return OperationResult<FileSignedUrl>.Failure($"Create signed upload URL failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(string bucketName, string keyInBucket, SignedDownloadUrlOptions? options = null,
+    public async Task<OperationResult<FileSignedUrl>> CreateSignedDownloadUrlAsync(string bucketName, string keyInBucket, FileSignedDownloadUrlOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<SignedUrl>.Failure("Service not initialized");
+            return OperationResult<FileSignedUrl>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         if (_publicEndpointBase == null)
-            return OperationResult<SignedUrl>.Failure("WebApplication not registered");
+            return OperationResult<FileSignedUrl>.Failure("WebApplication not registered", HttpStatusCode.NotImplemented);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -780,7 +784,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         {
             var filePath = GetFilePath(bucketName, keyInBucket);
             if (!System.IO.File.Exists(filePath))
-                return OperationResult<SignedUrl>.Failure("File does not exist");
+                return OperationResult<FileSignedUrl>.Failure("File does not exist", HttpStatusCode.NotFound);
 
             var validFor = options?.ValidFor ?? TimeSpan.FromMinutes(1);
             var token = Guid.NewGuid().ToString("N");
@@ -804,36 +808,36 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             // Generate a proper HTTP URL if WebApplication is registered, otherwise fallback to file:// protocol
             var signedUrlString = $"{_publicEndpointBase}{_signedDownloadPath}/{token}";
 
-            var signedUrl = new SignedUrl(signedUrlString, expires);
-            return OperationResult<SignedUrl>.Success(signedUrl);
+            var signedUrl = new FileSignedUrl(signedUrlString, expires);
+            return OperationResult<FileSignedUrl>.Success(signedUrl);
         }
         catch (Exception ex)
         {
-            return OperationResult<SignedUrl>.Failure($"Create signed download URL failed: {ex.Message}");
+            return OperationResult<FileSignedUrl>.Failure($"Create signed download URL failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<ListFilesResult>> ListFilesAsync(string bucketName, ListFilesOptions? options = null, CancellationToken cancellationToken = default)
+    public async Task<OperationResult<FileListResult>> ListFilesAsync(string bucketName, FileListOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<ListFilesResult>.Failure("Service not initialized");
+            return OperationResult<FileListResult>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
         return await InternalListFilesUnsafeAsync(bucketName, options);
     }
-    private Task<OperationResult<ListFilesResult>> InternalListFilesUnsafeAsync(string bucketName, ListFilesOptions? options = null)
+    private Task<OperationResult<FileListResult>> InternalListFilesUnsafeAsync(string bucketName, FileListOptions? options = null)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<ListFilesResult>.Failure("Service not initialized"));
+            return Task.FromResult(OperationResult<FileListResult>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var bucketPath = GetBucketPath(bucketName);
             if (!Directory.Exists(bucketPath))
             {
-                return Task.FromResult(OperationResult<ListFilesResult>.Success(new ListFilesResult
+                return Task.FromResult(OperationResult<FileListResult>.Success(new FileListResult
                 {
                     FileKeys = new List<string>(),
                     NextContinuationToken = null
@@ -857,17 +861,17 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
             var files = allFiles.Skip(startIndex).Take(maxResults).ToList();
             var nextToken = startIndex + files.Count < allFiles.Count ? (startIndex + files.Count).ToString() : null;
 
-            var result = new ListFilesResult
+            var result = new FileListResult
             {
                 FileKeys = files,
                 NextContinuationToken = nextToken
             };
 
-            return Task.FromResult(OperationResult<ListFilesResult>.Success(result));
+            return Task.FromResult(OperationResult<FileListResult>.Success(result));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<ListFilesResult>.Failure($"List files failed: {ex.Message}"));
+            return Task.FromResult(OperationResult<FileListResult>.Failure($"List files failed: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -876,7 +880,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         IPubSubService pubSubService, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _disposed)
-            return OperationResult<string>.Failure("File service is not initialized.");
+            return OperationResult<string>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -894,7 +898,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _disposed)
-            return OperationResult<int>.Failure("File service is not initialized.");
+            return OperationResult<int>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -908,7 +912,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> CleanupBucketAsync(string bucketName, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.");
+        if (!IsInitialized) return OperationResult<bool>.Failure("Service not initialized.", HttpStatusCode.ServiceUnavailable);
 
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
 
@@ -928,7 +932,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Cleanup bucket failed: {ex.Message}");
+            return OperationResult<bool>.Failure($"Cleanup bucket failed: {ex.Message}", HttpStatusCode.InternalServerError);
         }
         return await _monitorBasedPubSub.NotNull().CleanupBucketAsync(
             bucketName,
@@ -942,14 +946,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     {
         var memoryService = _monitorBasedPubSub.NotNull().MemoryService;
         if (memoryService == null) return new NoopAsyncDisposable();
-        return await MemoryServiceScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateScopeAsync(
             memoryService,
             FileMutexScope,
             bucketName,
             TimeSpan.FromMinutes(1),
             cancellationToken);
     }
-    private static readonly IMemoryServiceScope FileMutexScope = new LambdaMemoryServiceScope("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
+    private static readonly IMemoryScope FileMutexScope = new MemoryScopeLambda("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
 
     private string GetBucketPath(string bucketName) => Path.Combine(_basePath, bucketName);
     private string GetMetadataBucketPath(string bucketName) => Path.Combine(_basePath, MetadataSubfolder, bucketName);

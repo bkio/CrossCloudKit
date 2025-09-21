@@ -1,12 +1,15 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using Amazon;
 using Amazon.S3;
 using Amazon.S3.Transfer;
 using CrossCloudKit.File.AWS;
 using CrossCloudKit.File.Common.MonitorBasedPubSub;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.File.S3Compatible;
@@ -80,7 +83,7 @@ public class FileServiceS3Compatible : FileServiceAWS
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _disposed)
-            return OperationResult<string>.Failure("File service is not initialized.");
+            return OperationResult<string>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         return await _monitorBasedPubSub.NotNull().CreateNotificationAsync(
             bucketName,
@@ -99,7 +102,7 @@ public class FileServiceS3Compatible : FileServiceAWS
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _disposed)
-            return OperationResult<int>.Failure("File service is not initialized.");
+            return OperationResult<int>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         return await _monitorBasedPubSub.NotNull().DeleteNotificationsAsync(
             pubSubService,
@@ -113,7 +116,7 @@ public class FileServiceS3Compatible : FileServiceAWS
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _disposed)
-            return OperationResult<bool>.Failure("File service is not initialized.");
+            return OperationResult<bool>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         var baseSuccess = await base.CleanupBucketAsync(bucketName, cancellationToken);
 

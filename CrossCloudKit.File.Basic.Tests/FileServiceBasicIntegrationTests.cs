@@ -65,7 +65,7 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
         return "cross-cloud-kit-tests-bucket";
     }
 
-    private WebApplication CreateWebServer()
+    private static WebApplication CreateWebServer()
     {
         var builder = WebApplication.CreateBuilder();
 

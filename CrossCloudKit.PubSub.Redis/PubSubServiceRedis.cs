@@ -1,7 +1,9 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Memory.Redis.Common;
 using StackExchange.Redis;
 using CrossCloudKit.Utilities.Common;
@@ -31,11 +33,11 @@ namespace CrossCloudKit.PubSub.Redis
             if (_disposed)
                 return OperationResult<bool>.Success(true); // Already disposed, consider topic deleted
             if (!IsInitialized)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
             if (string.IsNullOrEmpty(topic))
-                return OperationResult<bool>.Failure("Topic cannot be empty.");
+                return OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest);
             if (RedisConnection == null)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
             var result = await ExecuteRedisOperationAsync(async _ =>
             {
@@ -49,21 +51,23 @@ namespace CrossCloudKit.PubSub.Redis
         /// <inheritdoc />
         public Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(!IsInitialized ? OperationResult<bool>.Failure("Redis connection is not initialized") : OperationResult<bool>.Success(true));
+            return Task.FromResult(!IsInitialized
+                ? OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable)
+                : OperationResult<bool>.Success(true));
         }
 
         /// <inheritdoc />
         public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
         {
             if (_disposed)
-                return OperationResult<bool>.Failure("Service has been disposed");
+                return OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
             if (!IsInitialized)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
             if (string.IsNullOrEmpty(topic)
                 || string.IsNullOrEmpty(message))
-                return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+                return OperationResult<bool>.Failure("Topic and message cannot be empty.", HttpStatusCode.BadRequest);
             if (RedisConnection == null)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
             return await ExecuteRedisOperationAsync(async _ =>
             {
@@ -76,15 +80,15 @@ namespace CrossCloudKit.PubSub.Redis
         public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
         {
             if (_disposed)
-                return OperationResult<bool>.Failure("Service has been disposed");
+                return OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
             if (!IsInitialized)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
             if (string.IsNullOrEmpty(topic))
-                return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+                return OperationResult<bool>.Failure("Topic and message cannot be empty.", HttpStatusCode.BadRequest);
             if (onMessage == null)
-                return OperationResult<bool>.Failure("Callback cannot be null.");
+                return OperationResult<bool>.Failure("Callback cannot be null.", HttpStatusCode.BadRequest);
             if (RedisConnection == null)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
             return await ExecuteRedisOperationAsync(async _ =>
             {
@@ -102,15 +106,15 @@ namespace CrossCloudKit.PubSub.Redis
         public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
         {
             if (_disposed)
-                return OperationResult<bool>.Failure("Service has been disposed");
+                return OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
             if (string.IsNullOrEmpty(topic))
-                return OperationResult<bool>.Failure("Topic cannot be empty.");
+                return OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest);
             if (!IsInitialized)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
             var topics = await GetTopicsUsedOnBucketEventAsync(cancellationToken);
-            if (!topics.IsSuccessful || topics.Data == null)
-                return OperationResult<bool>.Failure(topics.ErrorMessage.NotNull());
+            if (!topics.IsSuccessful)
+                return OperationResult<bool>.Failure(topics.ErrorMessage, topics.StatusCode);
             if (topics.Data.Contains(topic))
                 return OperationResult<bool>.Success(true);
 
@@ -131,11 +135,11 @@ namespace CrossCloudKit.PubSub.Redis
         public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
         {
             if (_disposed)
-                return OperationResult<bool>.Failure("Service has been disposed");
+                return OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
             if (string.IsNullOrEmpty(topic))
-                return OperationResult<bool>.Failure("Topic cannot be empty.");
+                return OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest);
             if (!IsInitialized)
-                return OperationResult<bool>.Failure("Redis connection is not initialized");
+                return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
             var result = await Common_RemoveElementsFromListAsync(
                 SystemClassMemoryScopeInstance,
@@ -146,21 +150,23 @@ namespace CrossCloudKit.PubSub.Redis
                 false,
                 this,
                 cancellationToken);
-            return result.IsSuccessful ? OperationResult<bool>.Success(true) : OperationResult<bool>.Failure(result.ErrorMessage ?? string.Empty);
+            return result.IsSuccessful
+                ? OperationResult<bool>.Success(true)
+                : OperationResult<bool>.Failure(result.ErrorMessage, result.StatusCode);
         }
 
         /// <inheritdoc />
         public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
         {
             if (_disposed)
-                return OperationResult<List<string>>.Failure("Service has been disposed");
+                return OperationResult<List<string>>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
             if (!IsInitialized)
-                return OperationResult<List<string>>.Failure("Redis connection is not initialized");
+                return OperationResult<List<string>>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
             var result = await Common_GetAllElementsOfListAsync(
                 SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 cancellationToken);
-            if (!result.IsSuccessful || result.Data == null) return OperationResult<List<string>>.Failure(result.ErrorMessage ?? string.Empty);
+            if (!result.IsSuccessful) return OperationResult<List<string>>.Failure(result.ErrorMessage, result.StatusCode);
             return OperationResult<List<string>>.Success(result.Data.Select(x => x.ToString()).ToList());
         }
 
@@ -178,7 +184,7 @@ namespace CrossCloudKit.PubSub.Redis
             GC.SuppressFinalize(this);
         }
 
-        private static readonly LambdaMemoryServiceScope SystemClassMemoryScopeInstance = new("CrossCloudKit.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope");
+        private static readonly MemoryScopeLambda SystemClassMemoryScopeInstance = new("CrossCloudKit.PubSub.Redis.PubSubServiceRedis.SystemMemoryScope");
         private const string UsedOnBucketEventListName = "user_on_bucket_event_list";
 
         /// <summary>

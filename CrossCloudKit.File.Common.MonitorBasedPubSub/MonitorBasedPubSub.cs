@@ -2,7 +2,11 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Collections.Concurrent;
+using System.Net;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
 
@@ -43,10 +47,10 @@ public class MonitorBasedPubSub: IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return OperationResult<string>.Failure("File service is not initialized.");
+            return OperationResult<string>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         if (MemoryService is not { IsInitialized: true })
-            return OperationResult<string>.Failure("Memory service is not initialized.");
+            return OperationResult<string>.Failure("Memory service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         var sortedEventTypes = eventTypes.OrderBy(e => e).Select(s => s.ToString()).ToList();
 
@@ -65,14 +69,14 @@ public class MonitorBasedPubSub: IAsyncDisposable
             false,
             cancellationToken);
 
-        if (!newNotification.IsSuccessful || newNotification.Data is null)
-            return OperationResult<string>.Failure(newNotification.ErrorMessage.NotNull());
+        if (!newNotification.IsSuccessful)
+            return OperationResult<string>.Failure(newNotification.ErrorMessage, newNotification.StatusCode);
 
         if (newNotification.Data.Length == 0) //Notification already exists
             return OperationResult<string>.Success(topicName);
 
         var markResult = await pubSubService.MarkUsedOnBucketEvent(topicName, cancellationToken);
-        return !markResult.IsSuccessful ? OperationResult<string>.Failure(markResult.ErrorMessage.NotNull()) : OperationResult<string>.Success(topicName);
+        return !markResult.IsSuccessful ? OperationResult<string>.Failure(markResult.ErrorMessage, markResult.StatusCode) : OperationResult<string>.Success(topicName);
     }
 
     public async Task<OperationResult<int>> DeleteNotificationsAsync(
@@ -82,17 +86,17 @@ public class MonitorBasedPubSub: IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return OperationResult<int>.Failure("File service is not initialized.");
+            return OperationResult<int>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         if (MemoryService is not { IsInitialized: true })
-            return OperationResult<int>.Failure("Memory service is not initialized.");
+            return OperationResult<int>.Failure("Memory service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         var eventListenConfigsResult = await MemoryService.GetAllElementsOfListAsync(
             SystemClassMemoryScopeInstance,
             EventNotificationConfigsListName,
             cancellationToken);
-        if (!eventListenConfigsResult.IsSuccessful || eventListenConfigsResult.Data is null)
-            return OperationResult<int>.Failure(eventListenConfigsResult.ErrorMessage.NotNull());
+        if (!eventListenConfigsResult.IsSuccessful)
+            return OperationResult<int>.Failure(eventListenConfigsResult.ErrorMessage, eventListenConfigsResult.StatusCode);
 
         var malformedConfigs = new List<PrimitiveType>();
         var deleteConfigs = new List<PrimitiveType>();
@@ -123,13 +127,13 @@ public class MonitorBasedPubSub: IAsyncDisposable
             false,
             cancellationToken);
         if (!removeResult.IsSuccessful)
-            return OperationResult<int>.Failure(removeResult.ErrorMessage.NotNull());
+            return OperationResult<int>.Failure(removeResult.ErrorMessage, removeResult.StatusCode);
 
         foreach (var deleteConfig in deleteConfigsParsed)
         {
             var unmarkResult = await pubSubService.UnmarkUsedOnBucketEvent(deleteConfig.TopicName, cancellationToken);
             if (!unmarkResult.IsSuccessful)
-                return OperationResult<int>.Failure(unmarkResult.ErrorMessage.NotNull());
+                return OperationResult<int>.Failure(unmarkResult.ErrorMessage, unmarkResult.StatusCode);
         }
 
         return OperationResult<int>.Success(deleteConfigs.Count);
@@ -173,7 +177,7 @@ public class MonitorBasedPubSub: IAsyncDisposable
             cancellationToken);
 
         if (!elements.IsSuccessful || elements.Data == null)
-            throw new InvalidOperationException($"GetAllElementsOfListAsync failed with: {elements.ErrorMessage.NotNull()}");
+            throw new InvalidOperationException($"GetAllElementsOfListAsync failed with: {elements.ErrorMessage}");
 
         var malformedConfigs = new List<PrimitiveType>();
         var bucketNameToPathPrefixToConfigs = new Dictionary<string, Dictionary<string, List<EventNotificationConfig>>>();
@@ -202,14 +206,14 @@ public class MonitorBasedPubSub: IAsyncDisposable
             string? continuationToken = null;
             do
             {
-                var listResult = await _fileService.ListFilesAsync(bucketName, new ListFilesOptions()
+                var listResult = await _fileService.ListFilesAsync(bucketName, new FileListOptions
                 {
                     ContinuationToken = continuationToken
                 }, cancellationToken);
 
                 if (!listResult.IsSuccessful || listResult.Data == null)
                 {
-                    throw new InvalidOperationException($"ListFilesAsync failed with: {listResult.ErrorMessage.NotNull()}");
+                    throw new InvalidOperationException($"ListFilesAsync failed with: {listResult.ErrorMessage}");
                 }
 
                 allFileKeys.AddRange(listResult.Data.FileKeys);
@@ -336,7 +340,7 @@ public class MonitorBasedPubSub: IAsyncDisposable
                     false,
                     cancellationToken);
                 if (!removeResult.IsSuccessful)
-                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeResult.ErrorMessage.NotNull()}");
+                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeResult.ErrorMessage}");
             }
 
             // Add/update changed files section
@@ -368,7 +372,7 @@ public class MonitorBasedPubSub: IAsyncDisposable
                     false,
                     cancellationToken);
                 if (!removeOldResult.IsSuccessful)
-                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeOldResult.ErrorMessage.NotNull()}");
+                    throw new InvalidOperationException($"RemoveElementsFromListAsync failed with: {removeOldResult.ErrorMessage}");
             }
 
             var addResult = await MemoryService.PushToListTailAsync(
@@ -379,7 +383,7 @@ public class MonitorBasedPubSub: IAsyncDisposable
                 false,
                 cancellationToken);
             if (!addResult.IsSuccessful)
-                throw new InvalidOperationException($"PushToListTailAsync failed with: {addResult.ErrorMessage.NotNull()}");
+                throw new InvalidOperationException($"PushToListTailAsync failed with: {addResult.ErrorMessage}");
         }
 
         if (malformedConfigs.Count > 0)
@@ -449,13 +453,13 @@ public class MonitorBasedPubSub: IAsyncDisposable
         }
     }
 
-    private static readonly LambdaMemoryServiceScope ObserveFileServiceAndDispatchEventsMemoryServiceScope =
+    private static readonly MemoryScopeLambda ObserveFileServiceAndDispatchEventsMemoryServiceScope =
         new(
             "CrossCloudKit.File.Common.MonitorBasedPubSub.ObserveFileServiceAndDispatchEvents");
     private async Task<IAsyncDisposable> ObserveFileServiceAndDispatchEventsMutex(CancellationToken cancellationToken)
     {
         if (MemoryService == null) return new NoopAsyncDisposable();
-        return await MemoryServiceScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateScopeAsync(
             MemoryService,
             ObserveFileServiceAndDispatchEventsMemoryServiceScope,
             "lock",
@@ -463,7 +467,7 @@ public class MonitorBasedPubSub: IAsyncDisposable
             cancellationToken);
     }
 
-    private static readonly LambdaMemoryServiceScope SystemClassMemoryScopeInstance =
+    private static readonly MemoryScopeLambda SystemClassMemoryScopeInstance =
         new(
             "CrossCloudKit.File.Common.MonitorBasedPubSub.FileService");
     public static Task<IAsyncDisposable> CreateNoopAsyncDisposableAsync()

@@ -3,7 +3,9 @@
 
 #nullable enable
 using System.Collections.ObjectModel;
+using System.Net;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
 using Newtonsoft.Json;
 using StackExchange.Redis;
 using CrossCloudKit.Utilities.Common;
@@ -149,7 +151,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         }
     }
 
-    protected static string BuildListKey(IMemoryServiceScope memoryScope, string listName)
+    protected static string BuildListKey(IMemoryScope memoryScope, string listName)
     {
         return $"{memoryScope.Compile()}{ScopeListDelimiter}{listName}";
     }
@@ -185,11 +187,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (RedisConnection == null)
-            return OperationResult<T>.Failure("Redis connection is not initialized");
+            return OperationResult<T>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
         if (!await EnsureConnectionAsync(cancellationToken))
         {
-            return OperationResult<T>.Failure("Redis connection is not available");
+            return OperationResult<T>.Failure("Redis connection is not available", HttpStatusCode.BadGateway);
         }
 
         var database = RedisConnection.GetDatabase();
@@ -202,7 +204,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                return OperationResult<T>.Failure($"Redis operation failed: {ex.Message}, Trace: {ex.StackTrace}");
+                return OperationResult<T>.Failure($"Redis operation failed: {ex.Message}, Trace: {ex.StackTrace}", HttpStatusCode.InternalServerError);
             }
         }
 
@@ -226,18 +228,18 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                 // Try to ensure connection is still valid
                 if (!await EnsureConnectionAsync(cancellationToken))
                 {
-                    return OperationResult<T>.Failure("Redis connection lost and could not be restored");
+                    return OperationResult<T>.Failure("Redis connection lost and could not be restored", HttpStatusCode.BadGateway);
                 }
 
                 database = RedisConnection.GetDatabase();
             }
             catch (Exception ex)
             {
-                return OperationResult<T>.Failure($"Redis operation failed: {ex.Message}, Trace: {ex.StackTrace}");
+                return OperationResult<T>.Failure($"Redis operation failed: {ex.Message}, Trace: {ex.StackTrace}", HttpStatusCode.InternalServerError);
             }
         }
 
-        return OperationResult<T>.Failure($"Maximum retry attempts ({maxAttempts}) exceeded. Last error: {lastException?.Message}");
+        return OperationResult<T>.Failure($"Maximum retry attempts ({maxAttempts}) exceeded. Last error: {lastException?.Message}", HttpStatusCode.TooManyRequests);
     }
 
     /// <summary>
@@ -259,13 +261,13 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     // ReSharper disable once UnusedMethodReturnValue.Local
     protected static async Task<OperationResult<bool>> PublishChangeNotificationAsync<T>(
         IPubSubService? pubSubService,
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string operation,
         T? changes,
         CancellationToken cancellationToken)
     {
         if (pubSubService is null)
-            return OperationResult<bool>.Failure("Pub/Sub service is not configured.");
+            return OperationResult<bool>.Failure("Pub/Sub service is not configured.", HttpStatusCode.NotImplemented);
 
         var scope = memoryScope.Compile();
 
@@ -282,11 +284,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Failed to publish change notification for operation {operation} on scope {memoryScope}: {ex.Message}, Trace: {ex.StackTrace}");
+            return OperationResult<bool>.Failure($"Failed to publish change notification for operation {operation} on scope {memoryScope}: {ex.Message}, Trace: {ex.StackTrace}", HttpStatusCode.InternalServerError);
         }
     }
     protected async Task<OperationResult<bool>> Common_PushToListAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
         bool toTail,
@@ -297,7 +299,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<bool>.Failure("Value array is empty.");
+            return OperationResult<bool>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         var scope = memoryScope.Compile();
         var listKey = BuildListKey(scope, listName);
@@ -349,7 +351,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     }
 
     protected async Task<OperationResult<PrimitiveType[]>> Common_PushToListTailIfValuesNotExistsAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
         bool publishChange = true,
@@ -358,7 +360,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<PrimitiveType[]>.Failure("Value array is empty.");
+            return OperationResult<PrimitiveType[]>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         const string script = """
             local listKey = KEYS[1]
@@ -408,8 +410,8 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             return pushedRedisValues.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>().ToArray();
         }, cancellationToken);
 
-        if (!result.IsSuccessful || result.Data == null)
-            return OperationResult<PrimitiveType[]>.Failure($"Redis operation failed: {result.ErrorMessage}");
+        if (!result.IsSuccessful)
+            return OperationResult<PrimitiveType[]>.Failure($"Redis operation failed: {result.ErrorMessage}", HttpStatusCode.InternalServerError);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null && result.Data.Length != 0)
         {
@@ -420,7 +422,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return result;
     }
     protected async Task<OperationResult<PrimitiveType?>> Common_PopFromListAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         bool fromTail,
         bool publishChange,
@@ -434,11 +436,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             : await database.ListLeftPopAsync(listKey), cancellationToken);
 
         if (!poppedValue.IsSuccessful)
-            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(1): {poppedValue.ErrorMessage}");
+            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(1): {poppedValue.ErrorMessage}", poppedValue.StatusCode);
 
         var primitiveValue = ConvertRedisValueToPrimitiveType(poppedValue.Data);
         if (primitiveValue is null)
-            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(2).");
+            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(2).", HttpStatusCode.InternalServerError);
 
         if (publishChange && pubSubService is not null)
         {
@@ -450,7 +452,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return OperationResult<PrimitiveType?>.Success(primitiveValue);
     }
     protected async Task<OperationResult<IEnumerable<PrimitiveType?>>> Common_RemoveElementsFromListAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         IEnumerable<PrimitiveType> values,
         bool publishChange = true,
@@ -459,7 +461,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Value array is empty.");
+            return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         var listKey = BuildListKey(memoryScope, listName);
         var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
@@ -486,7 +488,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return result;
     }
     protected async Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> Common_GetAllElementsOfListAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         CancellationToken cancellationToken = default)
     {
@@ -505,7 +507,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         }, cancellationToken);
     }
     protected async Task<OperationResult<bool>> Common_EmptyListAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         bool publishChange = true,
         IPubSubService? pubSubService = null,
@@ -523,7 +525,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return result;
     }
     protected async Task<OperationResult<bool>> Common_EmptyListAndSublistsAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         string sublistPrefix,
         bool publishChange = true,
@@ -549,7 +551,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         }, cancellationToken);
 
         if (!result.IsSuccessful)
-            return OperationResult<bool>.Failure($"Redis operation failed: {result.ErrorMessage}");
+            return OperationResult<bool>.Failure($"Redis operation failed: {result.ErrorMessage}", result.StatusCode);
 
         if (publishChange && pubSubService is not null)
         {
@@ -560,7 +562,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return OperationResult<bool>.Success(true);
     }
     protected async Task<OperationResult<long>> Common_GetListSizeAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         CancellationToken cancellationToken = default)
     {
@@ -587,15 +589,15 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
     protected async Task<OperationResult<bool>> Common_ListContainsAsync(
-        IMemoryServiceScope memoryScope,
+        IMemoryScope memoryScope,
         string listName,
         PrimitiveType value,
         CancellationToken cancellationToken = default)
     {
         var elements = await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken);
-        if (!elements.IsSuccessful || elements.Data == null)
-            return OperationResult<bool>.Failure($"Redis operation failed: {elements.ErrorMessage}");
-        return OperationResult<bool>.Success(elements.Data.Any(element => element.Equals(value)));
+        return !elements.IsSuccessful
+            ? OperationResult<bool>.Failure($"Redis operation failed: {elements.ErrorMessage}", elements.StatusCode)
+            : OperationResult<bool>.Success(elements.Data.Any(element => element.Equals(value)));
     }
 
     public static RedisConnectionOptions GetRedisConnectionOptionsFromEnvironmentForTesting()

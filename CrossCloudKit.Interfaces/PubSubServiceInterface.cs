@@ -1,6 +1,8 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using CrossCloudKit.Interfaces.Classes;
+
 namespace CrossCloudKit.Interfaces;
 
 /// <summary>

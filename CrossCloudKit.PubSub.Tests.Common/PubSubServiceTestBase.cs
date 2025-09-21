@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using xRetry;
@@ -272,7 +273,7 @@ public abstract class PubSubServiceTestBase(ITestOutputHelper testOutputHelper)
         AssertInitialized(service);
         var topic = GenerateTestTopic();
 
-        var result = await service.SubscribeAsync(topic, null!);
+        var result = await service.SubscribeAsync(topic, null);
         result.IsSuccessful.Should().BeFalse($"Errors: {result.ErrorMessage}");
     }
 

@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using xRetry;
@@ -40,7 +41,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             var result = await service.UploadFileAsync(sos, bucket, key);
             result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
             result.Data.Should().NotBeNull(result.ErrorMessage);
-            result.Data!.Size.Should().Be(content.Length);
+            result.Data.Size.Should().Be(content.Length);
         }
         finally
         {
@@ -222,7 +223,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             var result = await service.GetFileMetadataAsync(bucket, key);
             result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
             result.Data.Should().NotBeNull(result.ErrorMessage);
-            result.Data!.Size.Should().Be(content.Length);
+            result.Data.Size.Should().Be(content.Length);
         }
         finally
         {
@@ -308,7 +309,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             var result = await service.CreateSignedUploadUrlAsync(bucket, key);
             result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
             result.Data.Should().NotBeNull(result.ErrorMessage);
-            result.Data!.Url.Should().NotBeNullOrEmpty(result.ErrorMessage);
+            result.Data.Url.Should().NotBeNullOrEmpty(result.ErrorMessage);
 
             // Upload content using the signed URL
             using var httpClient = new HttpClient();
@@ -345,7 +346,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             var result = await service.CreateSignedDownloadUrlAsync(bucket, key);
             result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
             result.Data.Should().NotBeNull(result.ErrorMessage);
-            result.Data!.Url.Should().NotBeNullOrEmpty(result.ErrorMessage);
+            result.Data.Url.Should().NotBeNullOrEmpty(result.ErrorMessage);
 
             // Download content using the signed URL
             using var httpClient = new HttpClient();
@@ -373,7 +374,7 @@ public abstract class FileServiceTestBase(ITestOutputHelper testOutputHelper)
             var result = await service.ListFilesAsync(bucket);
             result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
             result.Data.Should().NotBeNull(result.ErrorMessage);
-            result.Data!.FileKeys.Should().Contain(key, result.ErrorMessage);
+            result.Data.FileKeys.Should().Contain(key, result.ErrorMessage);
         }
         finally
         {

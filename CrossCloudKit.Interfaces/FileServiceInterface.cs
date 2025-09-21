@@ -1,182 +1,14 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 // ReSharper disable ClassNeverInstantiated.Global
 
 namespace CrossCloudKit.Interfaces;
-
-/// <summary>
-/// Defines the accessibility level for uploaded or copied files in cloud storage.
-/// </summary>
-public enum FileAccessibility
-{
-    /// <summary>
-    /// File can only be accessed by authenticated users with proper permissions.
-    /// </summary>
-    AuthenticatedRead,
-
-    /// <summary>
-    /// File can be accessed by any user within the same project/organization.
-    /// </summary>
-    ProjectWideProtectedRead,
-
-    /// <summary>
-    /// File can be accessed publicly by anyone with the URL.
-    /// </summary>
-    PublicRead
-}
-
-/// <summary>
-/// Defines the types of pub/sub notification events for file operations.
-/// </summary>
-public enum FileNotificationEventType
-{
-    /// <summary>
-    /// Event triggered when a file is uploaded/created.
-    /// </summary>
-    Uploaded,
-
-    /// <summary>
-    /// Event triggered when a file is deleted.
-    /// </summary>
-    Deleted
-}
-
-/// <summary>
-/// Represents file metadata information.
-/// </summary>
-public sealed record FileMetadata
-{
-    /// <summary>
-    /// Gets the size of the file in bytes.
-    /// </summary>
-    public long Size { get; init; }
-
-    /// <summary>
-    /// Gets the MD5 checksum of the file.
-    /// </summary>
-    public string? Checksum { get; init; }
-
-    /// <summary>
-    /// Gets the content type of the file.
-    /// </summary>
-    public string? ContentType { get; init; }
-
-    /// <summary>
-    /// Gets the creation timestamp of the file.
-    /// </summary>
-    public DateTimeOffset? CreatedAt { get; init; }
-
-    /// <summary>
-    /// Gets the last modified timestamp of the file.
-    /// </summary>
-    public DateTimeOffset? LastModified { get; init; }
-
-    /// <summary>
-    /// Gets additional metadata properties.
-    /// </summary>
-    public IReadOnlyDictionary<string, string> Properties { get; init; } = new Dictionary<string, string>();
-
-    /// <summary>
-    /// Gets the file tags/labels.
-    /// </summary>
-    public IReadOnlyDictionary<string, string> Tags { get; init; } = new Dictionary<string, string>();
-}
-
-/// <summary>
-/// Represents a signed URL for file operations.
-/// </summary>
-/// <param name="Url">The signed URL</param>
-/// <param name="ExpiresAt">When the URL expires</param>
-// ReSharper disable once NotAccessedPositionalProperty.Global
-public sealed record SignedUrl(string Url, DateTimeOffset ExpiresAt);
-
-/// <summary>
-/// Options for creating signed URLs for file uploads.
-/// </summary>
-public sealed record SignedUploadUrlOptions
-{
-    /// <summary>
-    /// Gets or sets the content type of the file to be uploaded.
-    /// </summary>
-    public string? ContentType { get; init; }
-
-    /// <summary>
-    /// Gets or sets the validity duration for the signed URL.
-    /// </summary>
-    public TimeSpan ValidFor { get; init; } = TimeSpan.FromMinutes(60);
-
-    /// <summary>
-    /// Gets or sets whether to support resumable uploads.
-    /// </summary>
-    public bool SupportResumable { get; init; }
-}
-
-/// <summary>
-/// Options for creating signed URLs for file downloads.
-/// </summary>
-public sealed record SignedDownloadUrlOptions
-{
-    /// <summary>
-    /// Gets or sets the validity duration for the signed URL.
-    /// </summary>
-    public TimeSpan ValidFor { get; init; } = TimeSpan.FromMinutes(1);
-}
-
-/// <summary>
-/// Options for downloading files with range support.
-/// </summary>
-public sealed record DownloadOptions
-{
-    /// <summary>
-    /// Gets or sets the starting byte index for partial downloads.
-    /// </summary>
-    public long StartIndex { get; init; }
-
-    /// <summary>
-    /// Gets or sets the number of bytes to download (0 for entire file).
-    /// </summary>
-    public long Size { get; init; }
-}
-
-/// <summary>
-/// Options for listing files in a bucket.
-/// </summary>
-public sealed record ListFilesOptions
-{
-    /// <summary>
-    /// Gets or sets the prefix to filter file keys.
-    /// </summary>
-    public string? Prefix { get; init; }
-
-    /// <summary>
-    /// Gets or sets the maximum number of files to return.
-    /// </summary>
-    public int? MaxResults { get; init; }
-
-    /// <summary>
-    /// Gets or sets the continuation token for paginated results.
-    /// </summary>
-    public string? ContinuationToken { get; init; }
-}
-
-/// <summary>
-/// Result of a paginated file listing operation.
-/// </summary>
-public sealed record ListFilesResult
-{
-    /// <summary>
-    /// Gets the list of file keys.
-    /// </summary>
-    public IReadOnlyList<string> FileKeys { get; init; } = [];
-
-    /// <summary>
-    /// Gets the continuation token for the next page, if any.
-    /// </summary>
-    public string? NextContinuationToken { get; init; }
-}
 
 /// <summary>
 /// Modern interface for cloud file storage services providing unified access across different providers.
@@ -220,7 +52,7 @@ public interface IFileService
         string bucketName,
         string keyInBucket,
         StringOrStream destination,
-        DownloadOptions? options = null,
+        FileDownloadOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -361,10 +193,10 @@ public interface IFileService
     /// <param name="options">Options for the signed URL</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the signed URL creation</returns>
-    Task<OperationResult<SignedUrl>> CreateSignedUploadUrlAsync(
+    Task<OperationResult<FileSignedUrl>> CreateSignedUploadUrlAsync(
         string bucketName,
         string keyInBucket,
-        SignedUploadUrlOptions? options = null,
+        FileSignedUploadUrlOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -375,10 +207,10 @@ public interface IFileService
     /// <param name="options">Options for the signed URL</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the signed URL creation</returns>
-    Task<OperationResult<SignedUrl>> CreateSignedDownloadUrlAsync(
+    Task<OperationResult<FileSignedUrl>> CreateSignedDownloadUrlAsync(
         string bucketName,
         string keyInBucket,
-        SignedDownloadUrlOptions? options = null,
+        FileSignedDownloadUrlOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -388,9 +220,9 @@ public interface IFileService
     /// <param name="options">Options for listing files</param>
     /// <param name="cancellationToken">Cancellation token to observe</param>
     /// <returns>A task representing the file listing operation</returns>
-    Task<OperationResult<ListFilesResult>> ListFilesAsync(
+    Task<OperationResult<FileListResult>> ListFilesAsync(
         string bucketName,
-        ListFilesOptions? options = null,
+        FileListOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -2,11 +2,12 @@
 // See LICENSE file in the project root for full license information.
 
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using FluentAssertions;
 using Newtonsoft.Json.Linq;
 using CrossCloudKit.Utilities.Common;
 using xRetry;
-using Xunit;
 
 namespace CrossCloudKit.Database.Tests.Common;
 
@@ -87,8 +88,8 @@ public abstract class DatabaseServiceTestBase
             var condition = service.BuildAttributeExistsCondition(attributeName);
 
             // Assert
-            condition.Should().BeOfType<ExistenceCondition>();
-            condition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeExists);
+            condition.Should().BeOfType<DbExistenceCondition>();
+            condition.ConditionType.Should().Be(DbAttributeConditionType.AttributeExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -111,8 +112,8 @@ public abstract class DatabaseServiceTestBase
             var condition = service.BuildAttributeNotExistsCondition(attributeName);
 
             // Assert
-            condition.Should().BeOfType<ExistenceCondition>();
-            condition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeNotExists);
+            condition.Should().BeOfType<DbExistenceCondition>();
+            condition.ConditionType.Should().Be(DbAttributeConditionType.AttributeNotExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -303,7 +304,7 @@ public abstract class DatabaseServiceTestBase
             var existsCondition = service.BuildAttributeExistsCondition("OptionalField");
             var updateData1 = CreateUpdateData("UpdatedWithExists", 200);
             var updateResult1 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData1,
-                ReturnItemBehavior.DoNotReturn, existsCondition);
+                DbReturnItemBehavior.DoNotReturn, existsCondition);
 
             updateResult1.IsSuccessful.Should().BeTrue("Update should succeed when required field exists");
 
@@ -311,7 +312,7 @@ public abstract class DatabaseServiceTestBase
             var notExistsCondition = service.BuildAttributeNotExistsCondition("OptionalField");
             var updateData2 = CreateUpdateData("ShouldNotUpdate", 300);
             var updateResult2 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData2,
-                ReturnItemBehavior.DoNotReturn, notExistsCondition);
+                DbReturnItemBehavior.DoNotReturn, notExistsCondition);
 
             updateResult2.IsSuccessful.Should().BeFalse("Update should fail when field exists but condition requires it not to exist");
 
@@ -319,7 +320,7 @@ public abstract class DatabaseServiceTestBase
             var notExistsCondition2 = service.BuildAttributeNotExistsCondition("NonExistentField");
             var updateData3 = CreateUpdateData("UpdatedWithNotExists", 400);
             var updateResult3 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData3,
-                ReturnItemBehavior.DoNotReturn, notExistsCondition2);
+                DbReturnItemBehavior.DoNotReturn, notExistsCondition2);
 
             updateResult3.IsSuccessful.Should().BeTrue("Update should succeed when non-existent field is checked for non-existence");
 
@@ -327,7 +328,7 @@ public abstract class DatabaseServiceTestBase
             var existsCondition2 = service.BuildAttributeExistsCondition("NonExistentField");
             var updateData4 = CreateUpdateData("ShouldNotUpdate2", 500);
             var updateResult4 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData4,
-                ReturnItemBehavior.DoNotReturn, existsCondition2);
+                DbReturnItemBehavior.DoNotReturn, existsCondition2);
 
             updateResult4.IsSuccessful.Should().BeFalse("Update should fail when non-existent field is checked for existence");
         }
@@ -362,7 +363,7 @@ public abstract class DatabaseServiceTestBase
             // Test ArrayElementExists condition - should allow deletion
             var arrayExistsCondition = service.BuildArrayElementExistsCondition("Tags", new PrimitiveType("production"));
             var deleteResult1 = await service.DeleteItemAsync(tableName, keyName, keyValue,
-                ReturnItemBehavior.ReturnOldValues, arrayExistsCondition);
+                DbReturnItemBehavior.ReturnOldValues, arrayExistsCondition);
 
             deleteResult1.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'production'");
             deleteResult1.Data.Should().NotBeNull("Should return old values");
@@ -373,14 +374,14 @@ public abstract class DatabaseServiceTestBase
             // Test ArrayElementNotExists condition - should prevent deletion
             var arrayNotExistsCondition = service.BuildArrayElementNotExistsCondition("Tags", new PrimitiveType("production"));
             var deleteResult2 = await service.DeleteItemAsync(tableName, keyName, keyValue,
-                ReturnItemBehavior.DoNotReturn, arrayNotExistsCondition);
+                DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition);
 
             deleteResult2.IsSuccessful.Should().BeFalse("Delete should fail when array contains 'production' but condition requires it not to");
 
             // Test ArrayElementNotExists with element that doesn't exist - should allow deletion
             var arrayNotExistsCondition2 = service.BuildArrayElementNotExistsCondition("Tags", new PrimitiveType("nonexistent"));
             var deleteResult3 = await service.DeleteItemAsync(tableName, keyName, keyValue,
-                ReturnItemBehavior.DoNotReturn, arrayNotExistsCondition2);
+                DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition2);
 
             deleteResult3.IsSuccessful.Should().BeTrue("Delete should succeed when array doesn't contain 'nonexistent'");
         }
@@ -422,7 +423,7 @@ public abstract class DatabaseServiceTestBase
 
             var addResult1 = await service.AddElementsToArrayAsync(
                 tableName, keyName, keyValue, "Tags", elementsToAdd1,
-                ReturnItemBehavior.ReturnNewValues, allowCondition);
+                DbReturnItemBehavior.ReturnNewValues, allowCondition);
 
             addResult1.IsSuccessful.Should().BeTrue("Should add elements when Status equals 'active'");
             var tags1 = addResult1.Data!["Tags"] as JArray;
@@ -440,7 +441,7 @@ public abstract class DatabaseServiceTestBase
 
             var addResult2 = await service.AddElementsToArrayAsync(
                 tableName, keyName, keyValue, "Tags", elementsToAdd2,
-                ReturnItemBehavior.DoNotReturn, preventCondition);
+                DbReturnItemBehavior.DoNotReturn, preventCondition);
 
             addResult2.IsSuccessful.Should().BeFalse("Should not add elements when Status doesn't equal 'inactive'");
 
@@ -497,7 +498,7 @@ public abstract class DatabaseServiceTestBase
             var tooManyAttemptsCondition = service.BuildAttributeGreaterOrEqualCondition("LoginAttempts", new PrimitiveType(5.0));
             var blockResult = await service.UpdateItemAsync(tableName, keyName, userId,
                 new JObject { ["Status"] = "blocked" },
-                ReturnItemBehavior.DoNotReturn, tooManyAttemptsCondition);
+                DbReturnItemBehavior.DoNotReturn, tooManyAttemptsCondition);
 
             blockResult.IsSuccessful.Should().BeTrue("Should block account with too many login attempts");
 
@@ -512,7 +513,7 @@ public abstract class DatabaseServiceTestBase
             var addPermissionResult = await service.AddElementsToArrayAsync(
                 tableName, keyName, userId, "Permissions",
                 [new PrimitiveType("admin")],
-                ReturnItemBehavior.ReturnNewValues, hasReadPermissionCondition);
+                DbReturnItemBehavior.ReturnNewValues, hasReadPermissionCondition);
 
             addPermissionResult.IsSuccessful.Should().BeTrue("Should add admin permission when user has read permission");
             var permissions = addPermissionResult.Data!["Permissions"] as JArray;
@@ -650,7 +651,7 @@ public abstract class DatabaseServiceTestBase
             getResult.IsSuccessful.Should().BeTrue();
             getResult.Data.Should().NotBeNull();
 
-            var retrievedData = getResult.Data!;
+            var retrievedData = getResult.Data;
             retrievedData["Profile"]?["FirstName"]?.ToString().Should().Be("John");
             retrievedData["Profile"]?["Addresses"]?.Should().BeOfType<JArray>();
             var addresses = (JArray)retrievedData["Profile"]!["Addresses"]!;
@@ -697,7 +698,7 @@ public abstract class DatabaseServiceTestBase
             // Assert
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().NotBeNull();
-            result.Data!.Count.Should().Be(keyValues.Length);
+            result.Data.Count.Should().Be(keyValues.Length);
 
             // Verify each item
             foreach (var item in result.Data)
@@ -792,7 +793,7 @@ public abstract class DatabaseServiceTestBase
 
             // Verify all items were created
             var scanResult = await service.ScanTableAsync(tableName, [keyName]);
-            scanResult.Data!.Count.Should().Be(concurrentOperations);
+            scanResult.Data.Count.Should().Be(concurrentOperations);
         }
         finally
         {
@@ -895,35 +896,35 @@ public abstract class DatabaseServiceTestBase
         {
             // Act & Assert - Equals
             var equalsCondition = service.BuildAttributeEqualsCondition(attributeName, testValue);
-            equalsCondition.Should().BeOfType<ValueCondition>();
-            equalsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeEquals);
+            equalsCondition.Should().BeOfType<DbValueCondition>();
+            equalsCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeEquals);
             equalsCondition.AttributeName.Should().Be(attributeName);
-            ((ValueCondition)equalsCondition).Value.Should().Be(testValue);
+            ((DbValueCondition)equalsCondition).Value.Should().Be(testValue);
 
             // Act & Assert - Not Equals
             var notEqualsCondition = service.BuildAttributeNotEqualsCondition(attributeName, testValue);
-            notEqualsCondition.Should().BeOfType<ValueCondition>();
-            notEqualsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeNotEquals);
+            notEqualsCondition.Should().BeOfType<DbValueCondition>();
+            notEqualsCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeNotEquals);
 
             // Act & Assert - Greater
             var greaterCondition = service.BuildAttributeGreaterCondition(attributeName, testValue);
-            greaterCondition.Should().BeOfType<ValueCondition>();
-            greaterCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeGreater);
+            greaterCondition.Should().BeOfType<DbValueCondition>();
+            greaterCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeGreater);
 
             // Act & Assert - Greater Or Equal
             var greaterOrEqualCondition = service.BuildAttributeGreaterOrEqualCondition(attributeName, testValue);
-            greaterOrEqualCondition.Should().BeOfType<ValueCondition>();
-            greaterOrEqualCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeGreaterOrEqual);
+            greaterOrEqualCondition.Should().BeOfType<DbValueCondition>();
+            greaterOrEqualCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeGreaterOrEqual);
 
             // Act & Assert - Less
             var lessCondition = service.BuildAttributeLessCondition(attributeName, testValue);
-            lessCondition.Should().BeOfType<ValueCondition>();
-            lessCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeLess);
+            lessCondition.Should().BeOfType<DbValueCondition>();
+            lessCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeLess);
 
             // Act & Assert - Less Or Equal
             var lessOrEqualCondition = service.BuildAttributeLessOrEqualCondition(attributeName, testValue);
-            lessOrEqualCondition.Should().BeOfType<ValueCondition>();
-            lessOrEqualCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.AttributeLessOrEqual);
+            lessOrEqualCondition.Should().BeOfType<DbValueCondition>();
+            lessOrEqualCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeLessOrEqual);
         }
         finally
         {
@@ -944,17 +945,17 @@ public abstract class DatabaseServiceTestBase
         {
             // Act & Assert - Array Element Exists
             var existsCondition = service.BuildArrayElementExistsCondition(attributeName, elementValue);
-            existsCondition.Should().BeOfType<ArrayElementCondition>();
-            existsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.ArrayElementExists);
+            existsCondition.Should().BeOfType<DbArrayElementCondition>();
+            existsCondition.ConditionType.Should().Be(DbAttributeConditionType.ArrayElementExists);
             existsCondition.AttributeName.Should().Be(attributeName);
-            ((ArrayElementCondition)existsCondition).ElementValue.Should().Be(elementValue);
+            ((DbArrayElementCondition)existsCondition).ElementValue.Should().Be(elementValue);
 
             // Act & Assert - Array Element Not Exists
             var notExistsCondition = service.BuildArrayElementNotExistsCondition(attributeName, elementValue);
-            notExistsCondition.Should().BeOfType<ArrayElementCondition>();
-            notExistsCondition.ConditionType.Should().Be(DatabaseAttributeConditionType.ArrayElementNotExists);
+            notExistsCondition.Should().BeOfType<DbArrayElementCondition>();
+            notExistsCondition.ConditionType.Should().Be(DbAttributeConditionType.ArrayElementNotExists);
             notExistsCondition.AttributeName.Should().Be(attributeName);
-            ((ArrayElementCondition)notExistsCondition).ElementValue.Should().Be(elementValue);
+            ((DbArrayElementCondition)notExistsCondition).ElementValue.Should().Be(elementValue);
         }
         finally
         {
@@ -1144,7 +1145,7 @@ public abstract class DatabaseServiceTestBase
 
             // Test Put with overwrite enabled - should succeed
             var putResult3 = await service.PutItemAsync(tableName, keyName, keyValue, item2,
-                ReturnItemBehavior.ReturnOldValues, overwriteIfExists: true);
+                DbReturnItemBehavior.ReturnOldValues, overwriteIfExists: true);
             putResult3.IsSuccessful.Should().BeTrue("Put with overwrite should succeed");
 
             putResult3.Data?["Name"]?.ToString().Should().Be("ConditionalPutTest",
@@ -1176,7 +1177,7 @@ public abstract class DatabaseServiceTestBase
             // Test Update with ReturnOldValues
             var updateData = CreateUpdateData("UpdatedName", 200);
             var updateResult = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData,
-                ReturnItemBehavior.ReturnOldValues);
+                DbReturnItemBehavior.ReturnOldValues);
             updateResult.IsSuccessful.Should().BeTrue();
             updateResult.Data.Should().NotBeNull();
             updateResult.Data!["Name"]?.ToString().Should().Be("ReturnBehaviorTest",
@@ -1185,7 +1186,7 @@ public abstract class DatabaseServiceTestBase
             // Test Update with ReturnNewValues
             var updateData2 = CreateUpdateData("UpdatedAgain", 300);
             var updateResult2 = await service.UpdateItemAsync(tableName, keyName, keyValue, updateData2,
-                ReturnItemBehavior.ReturnNewValues);
+                DbReturnItemBehavior.ReturnNewValues);
             updateResult2.IsSuccessful.Should().BeTrue();
             updateResult2.Data.Should().NotBeNull();
             updateResult2.Data!["Name"]?.ToString().Should().Be("UpdatedAgain",
@@ -1193,7 +1194,7 @@ public abstract class DatabaseServiceTestBase
 
             // Test Delete with ReturnOldValues
             var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue,
-                ReturnItemBehavior.ReturnOldValues);
+                DbReturnItemBehavior.ReturnOldValues);
             deleteResult.IsSuccessful.Should().BeTrue();
             deleteResult.Data.Should().NotBeNull();
             deleteResult.Data!["Name"]?.ToString().Should().Be("UpdatedAgain",
@@ -1310,7 +1311,7 @@ public abstract class DatabaseServiceTestBase
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, keyName, keyValue, "Tags", elementsToRemove,
-                ReturnItemBehavior.ReturnNewValues, allowCondition);
+                DbReturnItemBehavior.ReturnNewValues, allowCondition);
 
             removeResult.IsSuccessful.Should().BeTrue("Should remove elements when condition is satisfied");
             var tags = removeResult.Data!["Tags"] as JArray;
@@ -1326,7 +1327,7 @@ public abstract class DatabaseServiceTestBase
 
             var removeResult2 = await service.RemoveElementsFromArrayAsync(
                 tableName, keyName, keyValue, "Tags", moreElementsToRemove,
-                ReturnItemBehavior.DoNotReturn, preventCondition);
+                DbReturnItemBehavior.DoNotReturn, preventCondition);
 
             removeResult2.IsSuccessful.Should().BeFalse("Should not remove elements when condition fails");
 
@@ -1433,13 +1434,13 @@ public abstract class DatabaseServiceTestBase
             var activeFilter = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
             var activeResult = await service.ScanTableWithFilterAsync(tableName, [keyName], activeFilter);
             activeResult.IsSuccessful.Should().BeTrue();
-            activeResult.Data!.Count.Should().Be(3, "Should find 3 active users");
+            activeResult.Data.Count.Should().Be(3, "Should find 3 active users");
 
             // Test scan with filter for high scores
             var highScoreFilter = service.BuildAttributeGreaterCondition("Score", new PrimitiveType(80.0));
             var highScoreResult = await service.ScanTableWithFilterAsync(tableName, [keyName], highScoreFilter);
             highScoreResult.IsSuccessful.Should().BeTrue();
-            highScoreResult.Data!.Count.Should().Be(3, "Should find 3 users with score > 80");
+            highScoreResult.Data.Count.Should().Be(3, "Should find 3 users with score > 80");
             foreach (var item in highScoreResult.Data)
             {
                 item["Score"]?.ToObject<int>().Should().BeGreaterThan(80);
@@ -1501,7 +1502,7 @@ public abstract class DatabaseServiceTestBase
             // Test GetItems with empty key array
             var emptyKeysResult = await service.GetItemsAsync(tableName, keyName, []);
             emptyKeysResult.IsSuccessful.Should().BeTrue();
-            emptyKeysResult.Data!.Should().BeEmpty("Should return empty result for empty key array");
+            emptyKeysResult.Data.Should().BeEmpty("Should return empty result for empty key array");
         }
         finally
         {
@@ -1558,7 +1559,7 @@ public abstract class DatabaseServiceTestBase
             // Test array element conditions in operations
             var hasAppleCondition = service.BuildArrayElementExistsCondition("StringTags", new PrimitiveType("apple"));
             var deleteResult = await service.DeleteItemAsync(tableName, keyName, keyValue,
-                ReturnItemBehavior.ReturnOldValues, hasAppleCondition);
+                DbReturnItemBehavior.ReturnOldValues, hasAppleCondition);
             deleteResult.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'apple'");
             deleteResult.Data.Should().NotBeNull("Should return old values");
         }

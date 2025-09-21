@@ -3,8 +3,11 @@
 
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -148,19 +151,19 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
     }
 
-    private bool EvaluateCondition(JObject item, DatabaseAttributeCondition condition)
+    private bool EvaluateCondition(JObject item, DbAttributeCondition condition)
     {
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeExists => item.ContainsKey(condition.AttributeName),
-            DatabaseAttributeConditionType.AttributeNotExists => !item.ContainsKey(condition.AttributeName),
-            _ when condition is ValueCondition valueCondition => EvaluateValueCondition(item, valueCondition),
-            _ when condition is ArrayElementCondition arrayCondition => EvaluateArrayElementCondition(item, arrayCondition),
+            DbAttributeConditionType.AttributeExists => item.ContainsKey(condition.AttributeName),
+            DbAttributeConditionType.AttributeNotExists => !item.ContainsKey(condition.AttributeName),
+            _ when condition is DbValueCondition valueCondition => EvaluateValueCondition(item, valueCondition),
+            _ when condition is DbArrayElementCondition arrayCondition => EvaluateArrayElementCondition(item, arrayCondition),
             _ => false
         };
     }
 
-    private static bool EvaluateValueCondition(JObject item, ValueCondition condition)
+    private static bool EvaluateValueCondition(JObject item, DbValueCondition condition)
     {
         if (!item.TryGetValue(condition.AttributeName, out var token))
         {
@@ -172,21 +175,21 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
         return condition.ConditionType switch
         {
-            DatabaseAttributeConditionType.AttributeEquals => ComparePrimitiveTypes(itemValue, conditionValue) == 0,
-            DatabaseAttributeConditionType.AttributeNotEquals => ComparePrimitiveTypes(itemValue, conditionValue) != 0,
-            DatabaseAttributeConditionType.AttributeGreater => ComparePrimitiveTypes(itemValue, conditionValue) > 0,
-            DatabaseAttributeConditionType.AttributeGreaterOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) >= 0,
-            DatabaseAttributeConditionType.AttributeLess => ComparePrimitiveTypes(itemValue, conditionValue) < 0,
-            DatabaseAttributeConditionType.AttributeLessOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) <= 0,
+            DbAttributeConditionType.AttributeEquals => ComparePrimitiveTypes(itemValue, conditionValue) == 0,
+            DbAttributeConditionType.AttributeNotEquals => ComparePrimitiveTypes(itemValue, conditionValue) != 0,
+            DbAttributeConditionType.AttributeGreater => ComparePrimitiveTypes(itemValue, conditionValue) > 0,
+            DbAttributeConditionType.AttributeGreaterOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) >= 0,
+            DbAttributeConditionType.AttributeLess => ComparePrimitiveTypes(itemValue, conditionValue) < 0,
+            DbAttributeConditionType.AttributeLessOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) <= 0,
             _ => false
         };
     }
 
-    private bool EvaluateArrayElementCondition(JObject item, ArrayElementCondition condition)
+    private bool EvaluateArrayElementCondition(JObject item, DbArrayElementCondition condition)
     {
         if (!item.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
         {
-            return condition.ConditionType == DatabaseAttributeConditionType.ArrayElementNotExists;
+            return condition.ConditionType == DbAttributeConditionType.ArrayElementNotExists;
         }
 
         var elementExists = array.Any(element =>
@@ -195,7 +198,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             return ComparePrimitiveTypes(arrayElementValue, condition.ElementValue) == 0;
         });
 
-        return condition.ConditionType == DatabaseAttributeConditionType.ArrayElementExists ? elementExists : !elementExists;
+        return condition.ConditionType == DbAttributeConditionType.ArrayElementExists ? elementExists : !elementExists;
     }
 
     private static PrimitiveType TokenToPrimitiveType(JToken token)
@@ -245,7 +248,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -259,7 +262,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"DatabaseServiceBasic->ItemExistsAsync: {ex.Message}");
+            return OperationResult<bool>.Failure($"DatabaseServiceBasic->ItemExistsAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -290,7 +293,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->GetItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->GetItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -328,7 +331,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceBasic->GetItemsAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceBasic->GetItemsAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -338,7 +341,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string keyName,
         PrimitiveType keyValue,
         JObject item,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -352,8 +355,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string keyName,
         PrimitiveType keyValue,
         JObject updateData,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
@@ -365,8 +368,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string tableName,
         string keyName,
         PrimitiveType keyValue,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -382,11 +385,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             if (condition != null && !EvaluateCondition(existingItem, condition))
             {
-                return OperationResult<JObject?>.Failure("Condition not satisfied");
+                return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -395,11 +398,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             return FileSystemUtilities.DeleteFileAndCleanupParentFolders(filePath, RootFolderName)
                 ? OperationResult<JObject?>.Success(returnItem)
-                : OperationResult<JObject?>.Failure("Failed to delete item");
+                : OperationResult<JObject?>.Failure("Failed to delete item", HttpStatusCode.InternalServerError);
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->DeleteItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->DeleteItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -410,8 +413,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -419,13 +422,13 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         {
             if (elementsToAdd.Length == 0)
             {
-                return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToAdd must contain values.", HttpStatusCode.BadRequest);
             }
 
             var expectedKind = elementsToAdd[0].Kind;
             if (elementsToAdd.Any(element => element.Kind != expectedKind))
             {
-                return OperationResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
             var filePath = GetItemFilePath(tableName, keyName, keyValue);
@@ -433,11 +436,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             if (existingItem != null && condition != null && !EvaluateCondition(existingItem, condition))
             {
-                return OperationResult<JObject?>.Failure("Condition not satisfied");
+                return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues && existingItem != null)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues && existingItem != null)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -463,10 +466,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             if (!await WriteItemToFileAsync(filePath, existingItem, cancellationToken))
             {
-                return OperationResult<JObject?>.Failure("Failed to write item");
+                return OperationResult<JObject?>.Failure("Failed to write item", HttpStatusCode.InternalServerError);
             }
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -477,7 +480,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->AddElementsToArrayAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->AddElementsToArrayAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -488,8 +491,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         PrimitiveType keyValue,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? condition = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -497,13 +500,13 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         {
             if (elementsToRemove.Length == 0)
             {
-                return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.");
+                return OperationResult<JObject?>.Failure("ElementsToRemove must contain values.", HttpStatusCode.BadRequest);
             }
 
             var expectedKind = elementsToRemove[0].Kind;
             if (elementsToRemove.Any(element => element.Kind != expectedKind))
             {
-                return OperationResult<JObject?>.Failure("All elements must have the same type.");
+                return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
             var filePath = GetItemFilePath(tableName, keyName, keyValue);
@@ -516,11 +519,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             if (condition != null && !EvaluateCondition(existingItem, condition))
             {
-                return OperationResult<JObject?>.Failure("Condition not satisfied");
+                return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -542,7 +545,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -553,7 +556,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->RemoveElementsFromArrayAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->RemoveElementsFromArrayAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -564,7 +567,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         PrimitiveType keyValue,
         string numericAttributeName,
         double incrementValue,
-        DatabaseAttributeCondition? condition = null,
+        DbAttributeCondition? condition = null,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -575,7 +578,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             if (existingItem != null && condition != null && !EvaluateCondition(existingItem, condition))
             {
-                return OperationResult<double>.Failure("Condition not satisfied");
+                return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
 
             existingItem ??= new JObject();
@@ -600,7 +603,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<double>.Failure($"DatabaseServiceBasic->IncrementAttributeAsync: {ex.Message}");
+            return OperationResult<double>.Failure($"DatabaseServiceBasic->IncrementAttributeAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -665,7 +668,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceBasic->InternalScanTableUnsafeAsync: {e.Message}");
+            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceBasic->InternalScanTableUnsafeAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -683,10 +686,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             var allItemsResult = await InternalScanTableUnsafeAsync(tableName, keyNames, cancellationToken);
             if (!allItemsResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(allItemsResult.ErrorMessage.NotNull());
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
             }
 
-            var allItems = allItemsResult.Data.NotNull();
+            var allItems = allItemsResult.Data;
             var totalCount = allItems.Count;
 
             var skip = 0;
@@ -704,7 +707,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceBasic->ScanTablePaginatedAsync: {e.Message}");
+                $"DatabaseServiceBasic->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -712,7 +715,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         CancellationToken cancellationToken = default)
     {
         await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
@@ -721,16 +724,16 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             var allItemsResult = await InternalScanTableUnsafeAsync(tableName, keyNames, cancellationToken);
             if (!allItemsResult.IsSuccessful)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure(allItemsResult.ErrorMessage.NotNull());
+                return OperationResult<IReadOnlyList<JObject>>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
             }
 
-            var filteredItems = allItemsResult.Data.NotNull().Where(item => EvaluateCondition(item, filterCondition)).ToList();
+            var filteredItems = allItemsResult.Data.Where(item => EvaluateCondition(item, filterCondition)).ToList();
             return OperationResult<IReadOnlyList<JObject>>.Success(filteredItems.AsReadOnly());
         }
         catch (Exception e)
         {
             return OperationResult<IReadOnlyList<JObject>>.Failure(
-                $"DatabaseServiceBasic->ScanTableWithFilterAsync: {e.Message}");
+                $"DatabaseServiceBasic->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -738,7 +741,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         string[] keyNames,
-        DatabaseAttributeCondition filterCondition,
+        DbAttributeCondition filterCondition,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -749,10 +752,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             var filteredItemsResult = await ScanTableWithFilterAsync(tableName, keyNames, filterCondition, cancellationToken);
             if (!filteredItemsResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(filteredItemsResult.ErrorMessage.NotNull());
+                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(filteredItemsResult.ErrorMessage, filteredItemsResult.StatusCode);
             }
 
-            var filteredItems = filteredItemsResult.Data.NotNull();
+            var filteredItems = filteredItemsResult.Data;
             var totalCount = filteredItems.Count;
 
             var skip = 0;
@@ -770,7 +773,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceBasic->ScanTableWithFilterPaginatedAsync: {e.Message}");
+                $"DatabaseServiceBasic->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -790,8 +793,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string keyName,
         PrimitiveType keyValue,
         JObject newItem,
-        ReturnItemBehavior returnBehavior = ReturnItemBehavior.DoNotReturn,
-        DatabaseAttributeCondition? conditionExpression = null,
+        DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
+        DbAttributeCondition? conditionExpression = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -799,7 +802,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         try
         {
             if (!EnsureTableExists(tableName))
-                return OperationResult<JObject?>.Failure($"Could not create table '{tableName}'");
+                return OperationResult<JObject?>.Failure($"Could not create table '{tableName}'", HttpStatusCode.InternalServerError);
 
             var filePath = GetItemFilePath(tableName, keyName, keyValue);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
@@ -808,19 +811,19 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             {
                 if (!shouldOverrideIfExists && existingItem != null)
                 {
-                    return OperationResult<JObject?>.Failure("Item already exists");
+                    return OperationResult<JObject?>.Failure("Item already exists", HttpStatusCode.Conflict);
                 }
             }
             else // UpdateItem
             {
                 if (conditionExpression != null && existingItem != null && !EvaluateCondition(existingItem, conditionExpression))
                 {
-                    return OperationResult<JObject?>.Failure("Condition not satisfied");
+                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
             }
 
             JObject? returnItem = null;
-            if (returnBehavior == ReturnItemBehavior.ReturnOldValues && existingItem != null)
+            if (returnBehavior == DbReturnItemBehavior.ReturnOldValues && existingItem != null)
             {
                 returnItem = new JObject(existingItem);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -836,7 +839,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
             await WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
 
-            if (returnBehavior == ReturnItemBehavior.ReturnNewValues)
+            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(itemToSave);
                 AddKeyToJson(returnItem, keyName, keyValue);
@@ -847,7 +850,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
         catch (Exception ex)
         {
-            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->PutOrUpdateItemAsync: {ex.Message}");
+            return OperationResult<JObject?>.Failure($"DatabaseServiceBasic->PutOrUpdateItemAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -910,52 +913,52 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
 
     private void ApplyOptions(JObject jsonObject)
     {
-        if (Options.AutoSortArrays == AutoSortArrays.Yes)
+        if (Options.AutoSortArrays == DbAutoSortArrays.Yes)
         {
-            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes);
+            JsonUtilities.SortJObject(jsonObject, Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes);
         }
-        else if (Options.AutoConvertRoundableFloatToInt == AutoConvertRoundableFloatToInt.Yes)
+        else if (Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes)
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
         }
     }
 
-    private async Task<MemoryServiceScopeMutex> CreateFileMutexScopeAsync(
+    private async Task<MemoryScopeMutex> CreateFileMutexScopeAsync(
         CancellationToken cancellationToken)
     {
-        return await MemoryServiceScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateScopeAsync(
             _memoryService,
             FileMutexScope,
             _databaseName,
             TimeSpan.FromMinutes(1),
             cancellationToken);
     }
-    private static readonly IMemoryServiceScope FileMutexScope = new LambdaMemoryServiceScope("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
+    private static readonly IMemoryScope FileMutexScope = new MemoryScopeLambda("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
 
     #endregion
 
     #region Condition Builders
 
-    public DatabaseAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new ExistenceCondition(DatabaseAttributeConditionType.AttributeNotExists, attributeName);
-    public DatabaseAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreater, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLess, attributeName, value);
-    public DatabaseAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new ValueCondition(DatabaseAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DatabaseAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DatabaseAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new ArrayElementCondition(DatabaseAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
+    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
+    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
+    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
+    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
+    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
+    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
 

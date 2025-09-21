@@ -7,6 +7,8 @@ using Amazon.SQS;
 using Amazon.SQS.Model;
 using CrossCloudKit.Interfaces;
 using System.Collections.Concurrent;
+using System.Net;
+using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -101,16 +103,21 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"EnsureTopicExistsAsync failed: {e.Message}");
+            return OperationResult<bool>.Failure($"EnsureTopicExistsAsync failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
+        if (!IsInitialized)
         {
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+            return OperationResult<bool>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(topic) || string.IsNullOrWhiteSpace(message))
+        {
+            return OperationResult<bool>.Failure("Parameters are invalid.", HttpStatusCode.BadRequest);
         }
 
         topic = EncodingUtilities.EncodeTopic(topic).NotNull();
@@ -129,15 +136,22 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Publish failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Publish failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> SubscribeAsync(string topic, Func<string, string, Task>? onMessage, Action<Exception>? onError = null, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic) || onMessage == null)
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+        if (!IsInitialized)
+        {
+            return OperationResult<bool>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(topic) || onMessage == null)
+        {
+            return OperationResult<bool>.Failure("Parameters are invalid.", HttpStatusCode.BadRequest);
+        }
 
         topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
@@ -147,16 +161,16 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 
             // Start subscription in the background
             var ctsRegResult = await StartSubscriptionAsync(topic, onMessage, onError, cts.Token);
-            if (!ctsRegResult.IsSuccessful) return OperationResult<bool>.Failure(ctsRegResult.ErrorMessage.NotNull());
+            if (!ctsRegResult.IsSuccessful) return OperationResult<bool>.Failure(ctsRegResult.ErrorMessage, ctsRegResult.StatusCode);
 
-            var sib = new CancellationSiblings(cts, ctsRegResult.Data.NotNull());
+            var sib = new CancellationSiblings(cts, ctsRegResult.Data);
             _subscriptions.AddOrUpdate(topic,
                 [sib],
                 (_, existing) => { existing.Add(sib); return existing; });
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Subscribe failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Subscribe failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
         return OperationResult<bool>.Success(true);
     }
@@ -198,7 +212,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                 cancellationToken);
             if (!policySetResult.IsSuccessful)
             {
-                return OperationResult<Func<Task>?>.Failure(policySetResult.ErrorMessage.NotNull());
+                return OperationResult<Func<Task>?>.Failure(policySetResult.ErrorMessage, policySetResult.StatusCode);
             }
 
             // Subscribe SQS queue to SNS topic
@@ -288,7 +302,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
                     // Ignore cleanup exceptions
                 }
             }
-            return OperationResult<Func<Task>?>.Failure($"Start subscription failed: {e.Message}");
+            return OperationResult<Func<Task>?>.Failure($"Start subscription failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
         return OperationResult<Func<Task>?>.Success(cancelAction);
     }
@@ -423,7 +437,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Set SQS policy failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Set SQS policy failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
 
         return OperationResult<bool>.Success(true);
@@ -468,7 +482,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Set SNS policy failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Set SNS policy failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
         return OperationResult<bool>.Success(true);
     }
@@ -538,7 +552,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Remove SNS policy failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Remove SNS policy failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
         return OperationResult<bool>.Success(true);
     }
@@ -546,8 +560,15 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> DeleteTopicAsync(string topic, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topic))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+        if (!IsInitialized)
+        {
+            return OperationResult<bool>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(topic))
+        {
+            return OperationResult<bool>.Failure("Parameters are invalid.", HttpStatusCode.BadRequest);
+        }
 
         topic = EncodingUtilities.EncodeTopic(topic).NotNull();
 
@@ -672,16 +693,25 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<bool>.Failure($"Delete topic failed: {e.Message}");
+            return OperationResult<bool>.Failure($"Delete topic failed: {e.Message}", HttpStatusCode.InternalServerError);
         }
-        return !errorMsg.IsEmpty ? OperationResult<bool>.Failure($"Delete subscription failed: {string.Join(Environment.NewLine, errorMsg)}") : OperationResult<bool>.Success(true);
+        return !errorMsg.IsEmpty
+            ? OperationResult<bool>.Failure($"Delete subscription failed: {string.Join(Environment.NewLine, errorMsg)}", HttpStatusCode.InternalServerError)
+            : OperationResult<bool>.Success(true);
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+        if (!IsInitialized)
+        {
+            return OperationResult<bool>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(topicName))
+        {
+            return OperationResult<bool>.Failure("Parameters are invalid.", HttpStatusCode.BadRequest);
+        }
 
         topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
@@ -693,7 +723,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             var listResponse = await GetAllTopics(snsClient, cancellationToken);
             var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{topicName}"));
             if (existingTopic == null)
-                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.");
+                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.", HttpStatusCode.NotFound);
 
             await snsClient.TagResourceAsync(new TagResourceRequest
             {
@@ -706,15 +736,22 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         catch (Exception e)
         {
             return OperationResult<bool>.Failure(
-                $"Failed to mark topic as used with bucket events {topicName}: {e.Message}");
+                $"Failed to mark topic as used with bucket events {topicName}: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topicName, CancellationToken cancellationToken = default)
     {
-        if (!IsInitialized || string.IsNullOrWhiteSpace(topicName))
-            return OperationResult<bool>.Failure("Not initialized or parameters are invalid.");
+        if (!IsInitialized)
+        {
+            return OperationResult<bool>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(topicName))
+        {
+            return OperationResult<bool>.Failure("Parameters are invalid.", HttpStatusCode.BadRequest);
+        }
 
         topicName = EncodingUtilities.EncodeTopic(topicName).NotNull();
 
@@ -726,7 +763,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
             var listResponse = await GetAllTopics(snsClient, cancellationToken);
             var existingTopic = listResponse.FirstOrDefault(t => t.TopicArn.EndsWith($":{topicName}"));
             if (existingTopic == null)
-                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.");
+                return OperationResult<bool>.Failure($"Topic {topicName} does not exist.", HttpStatusCode.NotFound);
 
             await snsClient.UntagResourceAsync(new UntagResourceRequest
             {
@@ -739,7 +776,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         catch (Exception e)
         {
             return OperationResult<bool>.Failure(
-                $"Failed to unmark topic as used with bucket events {topicName}: {e.Message}");
+                $"Failed to unmark topic as used with bucket events {topicName}: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -747,7 +784,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
     public async Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<List<string>>.Failure("Not initialized.");
+            return OperationResult<List<string>>.Failure("Not initialized.", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -783,7 +820,7 @@ public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}");
+            return OperationResult<List<string>>.Failure($"Failed to get topics: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 

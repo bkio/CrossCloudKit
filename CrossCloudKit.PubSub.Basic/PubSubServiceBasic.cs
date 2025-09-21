@@ -2,8 +2,10 @@
 // See LICENSE file in the project root for full license information.
 
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json;
 // ReSharper disable NullableWarningSuppressionIsUsed
@@ -35,8 +37,8 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         _processId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
 
-        // Start background cleanup every 5 minutes
-        _cleanupTimer = new Timer(CleanupExpiredData, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        // Start background cleanup every 1 minute
+        _cleanupTimer = new Timer(CleanupExpiredData, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
     public bool IsInitialized => !_disposed;
@@ -45,13 +47,13 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     public Task<OperationResult<bool>> EnsureTopicExistsAsync(string topic, CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable));
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         return Task.FromResult(string.IsNullOrEmpty(topic)
-            ? OperationResult<bool>.Failure("Topic cannot be empty.")
+            ? OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest)
             : OperationResult<bool>.Success(true));
     }
 
@@ -63,23 +65,23 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable));
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(topic))
-            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty."));
+            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest));
 
         if (onMessage == null)
-            return Task.FromResult(OperationResult<bool>.Failure("Callback cannot be null."));
+            return Task.FromResult(OperationResult<bool>.Failure("Callback cannot be null.", HttpStatusCode.BadRequest));
 
         try
         {
             // Register a subscription in the file system for cross-process visibility
             var regResult = RegisterSubscription(topic).Result;
             if (!regResult.IsSuccessful)
-                return Task.FromResult(OperationResult<bool>.Failure($"Failed to register subscription for topic '{topic}': {regResult.ErrorMessage}"));
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to register subscription for topic '{topic}': {regResult.ErrorMessage}", regResult.StatusCode));
 
             var subscriptionInfo = new SubscriptionInfo(onMessage, onError);
 
@@ -100,7 +102,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to subscribe to topic '{topic}': {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to subscribe to topic '{topic}': {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -108,13 +110,13 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     public async Task<OperationResult<bool>> PublishAsync(string topic, string message, CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return OperationResult<bool>.Failure("Service has been disposed");
+            return OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable);
 
         if (!IsInitialized)
-            return OperationResult<bool>.Failure("Service is not initialized");
+            return OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable);
 
         if (string.IsNullOrEmpty(topic) || string.IsNullOrEmpty(message))
-            return OperationResult<bool>.Failure("Topic and message cannot be empty.");
+            return OperationResult<bool>.Failure("Topic and message cannot be empty.", HttpStatusCode.BadRequest);
 
         try
         {
@@ -125,7 +127,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             var storeResult = await StoreMessageWithIdAsync(topic, message, messageId);
             if (!storeResult.IsSuccessful)
             {
-                return OperationResult<bool>.Failure($"Failed to store message to topic '{topic}': {storeResult.ErrorMessage}");
+                return OperationResult<bool>.Failure($"Failed to store message to topic '{topic}': {storeResult.ErrorMessage}", storeResult.StatusCode);
             }
 
             // Deliver to local subscribers immediately with message ID
@@ -135,7 +137,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return OperationResult<bool>.Failure($"Failed to publish message to topic '{topic}': {ex.Message}");
+            return OperationResult<bool>.Failure($"Failed to publish message to topic '{topic}': {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -146,10 +148,10 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             return Task.FromResult(OperationResult<bool>.Success(true)); // Already disposed, consider topic deleted
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(topic))
-            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty."));
+            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest));
 
         try
         {
@@ -169,7 +171,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to delete topic '{topic}': {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to delete topic '{topic}': {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -177,20 +179,20 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     public Task<OperationResult<bool>> MarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(topic))
-            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty."));
+            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest));
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var mutexWrapper = CreateMutex("bucket_events");
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
-            using var mutex = mutexWrapper.Data!;
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+            using var mutex = mutexWrapper.Data;
 
             var bucketEventTopics = GetBucketEventTopics();
             if (bucketEventTopics.Contains(topic)) return Task.FromResult(OperationResult<bool>.Success(true));
@@ -200,7 +202,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to mark topic '{topic}' as used on bucket event: {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to mark topic '{topic}' as used on bucket event: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -208,20 +210,20 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     public Task<OperationResult<bool>> UnmarkUsedOnBucketEvent(string topic, CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(topic))
-            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty."));
+            return Task.FromResult(OperationResult<bool>.Failure("Topic cannot be empty.", HttpStatusCode.BadRequest));
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var mutexWrapper = CreateMutex("bucket_events");
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
-            using var mutex = mutexWrapper.Data!;
+                return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+            using var mutex = mutexWrapper.Data;
 
             var bucketEventTopics = GetBucketEventTopics();
             if (bucketEventTopics.Remove(topic))
@@ -232,7 +234,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to unmark topic '{topic}' from bucket event: {ex.Message}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to unmark topic '{topic}' from bucket event: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -240,24 +242,24 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     public Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed)
-            return Task.FromResult(OperationResult<List<string>>.Failure("Service has been disposed"));
+            return Task.FromResult(OperationResult<List<string>>.Failure("Service has been disposed", HttpStatusCode.ServiceUnavailable));
 
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<List<string>>.Failure("Service is not initialized"));
+            return Task.FromResult(OperationResult<List<string>>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var mutexWrapper = CreateMutex("bucket_events");
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
-            using var mutex = mutexWrapper.Data!;
+                return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+            using var mutex = mutexWrapper.Data;
 
             var topics = GetBucketEventTopics();
             return Task.FromResult(OperationResult<List<string>>.Success(topics));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to get bucket event topics: {ex.Message}"));
+            return Task.FromResult(OperationResult<List<string>>.Failure($"Failed to get bucket event topics: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -341,7 +343,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
         }
         catch (Exception e)
         {
-            return OperationResult<AutoMutex>.Failure($"Failed to create mutex: {e.Message}");
+            return OperationResult<AutoMutex>.Failure($"Failed to create mutex: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -351,8 +353,8 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         var mutexWrapper = CreateMutex($"topic_{topic}");
         if (!mutexWrapper.IsSuccessful)
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
-        using var mutex = mutexWrapper.Data!;
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+        using var mutex = mutexWrapper.Data;
 
         var messagesFilePath = GetTopicMessagesFilePath(topic);
         var messages = LoadMessagesFromFile(messagesFilePath);
@@ -433,7 +435,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     {
         var mutexWrapper = CreateMutex($"subscriptions_{topic}");
         if (!mutexWrapper.IsSuccessful)
-            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}"));
+            return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
         using var mutex = mutexWrapper.Data;
 
         var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
@@ -477,7 +479,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             var mutexWrapper = CreateMutex($"topic_{topic}");
             if (!mutexWrapper.IsSuccessful)
                 return;
-            using var mutex = mutexWrapper.Data!;
+            using var mutex = mutexWrapper.Data;
 
             var messagesFilePath = GetTopicMessagesFilePath(topic);
             var messages = LoadMessagesFromFile(messagesFilePath);
@@ -584,7 +586,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
                 var mutexWrapper = CreateMutex($"subscriptions_{topic}");
                 if (!mutexWrapper.IsSuccessful)
                     return;
-                using var mutex = mutexWrapper.Data!;
+                using var mutex = mutexWrapper.Data;
 
                 var subscriptionsFilePath = GetTopicSubscriptionsFilePath(topic);
                 var subscriptions = LoadSubscriptionsFromFile(subscriptionsFilePath);

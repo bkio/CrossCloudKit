@@ -3,6 +3,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Interfaces.Classes;
 using FluentAssertions;
 using CrossCloudKit.Utilities.Common;
 using xRetry;
@@ -55,7 +56,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             await asyncDisposablePubSub.DisposeAsync();
     }
 
-    protected class TestMemoryScope(string scopeName) : IMemoryServiceScope
+    protected class TestMemoryScope(string scopeName) : IMemoryScope
     {
         public string Compile() => scopeName;
     }
@@ -525,7 +526,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var lockDuration = TimeSpan.FromSeconds(10);
 
             // Act & Assert - Acquire lock
-            await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // The fact that we got here means the lock was acquired successfully
@@ -551,7 +552,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var secondLockBlocked = false;
 
             // Act - First lock
-            await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
             firstLockAcquired = true;
 
@@ -561,7 +562,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 try
                 {
-                    await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
                         MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
                     secondLockAcquired = true;
                     secondLockBlocked = false;
@@ -600,7 +601,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - First lock and release
             {
-                await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration);
 
                 // Simulate some work
@@ -609,7 +610,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             } // First mutex is disposed here, releasing the lock
 
             // Second lock should now be able to acquire
-            await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
             secondLockAcquired = true;
 
@@ -641,7 +642,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 var taskId = i;
                 var task = Task.Run(async () =>
                 {
-                    await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                    await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
                         MemoryService, TestScope, mutexKey, lockDuration);
 
                     // Critical section - increment counter
@@ -686,7 +687,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act - Try to acquire two different mutex keys concurrently
             var task1 = Task.Run(async () =>
             {
-                await using var mutex1 = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var mutex1 = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey1, lockDuration);
                 lock1Acquired = true;
                 await Task.Delay(200); // Hold lock for a bit
@@ -694,7 +695,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var task2 = Task.Run(async () =>
             {
-                await using var mutex2 = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var mutex2 = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey2, lockDuration);
                 lock2Acquired = true;
                 await Task.Delay(200); // Hold lock for a bit
@@ -725,7 +726,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - Use synchronous creation method
             // ReSharper disable once MethodHasAsyncOverload
-            using var mutex = MemoryServiceScopeMutex.CreateScope(
+            using var mutex = MemoryScopeMutex.CreateScope(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // Assert
@@ -738,7 +739,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             try
             {
-                await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
                 // If we get here, the second lock was acquired (which shouldn't happen)
                 secondLockBlocked = false;
@@ -771,7 +772,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - Acquire lock with short TTL and let it expire
             {
-                await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey, shortLockDuration);
                 firstLockAcquired = true;
 
@@ -780,7 +781,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             }
 
             // The lock should have expired, so we should be able to acquire it again
-            await using var secondMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, TimeSpan.FromSeconds(5));
             secondLockAcquired = true;
 
@@ -805,13 +806,13 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var lockDuration = TimeSpan.FromSeconds(10);
 
             // First, acquire the lock
-            await using var firstMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // Act & Assert - Try to acquire the same lock with cancellation
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
 
-            var act = async () => await MemoryServiceScopeMutex.CreateScopeAsync(
+            var act = async () => await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
 
             await act.Should().ThrowAsync<OperationCanceledException>(
@@ -837,7 +838,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act - Simulate exception in critical section
             try
             {
-                await using var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+                await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration);
 
                 // Simulate work that throws an exception
@@ -851,7 +852,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // The lock should be released even though an exception occurred
             // Try to acquire it again - should succeed immediately
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-            await using var newMutex = await MemoryServiceScopeMutex.CreateScopeAsync(
+            await using var newMutex = await MemoryScopeMutex.CreateScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
             lockReleasedAfterException = true;
 
@@ -2313,7 +2314,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().NotBeNull();
 
-            var removedElements = result.Data!.Where(x => x != null).ToArray();
+            var removedElements = result.Data.Where(x => x != null).ToArray();
             removedElements.Should().Contain(new PrimitiveType("remove1"));
             removedElements.Should().Contain(new PrimitiveType("remove2"));
         }
@@ -2704,7 +2705,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             listResult.Data.Should().BeEquivalentTo(expectedValues, options => options.WithStrictOrdering());
 
             // Verify that new values were added to the tail
-            var lastThreeItems = listResult.Data!.Skip(2).ToArray();
+            var lastThreeItems = listResult.Data.Skip(2).ToArray();
             lastThreeItems.Should().BeEquivalentTo(expectedPushedValues, options => options.WithStrictOrdering());
         }
         finally
@@ -3104,7 +3105,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 var getResult = await MemoryService.GetKeyValueAsync(TestScope, kvp.Key);
                 getResult.IsSuccessful.Should().BeTrue();
                 getResult.Data.Should().Be(kvp.Value);
-                getResult.Data!.Kind.Should().Be(kvp.Value.Kind);
+                getResult.Data.Kind.Should().Be(kvp.Value.Kind);
             }
         }
         finally

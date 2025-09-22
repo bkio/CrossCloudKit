@@ -3105,7 +3105,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 var getResult = await MemoryService.GetKeyValueAsync(TestScope, kvp.Key);
                 getResult.IsSuccessful.Should().BeTrue();
                 getResult.Data.Should().Be(kvp.Value);
-                getResult.Data.Kind.Should().Be(kvp.Value.Kind);
+                getResult.Data?.Kind.Should().Be(kvp.Value.Kind);
             }
         }
         finally

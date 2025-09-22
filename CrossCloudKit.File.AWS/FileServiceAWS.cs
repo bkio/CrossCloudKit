@@ -203,6 +203,9 @@ public class FileServiceAWS : IFileService, IAsyncDisposable
                     using var response = await S3Client.GetObjectAsync(getRequest, cancellationToken);
                     await response.ResponseStream.CopyToAsync(stream, cancellationToken);
 
+                    if (stream.CanSeek)
+                        stream.Seek(0, SeekOrigin.Begin);
+
                     return OperationResult<long>.Success(response.ContentLength);
                 });
         }

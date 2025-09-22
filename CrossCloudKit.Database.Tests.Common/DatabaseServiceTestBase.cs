@@ -652,9 +652,9 @@ public abstract class DatabaseServiceTestBase
             getResult.Data.Should().NotBeNull();
 
             var retrievedData = getResult.Data;
-            retrievedData["Profile"]?["FirstName"]?.ToString().Should().Be("John");
-            retrievedData["Profile"]?["Addresses"]?.Should().BeOfType<JArray>();
-            var addresses = (JArray)retrievedData["Profile"]!["Addresses"]!;
+            retrievedData?["Profile"]?["FirstName"]?.ToString().Should().Be("John");
+            retrievedData?["Profile"]?["Addresses"]?.Should().BeOfType<JArray>();
+            var addresses = (JArray)retrievedData?["Profile"]!["Addresses"]!;
             addresses.Should().HaveCount(2);
             addresses[0]["Coordinates"]?["Latitude"]?.ToObject<double>().Should().BeApproximately(40.7128, 0.0001);
         }

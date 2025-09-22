@@ -3,6 +3,7 @@
 
 using System.Text;
 using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Classes.Asp;
 using CrossCloudKit.Memory.Basic;
 using CrossCloudKit.PubSub.Basic;
 using FluentAssertions;
@@ -16,13 +17,13 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
     private readonly IMemoryService _memoryService;
     private readonly IPubSubService _pubSubService;
     private readonly MemoryServiceDistributedCache _distributedCache;
-    private readonly List<string> _testKeys = new();
+    private readonly List<string> _testKeys = [];
 
     public MemoryServiceDistributedCacheTests()
     {
         _pubSubService = new PubSubServiceBasic();
         _memoryService = new MemoryServiceBasic(_pubSubService);
-        _distributedCache = new MemoryServiceDistributedCache(_memoryService);
+        _distributedCache = new MemoryServiceDistributedCache(_memoryService, new MemoryScopeLambda("MemoryServiceDistributedCacheTests"));
     }
 
     public async Task InitializeAsync()
@@ -69,9 +70,9 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
     public async Task GetAsync_WithValidKey_ReturnsData()
     {
         // Arrange
-        var key = "test-key";
+        const string key = "test-key";
         TrackTestKey(key);
-        var expectedData = Encoding.UTF8.GetBytes("test-data");
+        var expectedData = "test-data"u8.ToArray();
         var options = new DistributedCacheEntryOptions();
 
         // Store the data first
@@ -288,7 +289,9 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         var options = new DistributedCacheEntryOptions();
 
         // Store the data first
-        _distributedCache.SetAsync(key, expectedData, options).GetAwaiter().GetResult();
+#pragma warning disable xUnit1031
+        _distributedCache.SetAsync(key, expectedData, options).Wait();
+#pragma warning restore xUnit1031
 
         // Act
         var result = _distributedCache.Get(key);
@@ -370,7 +373,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         // Arrange - Use a disposed memory service to simulate exception scenario
         var disposedMemoryService = new MemoryServiceBasic();
         await disposedMemoryService.DisposeAsync();
-        var distributedCache = new MemoryServiceDistributedCache(disposedMemoryService);
+        var distributedCache = new MemoryServiceDistributedCache(disposedMemoryService, new MemoryScopeLambda("MemoryServiceDistributedCacheTests"));
 
         var key = "test-key";
         var value = Encoding.UTF8.GetBytes("test-data");
@@ -389,7 +392,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         // Arrange - Use a disposed memory service to simulate exception scenario
         var disposedMemoryService = new MemoryServiceBasic();
         await disposedMemoryService.DisposeAsync();
-        var distributedCache = new MemoryServiceDistributedCache(disposedMemoryService);
+        var distributedCache = new MemoryServiceDistributedCache(disposedMemoryService, new MemoryScopeLambda("MemoryServiceDistributedCacheTests"));
 
         var key = "test-key";
 

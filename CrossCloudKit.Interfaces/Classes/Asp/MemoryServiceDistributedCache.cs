@@ -4,11 +4,13 @@
 using Microsoft.Extensions.Caching.Distributed;
 using CrossCloudKit.Utilities.Common;
 
-namespace CrossCloudKit.Interfaces.Classes;
+namespace CrossCloudKit.Interfaces.Classes.Asp;
 
-public class MemoryServiceDistributedCache(IMemoryService memoryService) : IDistributedCache
+public class MemoryServiceDistributedCache(IMemoryService memoryService, IMemoryScope scope) : IDistributedCache
 {
-    private static MemoryScopeLambda GetScope(string key) => new($"CrossCloudKit.Interfaces.Classes.MemoryServiceDistributedCache:{key}");
+    private readonly string _scopeCompiled = scope.Compile();
+
+    private MemoryScopeLambda GetScope(string key) => new($"{_scopeCompiled}:{key}");
 
     private const string KeyAttribute = "key";
     private const string OriginalTtlAttribute = "original-ttl";
@@ -19,7 +21,7 @@ public class MemoryServiceDistributedCache(IMemoryService memoryService) : IDist
         return GetAsync(key).GetAwaiter().GetResult();
     }
 
-    public async Task<byte[]?> GetAsync(string key, CancellationToken token = new CancellationToken())
+    public async Task<byte[]?> GetAsync(string key, CancellationToken token = new())
     {
         if (string.IsNullOrWhiteSpace(key))
             return null;

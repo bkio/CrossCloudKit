@@ -29,6 +29,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - Message queuing with topic management, subscriptions, and error handling
   - Distributed memory operations with mutex locking and data structures
   - Pub/Sub integration with file services for file event notifications
+  - **ASP.NET Core Integration**: `IDistributedCache` adapter (`MemoryServiceDistributedCache`) and `IFileProvider` (`FileServiceFileProvider`) bridge for seamless framework integration
 - **Cloud-Agnostic Design**: Write once, deploy anywhere across cloud providers
 - **Comprehensive Testing**: Extensive integration test suites for all services
 - **.NET 10 Ready**: Built for the latest .NET platform with nullable reference types
@@ -36,7 +37,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 ## 📦 Packages
 | Package | Description                             |
 |---------|-----------------------------------------|
-| `CrossCloudKit.Interfaces` | Core interfaces and base classes        |
+| `CrossCloudKit.Interfaces` | Core interfaces, base classes, and ASP.NET Core integration |
 | **Database Services** |                                         |
 | `CrossCloudKit.Database.AWS` | AWS DynamoDB implementation             |
 | `CrossCloudKit.Database.Mongo` | MongoDB implementation                  |
@@ -223,7 +224,7 @@ var memoryService = new MemoryServiceRedis(
 );
 
 // Create a memory scope
-var scope = new LambdaMemoryServiceScope(() => "user:123");
+var scope = new MemoryScopeLambda(() => "user:123");
 
 // Set key-value pairs
 await memoryService.SetKeyValuesAsync(scope, new[]
@@ -371,6 +372,12 @@ var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(
 ```
 ### File Storage Operations
 
+#### IFileProvider Integration
+```csharp
+webAppBuilder.Services.AddSingleton<IFileProvider>(
+    new FileServiceFileProvider(/**/);
+```
+
 #### File Operations with Metadata
 ```csharp
 // Get file metadata
@@ -409,6 +416,15 @@ var deletedCount = await fileService.DeleteFolderAsync("my-bucket", "temp/");
 Console.WriteLine($"Deleted {deletedCount.Data} files");
 ```
 ### Memory Operations
+
+#### IDistributedCache Integration
+```csharp
+webAppBuilder.Services.AddSingleton<IDistributedCache>(
+    new MemoryServiceDistributedCache(
+        new MemoryServiceRedis(/**/),
+        new MemoryScopeLambda(() => "my-app-scope")
+    );
+```
 
 #### List and Data Structure Operations
 ```csharp
@@ -754,7 +770,7 @@ public class OrderProcessingService
         var receipt = GenerateReceipt(order); await _files.UploadFileAsync(receipt, "receipts", $"{order.Id}.pdf");
 
         // Cache order status
-        var cacheScope = new LambdaMemoryServiceScope(() => $"order:{order.Id}");
+        var cacheScope = new MemoryScopeLambda(() => $"order:{order.Id}");
 
         await _cache.SetKeyValuesAsync(cacheScope, new[]
         {

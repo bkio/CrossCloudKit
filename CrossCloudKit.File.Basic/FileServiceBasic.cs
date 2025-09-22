@@ -177,17 +177,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
 
                         return OperationResult<long>.Success(totalRead);
                     }
-                    else
-                    {
-                        System.IO.File.Copy(filePath, targetFilePath, true);
-                        return OperationResult<long>.Success(new FileInfo(targetFilePath).Length);
-                    }
+                    System.IO.File.Copy(filePath, targetFilePath, true);
+                    return OperationResult<long>.Success(new FileInfo(targetFilePath).Length);
                 },
                 async (stream, _) =>
                 {
                     await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
 
-                    if (options?.StartIndex > 0)
+                    if (stream.CanSeek && options?.StartIndex > 0)
                         fileStream.Seek(options.StartIndex, SeekOrigin.Begin);
 
                     var bytesToRead = options?.Size > 0 ? options.Size : fileStream.Length - fileStream.Position;
@@ -203,6 +200,9 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
                         await stream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                         totalRead += bytesRead;
                     }
+
+                    if (stream.CanSeek)
+                        stream.Seek(0, SeekOrigin.Begin);
 
                     return OperationResult<long>.Success(totalRead);
                 });

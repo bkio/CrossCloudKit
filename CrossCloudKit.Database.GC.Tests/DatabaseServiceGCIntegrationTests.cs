@@ -67,7 +67,6 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         return CreateServiceForTesting(projectId);
     }
 
-    protected override string GetTestTableName() => $"test-kind-{Guid.NewGuid():N}";
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithServiceAccountFilePath_ShouldInitialize()

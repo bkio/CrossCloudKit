@@ -70,11 +70,11 @@ public sealed class StringOrStream : IDisposable, IAsyncDisposable
     /// Creates a StringOrStream containing stream content.
     /// </summary>
     /// <param name="stream">The stream content</param>
-    /// <param name="length">The length of meaningful data in the stream</param>
+    /// <param name="length">The length of meaningful data in the stream, if unknown (for download file like cases) can be left as 0.</param>
     /// <param name="encoding">The encoding to use for string conversions (default: UTF-8)</param>
     /// <exception cref="ArgumentNullException">Thrown when stream is null</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when length is negative</exception>
-    public StringOrStream(Stream stream, long length, Encoding? encoding = null)
+    public StringOrStream(Stream stream, long length = 0, Encoding? encoding = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(length);
 

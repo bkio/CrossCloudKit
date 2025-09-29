@@ -1,13 +1,10 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using Amazon.DynamoDBv2;
-using Amazon.DynamoDBv2.Model;
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
 using FluentAssertions;
 using xRetry;
-using Xunit;
 
 namespace CrossCloudKit.Database.AWS.Tests;
 
@@ -46,54 +43,6 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         return new DatabaseServiceAWS(accessKey, secretKey, region);
     }
 
-    protected override async Task CleanupDatabaseAsync(string tableName)
-    {
-        try
-        {
-            var accessKey = GetAWSAccessKey();
-            var secretKey = GetAWSSecretKey();
-            var region = GetAWSRegion();
-
-            if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
-            {
-                return; // Skip cleanup if no credentials
-            }
-
-            using var client = new AmazonDynamoDBClient(
-                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
-                Amazon.RegionEndpoint.GetBySystemName(region));
-
-            await client.DeleteTableAsync(tableName);
-
-            // Wait for table to be deleted using simple polling
-            var maxWaitTime = TimeSpan.FromMinutes(2);
-            var startTime = DateTime.UtcNow;
-
-            while (DateTime.UtcNow - startTime < maxWaitTime)
-            {
-                try
-                {
-                    await client.DescribeTableAsync(tableName);
-                    await Task.Delay(1000); // Wait 1 second before checking again
-                }
-                catch (ResourceNotFoundException)
-                {
-                    // Table is deleted
-                    break;
-                }
-            }
-        }
-        catch (ResourceNotFoundException)
-        {
-            // Table doesn't exist, which is fine
-        }
-        catch (Exception)
-        {
-            // Ignore cleanup errors in tests
-        }
-    }
-
-    protected override string GetTestTableName() => $"test-table-{Guid.NewGuid():N}";
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithValidCredentials_ShouldInitializeSuccessfully()

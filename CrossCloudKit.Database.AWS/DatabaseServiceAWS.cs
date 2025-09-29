@@ -1,13 +1,17 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+//
+// Note: It's essential that methods defined in IDatabaseService are not called directly from ...CoreAsync methods.
+// Instead, call CoreAsync methods when needed.
+//
+
+using System.Collections.Concurrent;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using CrossCloudKit.Interfaces;
 using CrossCloudKit.Utilities.Common;
 using Newtonsoft.Json.Linq;
 using Amazon.DynamoDBv2.DocumentModel;
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using CrossCloudKit.Interfaces.Classes;
@@ -16,7 +20,7 @@ using Expression = Amazon.DynamoDBv2.DocumentModel.Expression;
 
 namespace CrossCloudKit.Database.AWS;
 
-public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, IDisposable
+public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 {
     /// <summary>
     /// AWS DynamoDB Client that is responsible to serve to this object
@@ -32,7 +36,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
     // ReSharper disable once ConvertToAutoProperty
-    public bool IsInitialized => _initializationSucceed;
+    public override bool IsInitialized => _initializationSucceed;
 
     /// <summary>
     /// DatabaseServiceAWS: Constructor for Managed Service by Amazon
@@ -105,155 +109,33 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     /// </summary>
     private readonly ConcurrentDictionary<string, Table> _loadedTables = new();
 
+    private static string GetTableName(string tableName, DbKey key)
+    {
+        return $"{tableName}-{key.Name}";
+    }
+    private static string GetTableName(string tableName, string keyName)
+    {
+        return $"{tableName}-{keyName}";
+    }
+
     /// <summary>
     /// Searches table definition in LoadedTables, if not loaded, loads, stores and returns.
     /// Creates the table if it doesn't exist.
     /// </summary>
-    private async Task<Table?> GetTableAsync(string tableName, CancellationToken cancellationToken = default)
+    private async Task<OperationResult<Table>> EnsureTableExistsAsync(string tableName, DbKey key, CancellationToken cancellationToken = default)
     {
-        if (_loadedTables.TryGetValue(tableName, out var existingTable))
+        if (_loadedTables.TryGetValue(GetTableName(tableName, key), out var existingTable))
         {
-            return existingTable;
+            return OperationResult<Table>.Success(existingTable);
         }
 
-        if (_dynamoDbClient == null) return null;
+        if (_dynamoDbClient == null) return OperationResult<Table>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
-            // Try to get table description to understand its structure
-            var describeRequest = new DescribeTableRequest { TableName = tableName };
-            var describeResponse = await _dynamoDbClient.DescribeTableAsync(describeRequest, cancellationToken);
-
-            // Build table using TableBuilder with the actual table schema
-            var tableBuilder = new TableBuilder(_dynamoDbClient, tableName);
-
-            // Add hash key (partition key)
-            var hashKey = describeResponse.Table.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.HASH);
-            if (hashKey != null)
-            {
-                var hashKeyAttribute = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == hashKey.AttributeName);
-                if (hashKeyAttribute != null)
-                {
-                    var hashKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(hashKeyAttribute.AttributeType);
-                    tableBuilder.AddHashKey(hashKey.AttributeName, hashKeyType);
-                }
-            }
-
-            // Add range key if exists (sort key)
-            var rangeKey = describeResponse.Table.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.RANGE);
-            if (rangeKey != null)
-            {
-                var rangeKeyAttribute = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == rangeKey.AttributeName);
-                if (rangeKeyAttribute != null)
-                {
-                    var rangeKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(rangeKeyAttribute.AttributeType);
-                    tableBuilder.AddRangeKey(rangeKey.AttributeName, rangeKeyType);
-                }
-            }
-
-            // Add Global Secondary Indexes
-            if (describeResponse.Table.GlobalSecondaryIndexes?.Count > 0)
-            {
-                foreach (var gsi in describeResponse.Table.GlobalSecondaryIndexes)
-                {
-                    var gsiHashKey = gsi.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.HASH);
-                    var gsiRangeKey = gsi.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.RANGE);
-
-                    if (gsiHashKey != null)
-                    {
-                        var gsiHashKeyAttr = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == gsiHashKey.AttributeName);
-                        if (gsiHashKeyAttr != null)
-                        {
-                            var gsiHashKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(gsiHashKeyAttr.AttributeType);
-
-                            if (gsiRangeKey != null)
-                            {
-                                var gsiRangeKeyAttr = describeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == gsiRangeKey.AttributeName);
-                                if (gsiRangeKeyAttr != null)
-                                {
-                                    var gsiRangeKeyType = ConvertScalarAttributeTypeToDynamoDbEntryType(gsiRangeKeyAttr.AttributeType);
-                                    tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName.NotNull(), gsiHashKey.AttributeName, gsiHashKeyType, gsiRangeKey.AttributeName, gsiRangeKeyType);
-                                }
-                            }
-                            else
-                            {
-                                tableBuilder.AddGlobalSecondaryIndex(gsi.IndexName.NotNull(), gsiHashKey.AttributeName, gsiHashKeyType);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Build the table using the modern TableBuilder pattern
-            var table = tableBuilder.Build();
-
-            _loadedTables.TryAdd(tableName, table);
-            return table;
-        }
-        catch (ResourceNotFoundException)
-        {
-            // Table doesn't exist, create it with a default schema
-            return await CreateTableAsync(tableName, cancellationToken);
-        }
-        catch (Exception)
-        {
-            // Other error, return null
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Creates a DynamoDB table with a default schema suitable for testing.
-    /// Uses "Id" as the partition key with string type by default, but can be overridden.
-    /// </summary>
-    private async Task<Table?> CreateTableAsync(string tableName, CancellationToken cancellationToken = default)
-    {
-        if (_dynamoDbClient == null) return null;
-
-        try
-        {
-            // Check if the table already exists (might have been created by another thread)
-            try
-            {
-                var existingDescribeRequest = new DescribeTableRequest { TableName = tableName };
-                var existingDescribeResponse = await _dynamoDbClient.DescribeTableAsync(existingDescribeRequest, cancellationToken);
-
-                if (existingDescribeResponse.Table.TableStatus == TableStatus.ACTIVE)
-                {
-                    // Table already exists and is active, build and return it
-                    var existingTableBuilder = new TableBuilder(_dynamoDbClient, tableName);
-
-                    // Determine the existing key type from the table description
-                    var hashKey = existingDescribeResponse.Table.KeySchema.FirstOrDefault(k => k.KeyType == KeyType.HASH);
-                    if (hashKey != null)
-                    {
-                        var hashKeyAttribute = existingDescribeResponse.Table.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == hashKey.AttributeName);
-                        if (hashKeyAttribute != null)
-                        {
-                            var keyType = ConvertScalarAttributeTypeToDynamoDbEntryType(hashKeyAttribute.AttributeType);
-                            existingTableBuilder.AddHashKey(hashKey.AttributeName, keyType);
-                        }
-                        else
-                        {
-                            // Fallback to string if we can't determine the type
-                            existingTableBuilder.AddHashKey(hashKey.AttributeName, DynamoDBEntryType.String);
-                        }
-                    }
-                    else
-                    {
-                        // Fallback for "Id" key
-                        existingTableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
-                    }
-
-                    var existingTable = existingTableBuilder.Build();
-                    _loadedTables.TryAdd(tableName, existingTable);
-                    return existingTable;
-                }
-            }
-            catch (ResourceNotFoundException)
-            {
-                // Table doesn't exist, continue with creation
-            }
+            var existingTableResult = await TryToGetAndLoadExistingTableAsync(tableName, key.Name, key.Value, 0, cancellationToken);
+            if (existingTableResult.IsSuccessful || existingTableResult.StatusCode != HttpStatusCode.NotFound)
+                return existingTableResult;
 
             // Create table with flexible key type (default to string for compatibility)
             var createTableRequest = new CreateTableRequest
@@ -261,11 +143,11 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 TableName = tableName,
                 KeySchema =
                 [
-                    new KeySchemaElement("Id", KeyType.HASH) // Partition key
+                    new KeySchemaElement(key.Name, KeyType.HASH) // Partition key
                 ],
                 AttributeDefinitions =
                 [
-                    new AttributeDefinition("Id", ScalarAttributeType.S) // String type - most flexible
+                    new AttributeDefinition(key.Name, PrimitiveTypeToScalarAttributeType(key.Value))
                 ],
                 BillingMode = BillingMode.PAY_PER_REQUEST // On-demand billing
             };
@@ -280,40 +162,145 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 // Table is already being created by another process, wait for it to become active
             }
 
-            // Wait for table to become active
-            var maxWaitTime = TimeSpan.FromMinutes(5);
-            var startTime = DateTime.UtcNow;
+            return await TryToGetAndLoadExistingTableAsync(tableName, key.Name, key.Value, 0, cancellationToken);
+        }
+        catch (Exception e)
+        {
+            return OperationResult<Table>.Failure($"Exception occured in CreateTableAsync: {e}",  HttpStatusCode.InternalServerError);
+        }
+    }
 
-            while (DateTime.UtcNow - startTime < maxWaitTime)
+    private async Task<OperationResult<Table>> TryToGetAndLoadExistingTableAsync(
+        string tableName,
+        string keyName,
+        PrimitiveType? keyValue = null,
+        int retryCount = 0,
+        CancellationToken cancellationToken = default)
+    {
+        if (_dynamoDbClient == null) return OperationResult<Table>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
+
+        // Check if the table already exists (might have been created by another thread) or after creation to get the table to return
+        try
+        {
+            var existingDescribeRequest = new DescribeTableRequest { TableName = GetTableName(tableName, keyName) };
+            var existingDescribeResponse =
+                await _dynamoDbClient.DescribeTableAsync(existingDescribeRequest, cancellationToken);
+
+            var tableStatus = existingDescribeResponse.Table.TableStatus;
+            if (tableStatus == TableStatus.ARCHIVING
+                || tableStatus == TableStatus.CREATING
+                || tableStatus == TableStatus.DELETING
+                || tableStatus == TableStatus.UPDATING)
             {
-                try
-                {
-                    var describeResponse = await _dynamoDbClient.DescribeTableAsync(tableName, cancellationToken);
-                    if (describeResponse.Table.TableStatus == TableStatus.ACTIVE)
-                    {
-                        // Build the table using TableBuilder
-                        var tableBuilder = new TableBuilder(_dynamoDbClient, tableName);
-                        tableBuilder.AddHashKey("Id", DynamoDBEntryType.String);
-                        var table = tableBuilder.Build();
+                if (++retryCount >= 300)
+                    return OperationResult<Table>.Failure(
+                        $"Exhausted after attempting to wait until table status to become stable. Last status: {tableStatus}",
+                        HttpStatusCode.RequestTimeout);
 
-                        _loadedTables.TryAdd(tableName, table);
-                        return table;
-                    }
-                }
-                catch
-                {
-                    // Continue waiting
-                }
-
-                await Task.Delay(1000, cancellationToken); // Wait 1 second before checking again
+                await Task.Delay(1000, cancellationToken);
+                return await TryToGetAndLoadExistingTableAsync(tableName, keyName, keyValue, retryCount, cancellationToken);
             }
 
-            return null; // Timed out waiting for table to become active
+            if (existingDescribeResponse.Table.TableStatus != TableStatus.ACTIVE)
+                return OperationResult<Table>.Failure("Table not found or unauthorized.", HttpStatusCode.NotFound);
+
+            // Table already exists and is active, build and return it
+            var existingTableBuilder = new TableBuilder(_dynamoDbClient, GetTableName(tableName, keyName));
+
+            // Determine the existing key type from the table description
+            if (keyValue != null)
+            {
+                var keyInsertResult = TryInsertingKey(new DbKey(keyName, keyValue), existingDescribeResponse.Table, existingTableBuilder);
+                if (!keyInsertResult.IsSuccessful)
+                    return OperationResult<Table>.Failure(keyInsertResult.ErrorMessage, keyInsertResult.StatusCode);
+            }
+            else
+            {
+                var existingKeyTypeResult = TryGettingHashKeyType(existingDescribeResponse.Table, keyName);
+                if (!existingKeyTypeResult.IsSuccessful)
+                    return OperationResult<Table>.Failure(existingKeyTypeResult.ErrorMessage, existingKeyTypeResult.StatusCode);
+
+                AddKeyToBuilder(keyName, existingKeyTypeResult.Data, existingTableBuilder);
+            }
+
+            var existingTable = existingTableBuilder.Build();
+            _loadedTables.TryAdd(GetTableName(tableName, keyName), existingTable); //TryAdd in the place would be incorrect due to table updates.
+            return OperationResult<Table>.Success(existingTable);
         }
-        catch (Exception)
+        catch (ResourceNotFoundException)
         {
-            return null;
+            return OperationResult<Table>.Failure("Table not found.", HttpStatusCode.NotFound);
         }
+        catch (Exception e)
+        {
+            return OperationResult<Table>.Failure($"Exception occured in TryToGetAndLoadExistingTableAsync: {e}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    private static OperationResult<bool> TryInsertingKey(DbKey key, TableDescription tableDescription, TableBuilder builder)
+    {
+        var keyValType = key.Value.Kind switch
+        {
+            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => DynamoDBEntryType.Numeric,
+            _ => DynamoDBEntryType.String // Default fallback
+        };
+
+        var existingKeyCheckResult = DoesKeyExistWithAttributeName(tableDescription, key.Name);
+        if (existingKeyCheckResult.IsSuccessful)
+        {
+            var equalityCheck = KeyAttributeEqualityCheck(tableDescription, key.Name, keyValType);
+            if (!equalityCheck.IsSuccessful)
+                return equalityCheck;
+        }
+        if (existingKeyCheckResult.StatusCode != HttpStatusCode.NotFound)
+            return OperationResult<bool>.Failure(existingKeyCheckResult.ErrorMessage, existingKeyCheckResult.StatusCode);
+
+        AddKeyToBuilder(
+            key.Name,
+            keyValType,
+            builder);
+        return OperationResult<bool>.Success(true);
+    }
+
+    private static OperationResult<bool> DoesKeyExistWithAttributeName(TableDescription tableDescription, string attributeName)
+    {
+        var primaryHashKeyExistsWithName = tableDescription.KeySchema?.FirstOrDefault(k => k?.AttributeName == attributeName);
+        if (primaryHashKeyExistsWithName != null)
+        {
+            return primaryHashKeyExistsWithName.KeyType == KeyType.RANGE
+                ? OperationResult<bool>.Failure("It is not possible to have a range key with CrossCloudKit.", HttpStatusCode.BadRequest)
+                : OperationResult<bool>.Success(true);
+        }
+        return OperationResult<bool>.Failure("Not found.", HttpStatusCode.NotFound);
+    }
+    private static OperationResult<bool> KeyAttributeEqualityCheck(TableDescription tableDescription, string attributeName, DynamoDBEntryType keyValType)
+    {
+        var existingKeyAttribute = tableDescription.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == attributeName);
+        if (existingKeyAttribute == null)
+            return OperationResult<bool>.Failure("Could not determine key type", HttpStatusCode.InternalServerError);
+
+        var dynamoType = ConvertScalarAttributeTypeToDynamoDbEntryType(existingKeyAttribute.AttributeType);
+        return dynamoType != keyValType
+            ? OperationResult<bool>.Failure($"Key type mismatch for key name {attributeName} existing: {dynamoType} requested new key: {keyValType}", HttpStatusCode.Conflict)
+            : OperationResult<bool>.Success(true);
+    }
+    private static void AddKeyToBuilder(string keyName, DynamoDBEntryType keyDynamoType, TableBuilder builder)
+    {
+        builder.AddHashKey(keyName, keyDynamoType);
+    }
+
+    private static OperationResult<DynamoDBEntryType> TryGettingHashKeyType(TableDescription tableDescription, string attributeName)
+    {
+        var existingKeyCheckResult = DoesKeyExistWithAttributeName(tableDescription, attributeName);
+        if (!existingKeyCheckResult.IsSuccessful)
+            return OperationResult<DynamoDBEntryType>.Failure(existingKeyCheckResult.ErrorMessage, existingKeyCheckResult.StatusCode);
+
+        var existingKeyAttribute = tableDescription.AttributeDefinitions.FirstOrDefault(a => a.AttributeName == attributeName);
+        if (existingKeyAttribute == null)
+            return OperationResult<DynamoDBEntryType>.Failure("Could not determine key type", HttpStatusCode.InternalServerError);
+
+        var dynamoType = ConvertScalarAttributeTypeToDynamoDbEntryType(existingKeyAttribute.AttributeType);
+        return OperationResult<DynamoDBEntryType>.Success(dynamoType);
     }
 
     /// <summary>
@@ -325,22 +312,30 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         {
             "S" => DynamoDBEntryType.String,
             "N" => DynamoDBEntryType.Numeric,
-            "B" => DynamoDBEntryType.Binary,
+            "B" => throw new InvalidOperationException("Found binary attribute type. Should have been S (base64)"),
             _ => DynamoDBEntryType.String // Default fallback
         };
     }
 
-    private static AttributeValue ConvertPrimitiveToAttributeValue(PrimitiveType value)
+    /// <summary>
+    /// Converts PrimitiveType to Primitive for keys
+    /// </summary>
+    private static Primitive ConvertPrimitiveTypeToDynamoDbPrimitive(PrimitiveType primitiveType)
     {
-        // For DynamoDB keys, we should use strings for maximum compatibility
-        // since string keys can represent any primitive type as a string
-        return value.Kind switch
+        return new Primitive(primitiveType.ToString(), primitiveType.Kind is PrimitiveTypeKind.Double or PrimitiveTypeKind.Integer);
+    }
+
+    /// <summary>
+    /// Converts DynamoDBEntryType to ScalarAttributeType for TableBuilder
+    /// </summary>
+    private static ScalarAttributeType PrimitiveTypeToScalarAttributeType(PrimitiveType primitiveType)
+    {
+        return primitiveType.Kind switch
         {
-            PrimitiveTypeKind.String => new AttributeValue { S = value.AsString },
-            PrimitiveTypeKind.Integer => new AttributeValue { S = value.AsInteger.ToString() },
-            PrimitiveTypeKind.Double => new AttributeValue { S = value.AsDouble.ToString("R") }, // Round-trip format
-            PrimitiveTypeKind.ByteArray => new AttributeValue { S = Convert.ToBase64String(value.AsByteArray) },
-            _ => new AttributeValue { S = value.ToString() }
+            PrimitiveTypeKind.String => ScalarAttributeType.S,
+            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => ScalarAttributeType.N,
+            PrimitiveTypeKind.ByteArray => ScalarAttributeType.S, //Base64
+            _ => throw new ArgumentOutOfRangeException()
         };
     }
 
@@ -348,24 +343,22 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     {
         // For condition values, we should use proper DynamoDB types
         // to ensure correct comparisons work
+        var asStr = value.ToString();
         return value.Kind switch
         {
-            PrimitiveTypeKind.String => new AttributeValue { S = value.AsString },
-            PrimitiveTypeKind.Integer => new AttributeValue { N = value.AsInteger.ToString() },
-            PrimitiveTypeKind.Double => new AttributeValue { N = value.AsDouble.ToString("R") }, // Round-trip format
-            PrimitiveTypeKind.ByteArray => new AttributeValue { S = Convert.ToBase64String(value.AsByteArray) },
-            _ => new AttributeValue { S = value.ToString() }
+            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => new AttributeValue { N = asStr },
+            _ => new AttributeValue { S = asStr }
         };
     }
 
     #region Modern Async API
 
     /// <inheritdoc />
-    public async Task<OperationResult<bool>> ItemExistsAsync(
+    protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
-        DbAttributeCondition? condition = null,
+        DbKey key,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -374,20 +367,19 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 return OperationResult<bool>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
 
             // First try to create/get table - if this fails, the item definitely doesn't exist
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var table = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!table.IsSuccessful)
             {
-                // Table doesn't exist, so item definitely doesn't exist
-                return OperationResult<bool>.Success(false);
+                return OperationResult<bool>.Failure(table.ErrorMessage, table.StatusCode);
             }
 
             // Use GetItem to retrieve the full item for condition evaluation
             var request = new GetItemRequest
             {
-                TableName = tableName,
+                TableName = GetTableName(tableName, key),
                 Key = new Dictionary<string, AttributeValue>
                 {
-                    [keyName] = ConvertPrimitiveToAttributeValue(keyValue)
+                    [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
                 },
                 ConsistentRead = true
             };
@@ -396,18 +388,18 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             if (!response.IsItemSet)
             {
-                return OperationResult<bool>.Success(false);
+                return OperationResult<bool>.Failure("Item not found.", HttpStatusCode.NotFound);
             }
 
-            // If condition is specified, check it against the retrieved item
-            if (condition != null)
+            // If the conditions are specified, check it against the retrieved item
+            if (conditions != null)
             {
                 var document = Document.FromAttributeMap(response.Item);
                 var jsonObject = JObject.Parse(document.ToJson());
-                AddKeyToJson(jsonObject, keyName, keyValue);
+                AddKeyToJson(jsonObject, key.Name, key.Value);
 
-                bool conditionSatisfied = EvaluateCondition(jsonObject, condition);
-                return OperationResult<bool>.Success(conditionSatisfied);
+                if (conditions.Any(condition => !EvaluateCondition(jsonObject, condition)))
+                    return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
             }
 
             return OperationResult<bool>.Success(true);
@@ -415,7 +407,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         catch (ResourceNotFoundException)
         {
             // Table or item doesn't exist
-            return OperationResult<bool>.Success(false);
+            return OperationResult<bool>.Failure("Item not found.", HttpStatusCode.NotFound);
         }
         catch (Exception ex)
         {
@@ -424,20 +416,21 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> GetItemAsync(
+    protected override async Task<OperationResult<JObject?>> GetItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string[]? attributesToRetrieve = null,
+        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var tableResult = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!tableResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
+            var table = tableResult.Data;
 
             var config = new GetItemOperationConfig
             {
@@ -446,17 +439,19 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             if (attributesToRetrieve?.Length > 0)
             {
+                var kIx = Array.IndexOf(attributesToRetrieve, key.Name);
+                if (kIx >= 0)
+                    attributesToRetrieve[kIx] = key.Name;
                 config.AttributesToGet = [..attributesToRetrieve];
             }
-
-            var document = await table.GetItemAsync(keyValue.ToString(), config, cancellationToken);
+            var document = await table.GetItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config, cancellationToken);
             if (document == null)
             {
                 return OperationResult<JObject?>.Success(null);
             }
 
             var result = JObject.Parse(document.ToJson());
-            AddKeyToJson(result, keyName, keyValue);
+            AddKeyToJson(result, key.Name, key.Value);
             ApplyOptions(result);
 
             return OperationResult<JObject?>.Success(result);
@@ -468,47 +463,31 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    protected override async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType[] keyValues,
+        DbKey[] keys,
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            if (keyValues.Length == 0)
+            if (keys.Length == 0)
             {
                 return OperationResult<IReadOnlyList<JObject>>.Success([]);
             }
 
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
-            {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
-            }
-
-            var batchGet = table.CreateBatchGet();
-            batchGet.ConsistentRead = true;
-
-            foreach (var value in keyValues)
-            {
-                batchGet.AddKey(value.ToString());
-            }
-
-            await batchGet.ExecuteAsync(cancellationToken);
+            var batchRequests
+                = keys.Select(key => GetItemCoreAsync(tableName, key, attributesToRetrieve, true, cancellationToken)).ToList();
+            if (batchRequests.Count > 0)
+                await Task.WhenAll(batchRequests);
 
             var results = new List<JObject>();
-            for (int i = 0; i < batchGet.Results.Count && i < keyValues.Length; i++)
+            foreach (var req in batchRequests)
             {
-                var document = batchGet.Results[i];
-                if (document != null)
-                {
-                    var jsonObject = JObject.Parse(document.ToJson());
-                    AddKeyToJson(jsonObject, keyName, keyValues[i]);
-                    ApplyOptions(jsonObject);
-                    results.Add(jsonObject);
-                }
+                var res = await req;
+                if (!res.IsSuccessful)
+                    return OperationResult<IReadOnlyList<JObject>>.Failure(res.ErrorMessage, res.StatusCode);
+                results.Add(res.Data.NotNull());
             }
 
             return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
@@ -520,49 +499,46 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> PutItemAsync(
+    protected override async Task<OperationResult<JObject?>> PutItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject item,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, keyName, keyValue, item,
-            returnBehavior, null, overwriteIfExists, cancellationToken);
+        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, key, item, returnBehavior, null, overwriteIfExists, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> UpdateItemAsync(
+    protected override async Task<OperationResult<JObject?>> UpdateItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
-            returnBehavior, condition, false, cancellationToken);
+        return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, key, updateData, returnBehavior, conditions, false, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> DeleteItemAsync(
+    protected override async Task<OperationResult<JObject?>> DeleteItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var tableResult = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!tableResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
+            var table = tableResult.Data;
 
             var config = new DeleteItemOperationConfig
             {
@@ -575,12 +551,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 }
             };
 
-            if (condition != null)
+            if (conditions != null)
             {
-                config.ConditionalExpression = BuildConditionalExpression(condition);
+                config.ConditionalExpression = BuildConditionalExpression(conditions);
             }
 
-            var document = await table.DeleteItemAsync(keyValue.ToString(), config, cancellationToken);
+            var document = await table.DeleteItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config, cancellationToken);
 
             if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
             {
@@ -603,14 +579,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> AddElementsToArrayAsync(
+    protected override async Task<OperationResult<JObject?>> AddElementsToArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -626,11 +602,20 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
-            // Ensure table exists first
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            if (!isCalledFromPostInsert)
             {
-                return OperationResult<JObject?>.Failure("Failed to get or create table", HttpStatusCode.InternalServerError);
+                var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [arrayAttributeName] = new JArray() }, cancellationToken);
+                if (!sanityCheckResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+                }
+            }
+
+            // Ensure table exists first
+            var tableResult = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!tableResult.IsSuccessful)
+            {
+                return OperationResult<JObject?>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
 
             if (_dynamoDbClient == null)
@@ -640,10 +625,10 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             var request = new UpdateItemRequest
             {
-                TableName = tableName,
+                TableName = GetTableName(tableName, key),
                 Key = new Dictionary<string, AttributeValue>
                 {
-                    [keyName] = ConvertPrimitiveToAttributeValue(keyValue)
+                    [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
                 },
                 ReturnValues = returnBehavior switch
                 {
@@ -655,7 +640,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             };
 
             // Build list of elements to add
-            var elementsAsAttributes = elementsToAdd.Select(ConvertPrimitiveToAttributeValue).ToList();
+            var elementsAsAttributes = elementsToAdd.Select(ConvertPrimitiveToConditionAttributeValue).ToList();
 
             request.ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -666,52 +651,35 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             request.UpdateExpression = "SET #attr = list_append(if_not_exists(#attr, :empty_list), :vals)";
             request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                [":vals"] = new AttributeValue { L = elementsAsAttributes },
-                [":empty_list"] = new AttributeValue { L = [] }
+                [":vals"] = new() { L = elementsAsAttributes },
+                [":empty_list"] = new() { L = [] }
             };
 
-            if (condition != null)
+            BuildConditionExpression(conditions, request);
+
+            var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
+            if (!isCalledFromPostInsert)
             {
-                var conditionExpr = BuildDynamoDbConditionExpression(condition);
-                if (!string.IsNullOrEmpty(conditionExpr))
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+                await Task.WhenAll(responseTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
                 {
-                    request.ConditionExpression = conditionExpr;
-
-                    // Add condition values to expression attribute values
-                    if (condition is DbValueCondition valueCondition)
-                    {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(valueCondition.Value);
-                    }
-                    else if (condition is DbArrayElementCondition arrayCondition)
-                    {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
-                    }
-
-                    // Add expression attribute names for the condition if needed
-                    if (condition.ConditionType is
-                        DbAttributeConditionType.AttributeEquals
-                        or DbAttributeConditionType.AttributeNotEquals
-                        or DbAttributeConditionType.AttributeGreater
-                        or DbAttributeConditionType.AttributeGreaterOrEqual
-                        or DbAttributeConditionType.AttributeLess
-                        or DbAttributeConditionType.AttributeLessOrEqual
-                        or DbAttributeConditionType.ArrayElementExists
-                        or DbAttributeConditionType.ArrayElementNotExists)
-                    {
-                        request.ExpressionAttributeNames["#cond_attr"] = condition.AttributeName;
-                        // Update the condition expression to use the attribute name alias
-                        request.ConditionExpression = conditionExpr.Replace(condition.AttributeName, "#cond_attr");
-                    }
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
+            else await responseTask;
 
-            var response = await _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
-
-            if (returnBehavior != DbReturnItemBehavior.DoNotReturn && response.Attributes?.Count > 0)
+            if (returnBehavior != DbReturnItemBehavior.DoNotReturn)
             {
-                var result = JObject.Parse(Document.FromAttributeMap(response.Attributes).ToJson());
-                ApplyOptions(result);
-                return OperationResult<JObject?>.Success(result);
+                var response = await responseTask;
+                if (response.Attributes?.Count > 0)
+                {
+                    var result = JObject.Parse(Document.FromAttributeMap(response.Attributes).ToJson());
+                    ApplyOptions(result);
+                    return OperationResult<JObject?>.Success(result);
+                }
             }
 
             return OperationResult<JObject?>.Success(null);
@@ -727,14 +695,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
+    protected override async Task<OperationResult<JObject?>> RemoveElementsFromArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -752,7 +719,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             // For DynamoDB, removing from LIST type arrays requires a different approach
             // We need to get the current item, modify it, and put it back with list_append
-            var getResult = await GetItemAsync(tableName, keyName, keyValue, null, cancellationToken);
+            var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
             if (!getResult.IsSuccessful || getResult.Data == null)
             {
                 return OperationResult<JObject?>.Failure("Item not found for array removal operation", HttpStatusCode.NotFound);
@@ -791,8 +758,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 [arrayAttributeName] = currentArray
             };
 
-            var updateResult = await UpdateItemAsync(tableName, keyName, keyValue, updateData,
-                DbReturnItemBehavior.ReturnNewValues, condition, cancellationToken);
+            var updateResult = await UpdateItemCoreAsync(tableName, key, updateData,
+                DbReturnItemBehavior.ReturnNewValues, conditions, cancellationToken);
 
             if (!updateResult.IsSuccessful)
             {
@@ -818,22 +785,27 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<double>> IncrementAttributeAsync(
+    protected override async Task<OperationResult<double>> IncrementAttributeCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string numericAttributeName,
         double incrementValue,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Ensure table exists first
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [numericAttributeName] = new JArray() }, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
             {
-                return OperationResult<double>.Failure("Failed to get or create table", HttpStatusCode.InternalServerError);
+                return OperationResult<double>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+            }
+
+            // Ensure table exists first
+            var tableResult = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!tableResult.IsSuccessful)
+            {
+                return OperationResult<double>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
 
             if (_dynamoDbClient == null)
@@ -843,16 +815,16 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
             var request = new UpdateItemRequest
             {
-                TableName = tableName,
+                TableName = GetTableName(tableName, key),
                 Key = new Dictionary<string, AttributeValue>
                 {
-                    [keyName] = ConvertPrimitiveToAttributeValue(keyValue)
+                    [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
                 },
                 ReturnValues = ReturnValue.UPDATED_NEW,
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    [":incr"] = new AttributeValue { N = incrementValue.ToString(CultureInfo.InvariantCulture) },
-                    [":start"] = new AttributeValue { N = "0" }
+                    [":incr"] = new() { N = incrementValue.ToString(CultureInfo.InvariantCulture) },
+                    [":start"] = new() { N = "0" }
                 },
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
@@ -861,43 +833,20 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 UpdateExpression = "SET #V = if_not_exists(#V, :start) + :incr"
             };
 
-            if (condition != null)
+            BuildConditionExpression(conditions, request);
+
+            var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
+            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+            await Task.WhenAll(responseTask, postInsertTask);
+
+            var postInsertResult = await postInsertTask;
+            if (!postInsertResult.IsSuccessful)
             {
-                // Build condition expression for UpdateItem operation
-                var conditionExpr = BuildDynamoDbConditionExpression(condition);
-                if (!string.IsNullOrEmpty(conditionExpr))
-                {
-                    request.ConditionExpression = conditionExpr;
-
-                    // Add condition values to expression attribute values
-                    if (condition is DbValueCondition valueCondition)
-                    {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(valueCondition.Value);
-                    }
-                    else if (condition is DbArrayElementCondition arrayCondition)
-                    {
-                        request.ExpressionAttributeValues[":cond_val"] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
-                    }
-
-                    // Add expression attribute names for condition if needed
-                    if (condition.ConditionType == DbAttributeConditionType.AttributeEquals ||
-                        condition.ConditionType == DbAttributeConditionType.AttributeNotEquals ||
-                        condition.ConditionType == DbAttributeConditionType.AttributeGreater ||
-                        condition.ConditionType == DbAttributeConditionType.AttributeGreaterOrEqual ||
-                        condition.ConditionType == DbAttributeConditionType.AttributeLess ||
-                        condition.ConditionType == DbAttributeConditionType.AttributeLessOrEqual ||
-                        condition.ConditionType == DbAttributeConditionType.ArrayElementExists ||
-                        condition.ConditionType == DbAttributeConditionType.ArrayElementNotExists)
-                    {
-                        request.ExpressionAttributeNames["#cond_attr"] = condition.AttributeName;
-                        // Update the condition expression to use the attribute name alias
-                        request.ConditionExpression = conditionExpr.Replace(condition.AttributeName, "#cond_attr");
-                    }
-                }
+                return OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
             }
 
-            var response = await _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
-
+            var response = await responseTask;
             if (response.Attributes?.TryGetValue(numericAttributeName, out var value) == true &&
                 double.TryParse(value.N, out var newValue))
             {
@@ -920,30 +869,95 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         }
     }
 
+    private static void BuildConditionExpression(IEnumerable<DbAttributeCondition>? conditions, UpdateItemRequest request)
+    {
+        if (conditions == null) return;
+
+        var conditionExpressions = new List<string>();
+
+        var index = 0;
+
+        foreach (var condition in conditions)
+        {
+            // Generate a unique placeholder for each condition value
+            var condValPlaceholder = $":cond_val{index}";
+            var condAttrPlaceholder = $"#cond_attr{index}";
+            index++;
+
+            var conditionExpr = BuildDynamoDbConditionExpression(condition, condValPlaceholder);
+            if (string.IsNullOrEmpty(conditionExpr)) continue;
+
+            switch (condition)
+            {
+                case DbValueCondition valueCondition:
+                    request.ExpressionAttributeValues[condValPlaceholder] = ConvertPrimitiveToConditionAttributeValue(valueCondition.Value);
+                    break;
+                case DbArrayElementCondition arrayCondition:
+                    request.ExpressionAttributeValues[condValPlaceholder] = ConvertPrimitiveToConditionAttributeValue(arrayCondition.ElementValue);
+                    break;
+            }
+
+            // Add expression attribute names for the condition if needed
+            if (condition.ConditionType is
+                not (DbAttributeConditionType.AttributeEquals
+                or DbAttributeConditionType.AttributeNotEquals
+                or DbAttributeConditionType.AttributeGreater
+                or DbAttributeConditionType.AttributeGreaterOrEqual
+                or DbAttributeConditionType.AttributeLess
+                or DbAttributeConditionType.AttributeLessOrEqual
+                or DbAttributeConditionType.ArrayElementExists
+                or DbAttributeConditionType.ArrayElementNotExists)) continue;
+
+            request.ExpressionAttributeNames[condAttrPlaceholder] = condition.AttributeName;
+            // Update the condition expression to use the attribute name alias
+            conditionExpr = conditionExpr.Replace(condition.AttributeName, condAttrPlaceholder);
+            conditionExpressions.Add(conditionExpr);
+        }
+
+        if (conditionExpressions.Count > 0)
+        {
+            request.ConditionExpression = string.Join(" AND ", conditionExpressions);
+        }
+    }
+
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableCoreAsync(
         string tableName,
-        string[] keyNames,
         CancellationToken cancellationToken = default)
     {
         return await InternalScanTableAsync(tableName, null, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTablePaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var keys = getKeysResult.Data;
+            foreach (var key in keys)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+
             }
+
+            var tableResult = await EnsureTableExistsAsync(tableName, null, cancellationToken);
+            if (!tableResult.IsSuccessful)
+            {
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
+            }
+            var table = tableResult.Data;
 
             var config = new ScanOperationConfig
             {
@@ -952,96 +966,267 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
             };
 
             if (!string.IsNullOrEmpty(pageToken))
-            {
-                // Parse page token if needed - implementation depends on your token format
-            }
+                config.PaginationToken = pageToken;
 
             var search = table.Scan(config);
-            var documents = await search.GetNextSetAsync(cancellationToken);
+            var searchTask = search.GetNextSetAsync(cancellationToken);
+
+            var documents = await searchTask;
 
             var results = new List<JObject>();
-            foreach (var document in documents)
+            foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
             {
-                var jsonObject = JObject.Parse(document.ToJson());
-
-                // Find the appropriate key
-                foreach (var keyName in keyNames)
-                {
-                    if (document.ContainsKey(keyName))
-                    {
-                        // Key is already in the document from DynamoDB
-                        break;
-                    }
-                }
-
                 ApplyOptions(jsonObject);
                 results.Add(jsonObject);
             }
 
-            var nextToken = search.IsDone ? null : "next"; // Simplified token logic
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (results.AsReadOnly(), nextToken, null));
+            var nextToken = search.IsDone ? null : search.PaginationToken;
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (keys, results.AsReadOnly(), nextToken, null));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceAWS->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition> filterConditions,
         CancellationToken cancellationToken = default)
     {
-        return await InternalScanTableAsync(tableName, BuildConditionalExpression(filterCondition), cancellationToken);
+        return await InternalScanTableAsync(tableName, BuildConditionalExpression(filterConditions), cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition>? filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var tableResult = await EnsureTableExistsAsync(tableName, null, cancellationToken);
+            if (!tableResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
+            var table = tableResult.Data;
 
             var config = new ScanOperationConfig
             {
                 Select = SelectValues.AllAttributes,
                 Limit = pageSize,
-                FilterExpression = BuildConditionalExpression(filterCondition)
+                FilterExpression = BuildConditionalExpression(filterConditions)
             };
 
+            if (!string.IsNullOrEmpty(pageToken))
+            {
+                config.PaginationToken = pageToken;
+            }
+
             var search = table.Scan(config);
-            var documents = await search.GetNextSetAsync(cancellationToken);
+            var searchTask = search.GetNextSetAsync(cancellationToken);
+
+            IReadOnlyList<string>? keys = null;
+
+            if (string.IsNullOrEmpty(pageToken))
+            {
+                var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+
+                await Task.WhenAll(getKeysTask, searchTask);
+
+                var getKeysResult = await getKeysTask;
+                if (!getKeysResult.IsSuccessful)
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
+                        .Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+                keys = getKeysResult.Data;
+            }
+            var documents = await searchTask;
 
             var results = new List<JObject>();
-            foreach (var document in documents)
+            foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
             {
-                var jsonObject = JObject.Parse(document.ToJson());
                 ApplyOptions(jsonObject);
                 results.Add(jsonObject);
             }
 
-            var nextToken = search.IsDone ? null : "next"; // Simplified token logic
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (results.AsReadOnly(), nextToken, null));
+            var nextToken = search.IsDone ? null : search.PaginationToken;
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (keys, results.AsReadOnly(), nextToken, null));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceAWS->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_dynamoDbClient == null)
+            {
+                return OperationResult<IReadOnlyList<string>>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
+            }
+
+            var tableNames = new List<string>();
+            string? lastEvaluatedTableName = null;
+
+            do
+            {
+                var request = new ListTablesRequest
+                {
+                    Limit = 100
+                };
+                if (!string.IsNullOrEmpty(lastEvaluatedTableName))
+                {
+                    request.ExclusiveStartTableName = lastEvaluatedTableName;
+                }
+
+                var response = await _dynamoDbClient.ListTablesAsync(request, cancellationToken);
+                tableNames.AddRange(response.TableNames);
+                lastEvaluatedTableName = response.LastEvaluatedTableName;
+            }
+            while (!string.IsNullOrEmpty(lastEvaluatedTableName));
+
+            return OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly());
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<IReadOnlyList<string>>.Failure($"DatabaseServiceAWS->GetTableNamesAsync: {ex.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    {
+        if (_dynamoDbClient == null)
+        {
+            return OperationResult<bool>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
+        }
+
+        var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+        if (!getKeysResult.IsSuccessful)
+            return getKeysResult.StatusCode == HttpStatusCode.NotFound
+                ? OperationResult<bool>.Success(true)
+                : OperationResult<bool>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+        var errors = new ConcurrentBag<string>();
+
+        var keys = getKeysResult.Data;
+        var scanTasks = keys.Select(key => Task.Run(async () =>
+        {
+            var dropResult = await InternalDropKeyTable(tableName, key, cancellationToken);
+            if (!dropResult.IsSuccessful)
+                errors.Add($"{dropResult.ErrorMessage} ({dropResult.StatusCode})");
+        }, cancellationToken));
+
+        await Task.WhenAll(scanTasks);
+
+        if (!errors.IsEmpty)
+        {
+            return OperationResult<bool>.Failure(string.Join(Environment.NewLine, errors), HttpStatusCode.InternalServerError);
+        }
+
+        var postDropTableResult = await PostDropTableAsync(tableName, cancellationToken);
+        if (!postDropTableResult.IsSuccessful)
+        {
+            return OperationResult<bool>.Failure(
+                $"PostDropTableAsync has failed with {postDropTableResult.ErrorMessage}",
+                postDropTableResult.StatusCode);
+        }
+
+        return OperationResult<bool>.Success(true);
+    }
+
+    private async Task<OperationResult<bool>> InternalDropKeyTable(string tableName, string keyName, CancellationToken cancellationToken = default)
+    {
+        if (_dynamoDbClient == null)
+        {
+            return OperationResult<bool>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
+        }
+
+        var compiledTableName = GetTableName(tableName, keyName);
+        try
+        {
+            // Check if the table exists before attempting deletion
+            try
+            {
+                var describeRequest = new DescribeTableRequest { TableName = compiledTableName };
+                await _dynamoDbClient.DescribeTableAsync(describeRequest, cancellationToken);
+            }
+            catch (ResourceNotFoundException)
+            {
+                // Table doesn't exist, consider this a successful deletion
+                return OperationResult<bool>.Success(true);
+            }
+
+            // Delete the table
+            var deleteRequest = new DeleteTableRequest { TableName = compiledTableName };
+
+            await _dynamoDbClient.DeleteTableAsync(deleteRequest, cancellationToken);
+
+            // Remove from the loaded tables cache
+            _loadedTables.TryRemove(compiledTableName, out _);
+
+            // Wait for the table to be deleted (optional but ensures completion)
+            var maxWaitTime = TimeSpan.FromMinutes(5);
+            var startTime = DateTime.UtcNow;
+
+            while (DateTime.UtcNow - startTime < maxWaitTime)
+            {
+                try
+                {
+                    var describeResponse = await _dynamoDbClient.DescribeTableAsync(compiledTableName, cancellationToken);
+                    if (describeResponse.Table.TableStatus == TableStatus.DELETING)
+                    {
+                        await Task.Delay(2000, cancellationToken); // Wait 2 seconds before checking again
+                        continue;
+                    }
+                }
+                catch (ResourceNotFoundException)
+                {
+                    // Table has been successfully deleted
+                    break;
+                }
+
+                await Task.Delay(1000, cancellationToken); // Wait 1 second before checking again
+            }
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (ResourceNotFoundException)
+        {
+            // Table doesn't exist, consider this a successful deletion
+            return OperationResult<bool>.Success(true);
+        }
+        catch (ResourceInUseException)
+        {
+            return OperationResult<bool>.Failure($"Table {compiledTableName} is currently in use and cannot be deleted", HttpStatusCode.Conflict);
+        }
+        catch (LimitExceededException ex)
+        {
+            return OperationResult<bool>.Failure($"AWS limit exceeded (delete {compiledTableName}): {ex.Message}", HttpStatusCode.TooManyRequests);
+        }
+        catch (InternalServerErrorException ex)
+        {
+            return OperationResult<bool>.Failure($"AWS internal server error (delete {compiledTableName}): {ex.Message}", HttpStatusCode.InternalServerError);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<bool>.Failure($"DatabaseServiceAWS->DropTableAsync (delete {compiledTableName}): {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -1058,26 +1243,32 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     private async Task<OperationResult<JObject?>> PutOrUpdateItemAsync(
         PutOrUpdateItemType putOrUpdateItemType,
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? conditionExpression = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, newItem, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
             }
 
-            var item = new JObject(newItem);
-            if (!item.ContainsKey(keyName))
+            var tableResult = await EnsureTableExistsAsync(tableName, key, cancellationToken);
+            if (!tableResult.IsSuccessful)
             {
-                AddKeyToJson(item, keyName, keyValue);
+                return OperationResult<JObject?>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
+            }
+            var table = tableResult.Data;
+
+            var item = new JObject(newItem);
+            if (!item.ContainsKey(key.Name))
+            {
+                AddKeyToJson(item, key.Name, key.Value);
             }
 
             var itemAsDocument = Document.FromJson(item.ToString());
@@ -1099,17 +1290,28 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                 {
                     config.ConditionalExpression = new Expression
                     {
-                        ExpressionStatement = $"attribute_not_exists({keyName})"
+                        ExpressionStatement = $"attribute_not_exists({key.Name})"
                     };
                 }
 
-                var document = await table.PutItemAsync(itemAsDocument, config, cancellationToken);
+
+                var putItemTask = table.PutItemAsync(itemAsDocument, config, cancellationToken);
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(putItemTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
 
                 if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
                 {
                     return OperationResult<JObject?>.Success(null);
                 }
 
+                var document = await putItemTask;
                 if (document != null)
                 {
                     var result = JObject.Parse(document.ToJson());
@@ -1130,9 +1332,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
                     }
                 };
 
-                if (conditionExpression != null)
+                if (conditions != null)
                 {
-                    config.ConditionalExpression = BuildConditionalExpression(conditionExpression);
+                    config.ConditionalExpression = BuildConditionalExpression(conditions);
                 }
 
                 var document = await table.UpdateItemAsync(itemAsDocument, config, cancellationToken);
@@ -1162,111 +1364,150 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         }
     }
 
-    private async Task<OperationResult<IReadOnlyList<JObject>>> InternalScanTableAsync(
+    private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableAsync(
         string tableName,
         Expression? conditionalExpression = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var table = await GetTableAsync(tableName, cancellationToken);
-            if (table == null)
-            {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
-            }
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
 
-            var config = new ScanOperationConfig
-            {
-                Select = SelectValues.AllAttributes
-            };
+            var results = new ConcurrentBag<JObject>();
+            var errors = new ConcurrentBag<string>();
 
-            if (conditionalExpression != null)
-            {
-                config.FilterExpression = conditionalExpression;
-            }
-
-            var search = table.Scan(config);
-            var results = new List<JObject>();
-
-            do
-            {
-                var documents = await search.GetNextSetAsync(cancellationToken);
-                foreach (var document in documents)
+            var keys = getKeysResult.Data;
+            var scanTasks = keys.Select(key => Task.Run(async () =>
                 {
-                    var jsonObject = JObject.Parse(document.ToJson());
-                    ApplyOptions(jsonObject);
-                    results.Add(jsonObject);
-                }
-            }
-            while (!search.IsDone);
+                    var tableResult = await TryToGetAndLoadExistingTableAsync(tableName, key, cancellationToken: cancellationToken);
+                    if (!tableResult.IsSuccessful)
+                    {
+                        if (tableResult.StatusCode != HttpStatusCode.NotFound) errors.Add(tableResult.ErrorMessage);
+                        return;
+                    }
 
-            return OperationResult<IReadOnlyList<JObject>>.Success(results.AsReadOnly());
+                    var table = tableResult.Data;
+
+                    var config = new ScanOperationConfig { Select = SelectValues.AllAttributes };
+
+                    if (conditionalExpression != null)
+                    {
+                        config.FilterExpression = conditionalExpression;
+                    }
+
+                    var search = table.Scan(config);
+                    do
+                    {
+                        var documents = await search.GetNextSetAsync(cancellationToken);
+                        foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
+                        {
+                            ApplyOptions(jsonObject);
+                            results.Add(jsonObject);
+                        }
+                    } while (!search.IsDone);
+                }, cancellationToken))
+                .ToList();
+            await Task.WhenAll(scanTasks);
+
+            return !errors.IsEmpty
+                ? OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(string.Join(Environment.NewLine, errors), HttpStatusCode.InternalServerError)
+                : OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((getKeysResult.Data, results.ToList()));
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceAWS->InternalScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure($"DatabaseServiceAWS->InternalScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
-    private static Expression? BuildConditionalExpression(DbAttributeCondition? condition)
+    private static Expression? BuildConditionalExpression(IEnumerable<DbAttributeCondition>? conditions)
     {
-        if (condition == null) return null;
+        if (conditions == null)
+            return null;
 
-        var expression = new Expression();
+        var finalExpression = new Expression();
+        var expressionStatements = new List<string>();
 
-        switch (condition.ConditionType)
+        var index = 0;
+        foreach (var condition in conditions)
         {
-            case DbAttributeConditionType.AttributeExists:
-                expression.ExpressionStatement = $"attribute_exists(#attr)";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                break;
-            case DbAttributeConditionType.AttributeNotExists:
-                expression.ExpressionStatement = $"attribute_not_exists(#attr)";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                break;
-            case DbAttributeConditionType.AttributeEquals when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr = :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.AttributeNotEquals when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr <> :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.AttributeGreater when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr > :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.AttributeGreaterOrEqual when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr >= :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.AttributeLess when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr < :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.AttributeLessOrEqual when condition is DbValueCondition valueCondition:
-                expression.ExpressionStatement = $"#attr <= :val";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":val", valueCondition.Value);
-                break;
-            case DbAttributeConditionType.ArrayElementExists when condition is DbArrayElementCondition arrayCondition:
-                expression.ExpressionStatement = $"contains(#attr, :cond_val)";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":cond_val", arrayCondition.ElementValue);
-                break;
-            case DbAttributeConditionType.ArrayElementNotExists when condition is DbArrayElementCondition arrayCondition:
-                expression.ExpressionStatement = $"NOT contains(#attr, :cond_val)";
-                expression.ExpressionAttributeNames["#attr"] = condition.AttributeName;
-                AddValueToExpression(expression, ":cond_val", arrayCondition.ElementValue);
-                break;
+            var expr = new Expression();
+
+            // Generate unique placeholders for attribute names and values
+            var attrPlaceholder = $"#attr{index}";
+            var valPlaceholder = $":val{index}";
+            var condValPlaceholder = $":cond_val{index}";
+            index++;
+
+            switch (condition.ConditionType)
+            {
+                case DbAttributeConditionType.AttributeExists:
+                    expr.ExpressionStatement = $"attribute_exists({attrPlaceholder})";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    break;
+                case DbAttributeConditionType.AttributeNotExists:
+                    expr.ExpressionStatement = $"attribute_not_exists({attrPlaceholder})";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    break;
+                case DbAttributeConditionType.AttributeEquals when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} = {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.AttributeNotEquals when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} <> {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.AttributeGreater when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} > {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.AttributeGreaterOrEqual when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} >= {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.AttributeLess when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} < {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.AttributeLessOrEqual when condition is DbValueCondition valueCondition:
+                    expr.ExpressionStatement = $"{attrPlaceholder} <= {valPlaceholder}";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
+                    break;
+                case DbAttributeConditionType.ArrayElementExists when condition is DbArrayElementCondition arrayCondition:
+                    expr.ExpressionStatement = $"contains({attrPlaceholder}, {condValPlaceholder})";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, condValPlaceholder, arrayCondition.ElementValue);
+                    break;
+                case DbAttributeConditionType.ArrayElementNotExists when condition is DbArrayElementCondition arrayCondition:
+                    expr.ExpressionStatement = $"NOT contains({attrPlaceholder}, {condValPlaceholder})";
+                    expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
+                    AddValueToExpression(expr, condValPlaceholder, arrayCondition.ElementValue);
+                    break;
+                default:
+                    continue;
+            }
+
+            // Merge into the final expression
+            foreach (var kv in expr.ExpressionAttributeNames)
+                finalExpression.ExpressionAttributeNames[kv.Key] = kv.Value;
+            foreach (var kv in expr.ExpressionAttributeValues)
+                finalExpression.ExpressionAttributeValues[kv.Key] = kv.Value;
+
+            expressionStatements.Add(expr.ExpressionStatement);
         }
 
-        return expression;
+        if (expressionStatements.Count == 0)
+            return null;
+
+        finalExpression.ExpressionStatement = string.Join(" AND ", expressionStatements);
+        return finalExpression;
     }
 
     private static void AddValueToExpression(Expression expression, string placeholder, PrimitiveType value)
@@ -1291,20 +1532,20 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
     /// <summary>
     /// Builds a DynamoDB condition expression string for use in UpdateItem operations
     /// </summary>
-    private static string? BuildDynamoDbConditionExpression(DbAttributeCondition condition)
+    private static string? BuildDynamoDbConditionExpression(DbAttributeCondition condition, string condVal)
     {
         var expression = condition.ConditionType switch
         {
             DbAttributeConditionType.AttributeExists => $"attribute_exists({condition.AttributeName})",
             DbAttributeConditionType.AttributeNotExists => $"attribute_not_exists({condition.AttributeName})",
-            DbAttributeConditionType.AttributeEquals => $"{condition.AttributeName} = :cond_val",
-            DbAttributeConditionType.AttributeNotEquals => $"{condition.AttributeName} <> :cond_val",
-            DbAttributeConditionType.AttributeGreater => $"{condition.AttributeName} > :cond_val",
-            DbAttributeConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= :cond_val",
-            DbAttributeConditionType.AttributeLess => $"{condition.AttributeName} < :cond_val",
-            DbAttributeConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= :cond_val",
-            DbAttributeConditionType.ArrayElementExists => $"contains({condition.AttributeName}, :cond_val)",
-            DbAttributeConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, :cond_val)",
+            DbAttributeConditionType.AttributeEquals => $"{condition.AttributeName} = {condVal}",
+            DbAttributeConditionType.AttributeNotEquals => $"{condition.AttributeName} <> {condVal}",
+            DbAttributeConditionType.AttributeGreater => $"{condition.AttributeName} > {condVal}",
+            DbAttributeConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= {condVal}",
+            DbAttributeConditionType.AttributeLess => $"{condition.AttributeName} < {condVal}",
+            DbAttributeConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= {condVal}",
+            DbAttributeConditionType.ArrayElementExists => $"contains({condition.AttributeName}, {condVal})",
+            DbAttributeConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, {condVal})",
             _ => null
         };
 
@@ -1373,7 +1614,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
             return condition.ConditionType == DbAttributeConditionType.ArrayElementNotExists;
 
-        bool elementExists = array.Any(item => CompareValues(item, condition.ElementValue) == 0);
+        var elementExists = array.Any(item => CompareValues(item, condition.ElementValue) == 0);
 
         return condition.ConditionType switch
         {
@@ -1410,38 +1651,48 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDatabaseService, 
 
     #region Condition Builders
 
-    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
-    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
-    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
-
-    /// <summary>
-    /// Override AddKeyToJson to ensure DynamoDB key compatibility
-    /// </summary>
-    private new static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
-    {
-        // For DynamoDB compatibility, always store keys as strings since DynamoDB tables
-        // are created with string key schemas for maximum flexibility
-        destination[keyName] = keyValue.ToString();
-    }
 
     public void Dispose()
     {

@@ -1,10 +1,14 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+//
+// Note: It's essential that methods defined in IDatabaseService are not called directly from ...CoreAsync methods.
+// Instead, call CoreAsync methods when needed.
+//
+
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
-using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using MongoDB.Bson;
@@ -16,7 +20,7 @@ using Newtonsoft.Json;
 
 namespace CrossCloudKit.Database.Mongo;
 
-public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseService, IDisposable
+public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 {
     /// <summary>
     /// Holds initialization success
@@ -27,7 +31,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
     // ReSharper disable once ConvertToAutoProperty
-    public bool IsInitialized => _bInitializationSucceed;
+    public override bool IsInitialized => _bInitializationSucceed;
 
     private readonly IMongoDatabase? _mongoDB;
     private readonly MongoClient? _mongoClient;
@@ -42,7 +46,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     /// <param name="mongoPort">MongoDB Port</param>
     /// <param name="mongoDatabase">MongoDB Database Name</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
-    public DatabaseServiceMongoDB(
+    public DatabaseServiceMongo(
         string mongoHost,
         int mongoPort,
         string mongoDatabase,
@@ -70,7 +74,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     /// <param name="connectionString">MongoDB connection string</param>
     /// <param name="mongoDatabase">MongoDB Database Name</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
-    public DatabaseServiceMongoDB(
+    public DatabaseServiceMongo(
         string connectionString,
         string mongoDatabase,
         Action<string>? errorMessageAction = null)
@@ -94,7 +98,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     /// <summary>
     /// DatabaseServiceMongoDB: Advanced constructor for MongoDB with configuration JSON
     /// </summary>
-    public DatabaseServiceMongoDB(
+    public DatabaseServiceMongo(
         string mongoClientConfigJson,
         string mongoPassword,
         string mongoDatabase,
@@ -171,14 +175,14 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
     }
 
-    private bool TableExists(string tableName)
+    private async Task<bool> TableExistsAsync(string tableName, CancellationToken cancellationToken)
     {
         if (_mongoDB == null) return false;
 
         var filter = new BsonDocument("name", tableName);
         var options = new ListCollectionNamesOptions { Filter = filter };
 
-        return _mongoDB.ListCollectionNames(options).Any();
+        return await (await _mongoDB.ListCollectionNamesAsync(options, cancellationToken)).AnyAsync(cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -190,7 +194,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         {
             if (_mongoDB == null) return false;
 
-            if (!TableExists(tableName))
+            if (!await TableExistsAsync(tableName, cancellationToken))
             {
                 await _mongoDB.CreateCollectionAsync(tableName, cancellationToken: cancellationToken);
             }
@@ -232,6 +236,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     private static FilterDefinition<BsonDocument> BuildEqFilter(string keyName, PrimitiveType keyValue) => keyValue.Kind switch
     {
         PrimitiveTypeKind.Double => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsDouble),
+        PrimitiveTypeKind.Boolean => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsBoolean),
         PrimitiveTypeKind.Integer => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsInteger),
         PrimitiveTypeKind.ByteArray => Builders<BsonDocument>.Filter.Eq(keyName, Convert.ToBase64String(keyValue.AsByteArray)), // Convert to Base64 to match JSON storage
         PrimitiveTypeKind.String => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsString),
@@ -241,11 +246,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     #region Modern Async API
 
     /// <inheritdoc />
-    public async Task<OperationResult<bool>> ItemExistsAsync(
+    protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
-        DbAttributeCondition? condition = null,
+        DbKey key,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -256,19 +261,25 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<bool>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
+            var filter = BuildEqFilter(key.Name, key.Value);
 
-            if (condition != null)
+            var conditionBuilt = false;
+            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
             {
-                var conditionFilter = BuildFilterFromCondition(condition);
-                if (conditionFilter != null)
+                conditionBuilt = true;
+                if (await FindOneAsync(table, finalFilter, cancellationToken) != null)
                 {
-                    filter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
+                    return OperationResult<bool>.Success(true);
                 }
             }
 
-            var document = await FindOneAsync(table, filter, cancellationToken);
-            return OperationResult<bool>.Success(document != null);
+            if (await FindOneAsync(table, filter, cancellationToken) == null)
+            {
+                return OperationResult<bool>.Failure("Item not found.", HttpStatusCode.NotFound);
+            }
+            return conditionBuilt
+                ? OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed)
+                : OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
@@ -277,11 +288,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> GetItemAsync(
+    protected override async Task<OperationResult<JObject?>> GetItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string[]? attributesToRetrieve = null,
+        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -292,7 +303,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
+            var filter = BuildEqFilter(key.Name, key.Value);
             var document = await FindOneAsync(table, filter, cancellationToken);
 
             if (document == null)
@@ -303,7 +314,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var result = BsonToJObject(document);
             if (result != null)
             {
-                AddKeyToJson(result, keyName, keyValue);
+                AddKeyToJson(result, key.Name, key.Value);
                 ApplyOptions(result);
             }
 
@@ -316,16 +327,15 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    protected override async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType[] keyValues,
+        DbKey[] keys,
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            if (keyValues.Length == 0)
+            if (keys.Length == 0)
             {
                 return OperationResult<IReadOnlyList<JObject>>.Success([]);
             }
@@ -336,11 +346,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = keyValues.Aggregate(
+            var filter = keys.Aggregate(
                 Builders<BsonDocument>.Filter.Empty,
-                (current, value) => current == Builders<BsonDocument>.Filter.Empty
-                    ? BuildEqFilter(keyName, value)
-                    : Builders<BsonDocument>.Filter.Or(current, BuildEqFilter(keyName, value)));
+                (current, key) => current == Builders<BsonDocument>.Filter.Empty
+                    ? BuildEqFilter(key.Name, key.Value)
+                    : Builders<BsonDocument>.Filter.Or(current, BuildEqFilter(key.Name, key.Value)));
 
             var documents = await table.Find(filter).ToListAsync(cancellationToken);
             var results = new List<JObject>();
@@ -350,9 +360,12 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 var createdJson = BsonToJObject(document);
                 if (createdJson != null)
                 {
-                    if (document.TryGetElement(keyName, out var valueElement))
+                    foreach (var key in keys)
                     {
-                        AddKeyToJson(createdJson, keyName, BsonValueToPrimitiveType(valueElement.Value));
+                        if (document.TryGetElement(key.Name, out var valueElement))
+                        {
+                            AddKeyToJson(createdJson, key.Name, BsonValueToPrimitiveType(valueElement.Value));
+                        }
                     }
 
                     ApplyOptions(createdJson);
@@ -369,40 +382,38 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> PutItemAsync(
+    protected override async Task<OperationResult<JObject?>> PutItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject item,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, keyName, keyValue, item,
+        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, key, item,
             returnBehavior, null, overwriteIfExists, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> UpdateItemAsync(
+    protected override async Task<OperationResult<JObject?>> UpdateItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
-            returnBehavior, condition, false, cancellationToken);
+        return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, key, updateData,
+            returnBehavior, conditions, false, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> DeleteItemAsync(
+    protected override async Task<OperationResult<JObject?>> DeleteItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -413,38 +424,31 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
-
-            if (condition != null)
+            var filter = BuildEqFilter(key.Name, key.Value);
+            if (conditions != null && BuildConditionsFilter(out filter, conditions, filter))
             {
-                var conditionFilter = BuildFilterFromCondition(condition);
-                if (conditionFilter != null)
+                if (!await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
                 {
-                    filter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
-
-                    if (!await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
-                    {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                    }
+                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
             }
 
             JObject? returnItem = null;
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
-                var document = await FindOneAsync(table, BuildEqFilter(keyName, keyValue), cancellationToken);
+                var document = await FindOneAsync(table, BuildEqFilter(key.Name, key.Value), cancellationToken);
                 if (document != null)
                 {
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
             }
 
-            await table.DeleteOneAsync(BuildEqFilter(keyName, keyValue), cancellationToken);
+            await table.DeleteOneAsync(BuildEqFilter(key.Name, key.Value), cancellationToken);
             return OperationResult<JObject?>.Success(returnItem);
         }
         catch (Exception ex)
@@ -454,14 +458,14 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> AddElementsToArrayAsync(
+    protected override async Task<OperationResult<JObject?>> AddElementsToArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -477,24 +481,28 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
+            if (!isCalledFromPostInsert)
+            {
+                var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [arrayAttributeName] = new JArray() }, cancellationToken);
+                if (!sanityCheckResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+                }
+            }
+
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
+            var filter = BuildEqFilter(key.Name, key.Value);
 
-            if (condition != null)
+            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
             {
-                var conditionFilter = BuildFilterFromCondition(condition);
-                if (conditionFilter != null)
+                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                 {
-                    var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
-                    if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                    {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                    }
+                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
             }
 
@@ -507,7 +515,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
@@ -523,7 +531,23 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             }).ToList();
 
             var update = Builders<BsonDocument>.Update.PushEach(arrayAttributeName, elementsToAddList);
-            await table.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
+
+            var updateTask = table.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
+            if (!isCalledFromPostInsert)
+            {
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(updateTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure(
+                        $"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}",
+                        postInsertResult.StatusCode);
+                }
+            }
+            else await updateTask;
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
@@ -533,7 +557,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
@@ -547,15 +571,35 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
     }
 
+    private static bool BuildConditionsFilter(
+        out FilterDefinition<BsonDocument> finalFilter,
+        IEnumerable<DbAttributeCondition> conditions,
+        FilterDefinition<BsonDocument>? baseFilter = null)
+    {
+        var anyFilterAdded = false;
+        finalFilter = baseFilter ?? Builders<BsonDocument>.Filter.Empty;
+
+        foreach (var condition in conditions)
+        {
+            var conditionFilter = BuildFilterFromCondition(condition);
+            if (conditionFilter != null)
+            {
+                anyFilterAdded = true;
+                finalFilter = Builders<BsonDocument>.Filter.And(finalFilter, conditionFilter);
+            }
+        }
+
+        return anyFilterAdded;
+    }
+
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
+    protected override async Task<OperationResult<JObject?>> RemoveElementsFromArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -577,18 +621,12 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
-
-            if (condition != null)
+            var filter = BuildEqFilter(key.Name, key.Value);
+            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
             {
-                var conditionFilter = BuildFilterFromCondition(condition);
-                if (conditionFilter != null)
+                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                 {
-                    var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
-                    if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                    {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                    }
+                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
             }
 
@@ -601,7 +639,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
@@ -627,7 +665,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
@@ -642,35 +680,35 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<double>> IncrementAttributeAsync(
+    protected override async Task<OperationResult<double>> IncrementAttributeCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string numericAttributeName,
         double incrementValue,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [numericAttributeName] = new JArray() }, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
+            {
+                return OperationResult<double>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+            }
+
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
                 return OperationResult<double>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
+            var filter = BuildEqFilter(key.Name, key.Value);
 
-            if (condition != null)
+            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
             {
-                var conditionFilter = BuildFilterFromCondition(condition);
-                if (conditionFilter != null)
+                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                 {
-                    var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
-                    if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                    {
-                        return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                    }
+                    return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
             }
 
@@ -681,8 +719,18 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                 IsUpsert = true
             };
 
-            var document = await table.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
+            var findUpdateTask = table.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
+            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
+            await Task.WhenAll(findUpdateTask, postInsertTask);
+
+            var postInsertResult = await postInsertTask;
+            if (!postInsertResult.IsSuccessful)
+            {
+                return OperationResult<double>.Failure($"PostInsertItemAsync failed with {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+            }
+
+            var document = await findUpdateTask;
             if (document != null && document.TryGetValue(numericAttributeName, out var value))
             {
                 return OperationResult<double>.Success(value.AsDouble);
@@ -697,9 +745,8 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableCoreAsync(
         string tableName,
-        string[] keyNames,
         CancellationToken cancellationToken = default)
     {
         try
@@ -707,24 +754,41 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = Builders<BsonDocument>.Filter.Empty;
-            var documents = await table.Find(filter).ToListAsync(cancellationToken);
 
-            return ProcessScanResults(keyNames, documents);
+            var findTask = table.Find(filter).ToListAsync(cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+
+            await Task.WhenAll(getKeysTask, findTask);
+
+            var getKeysResult = await getKeysTask;
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var processResult = ProcessScanResults(await findTask);
+            if (!processResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(processResult.ErrorMessage, processResult.StatusCode);
+
+            return OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>.Success((getKeysResult.Data, processResult.Data));
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceMongoDB->ScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>
+                .Failure($"DatabaseServiceMongoDB->ScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    protected override async
+        Task<OperationResult<
+            (IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTablePaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -734,45 +798,57 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
             var filter = Builders<BsonDocument>.Filter.Empty;
-            var totalCount = await table.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
 
-            var skip = 0;
-            if (int.TryParse(pageToken, out var pageTokenInt))
+            var scanTask = Task.Run(async () =>
             {
-                skip = pageTokenInt;
-            }
+                var totalCount = await table.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
 
-            var documents = await table.Find(filter)
-                .Skip(skip)
-                .Limit(pageSize)
-                .ToListAsync(cancellationToken);
+                var skip = 0;
+                if (int.TryParse(pageToken, out var pageTokenInt))
+                {
+                    skip = pageTokenInt;
+                }
 
-            var scanResult = ProcessScanResults(keyNames, documents);
-            if (!scanResult.IsSuccessful)
-            {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage, scanResult.StatusCode);
-            }
+                var items = await table.Find(filter)
+                    .Skip(skip)
+                    .Limit(pageSize)
+                    .ToListAsync(cancellationToken);
+                return (totalCount, skip, items);
+            }, cancellationToken);
 
-            var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data, nextPageToken, totalCount));
+            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+
+            await Task.WhenAll(getKeysTask, scanTask);
+
+            var getKeysResult = await getKeysTask;
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var scanResult = await scanTask;
+
+            var processResult = ProcessScanResults(scanResult.items);
+            if (!processResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(processResult.ErrorMessage, processResult.StatusCode);
+
+            var nextPageToken = scanResult.skip + pageSize < scanResult.totalCount ? (scanResult.skip + pageSize).ToString() : null;
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (getKeysResult.Data, processResult.Data, nextPageToken, scanResult.totalCount));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceMongoDB->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition> filterConditions,
         CancellationToken cancellationToken = default)
     {
         try
@@ -780,26 +856,42 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildFilterFromCondition(filterCondition) ?? Builders<BsonDocument>.Filter.Empty;
-            var documents = await table.Find(filter).ToListAsync(cancellationToken);
+            BuildConditionsFilter(out var filter, filterConditions);
 
-            return ProcessScanResults(keyNames, documents);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var findTask = table.Find(filter).ToListAsync(cancellationToken);
+
+            await Task.WhenAll(getKeysTask, findTask);
+
+            var getKeysResult = await getKeysTask;
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var processResult = ProcessScanResults(await findTask);
+            if (!processResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(processResult.ErrorMessage, processResult.StatusCode);
+
+            return OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>.Success((getKeysResult.Data, processResult.Data));
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure(
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(
                 $"DatabaseServiceMongoDB->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition> filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -809,37 +901,122 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildFilterFromCondition(filterCondition) ?? Builders<BsonDocument>.Filter.Empty;
-            var totalCount = await table.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+            BuildConditionsFilter(out var filter, filterConditions);
 
-            var skip = 0;
-            if (int.TryParse(pageToken, out var pageTokenInt))
+            var scanTask = Task.Run(async () =>
             {
-                skip = pageTokenInt;
-            }
+                var totalCount = await table.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
 
-            var documents = await table.Find(filter)
-                .Skip(skip)
-                .Limit(pageSize)
-                .ToListAsync(cancellationToken);
+                var skip = 0;
+                if (int.TryParse(pageToken, out var pageTokenInt))
+                {
+                    skip = pageTokenInt;
+                }
 
-            var scanResult = ProcessScanResults(keyNames, documents);
-            if (!scanResult.IsSuccessful)
-            {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(scanResult.ErrorMessage, scanResult.StatusCode);
-            }
+                var items = await table.Find(filter)
+                    .Skip(skip)
+                    .Limit(pageSize)
+                    .ToListAsync(cancellationToken);
 
-            var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (scanResult.Data, nextPageToken, totalCount));
+                return (totalCount, skip, items);
+            }, cancellationToken);
+
+            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+
+            await Task.WhenAll(getKeysTask, scanTask);
+
+            var getKeysResult = await getKeysTask;
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var scanResult = await scanTask;
+
+            var processResult = ProcessScanResults(scanResult.items);
+            if (!processResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(processResult.ErrorMessage, processResult.StatusCode);
+
+            var nextPageToken = scanResult.skip + pageSize < scanResult.totalCount ? (scanResult.skip + pageSize).ToString() : null;
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (getKeysResult.Data, processResult.Data, nextPageToken, scanResult.totalCount));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceMongoDB->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_mongoDB == null)
+            {
+                return OperationResult<IReadOnlyList<string>>.Failure("DatabaseServiceMongoDB->GetTableNamesAsync: MongoDB is null.", HttpStatusCode.ServiceUnavailable);
+            }
+
+            var tableNames = new List<string>();
+            using var cursor = await _mongoDB.ListCollectionNamesAsync(cancellationToken: cancellationToken);
+
+            while (await cursor.MoveNextAsync(cancellationToken))
+            {
+                tableNames.AddRange(cursor.Current);
+            }
+
+            return OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly());
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<IReadOnlyList<string>>.Failure($"DatabaseServiceMongoDB->GetTableNamesAsync: {ex.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_mongoDB == null)
+            {
+                return OperationResult<bool>.Failure("DatabaseServiceMongoDB->DropTableAsync: MongoDB is null.", HttpStatusCode.ServiceUnavailable);
+            }
+
+            // Check if collection exists before attempting to drop it
+            if (!await TableExistsAsync(tableName, cancellationToken))
+            {
+                // Collection doesn't exist, consider this a successful deletion
+                return OperationResult<bool>.Success(true);
+            }
+
+            // Drop the collection
+            var dropCollectionTask = _mongoDB.DropCollectionAsync(tableName, cancellationToken);
+            var postDropTableTask = PostDropTableAsync(tableName, cancellationToken);
+
+            await Task.WhenAll(dropCollectionTask, postDropTableTask);
+
+            var postDropTableResult = await postDropTableTask;
+            if (!postDropTableResult.IsSuccessful)
+            {
+                return OperationResult<bool>.Failure(
+                    $"PostDropTableAsync has failed with {postDropTableResult.ErrorMessage}",
+                    postDropTableResult.StatusCode);
+            }
+
+            // Remove from table mapping cache
+            lock (_tableMapDictionaryLock)
+            {
+                _tableMap.Remove(tableName);
+            }
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<bool>.Failure($"DatabaseServiceMongoDB->DropTableAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -856,23 +1033,28 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
     private async Task<OperationResult<JObject?>> PutOrUpdateItemAsync(
         PutOrUpdateItemType putOrUpdateItemType,
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? conditionExpression = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, newItem, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
+            {
+                return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+            }
+
             var table = await GetTableAsync(tableName, cancellationToken);
             if (table == null)
             {
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(keyName, keyValue);
+            var filter = BuildEqFilter(key.Name, key.Value);
 
             if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
             {
@@ -886,16 +1068,11 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             }
             else // UpdateItem
             {
-                if (conditionExpression != null)
+                if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
                 {
-                    var conditionFilter = BuildFilterFromCondition(conditionExpression);
-                    if (conditionFilter != null)
+                    if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
                     {
-                        var finalFilter = Builders<BsonDocument>.Filter.And(filter, conditionFilter);
-                        if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                        {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                        }
+                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
                 }
             }
@@ -909,18 +1086,35 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
                     returnItem = BsonToJObject(document);
                     if (returnItem != null)
                     {
-                        AddKeyToJson(returnItem, keyName, keyValue);
+                        AddKeyToJson(returnItem, key.Name, key.Value);
                         ApplyOptions(returnItem);
                     }
                 }
             }
 
             var newObject = new JObject(newItem);
-            AddKeyToJson(newObject, keyName, keyValue);
+            AddKeyToJson(newObject, key.Name, key.Value);
 
             // Use $set for preventing element name validation exceptions
             var updateDocument = new BsonDocument { { "$set", JObjectToBson(newObject) } };
-            await table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
+            var updateTask = table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
+
+            if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
+            {
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(updateTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure($"PutItemAsync succeeded, however PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+            }
+            else
+            {
+                await updateTask;
+            }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
@@ -935,7 +1129,7 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
         }
     }
 
-    private OperationResult<IReadOnlyList<JObject>> ProcessScanResults(string[] possibleKeyNames, List<BsonDocument> documents)
+    private OperationResult<IReadOnlyList<JObject>> ProcessScanResults(List<BsonDocument> documents)
     {
         try
         {
@@ -944,20 +1138,10 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
             Parallel.ForEach(documents, document =>
             {
                 var createdJson = BsonToJObject(document);
-                if (createdJson != null)
-                {
-                    foreach (var keyName in possibleKeyNames)
-                    {
-                        if (document.TryGetElement(keyName, out var value))
-                        {
-                            AddKeyToJson(createdJson, keyName, BsonValueToPrimitiveType(value.Value));
-                            break;
-                        }
-                    }
+                if (createdJson == null) return;
 
-                    ApplyOptions(createdJson);
-                    tempResults.Add(createdJson);
-                }
+                ApplyOptions(createdJson);
+                tempResults.Add(createdJson);
             });
 
             return OperationResult<IReadOnlyList<JObject>>.Success(tempResults.ToList().AsReadOnly());
@@ -1119,51 +1303,46 @@ public sealed class DatabaseServiceMongoDB : DatabaseServiceBase, IDatabaseServi
 
     #endregion
 
-    #region Override AddKeyToJson for MongoDB-specific key handling
-
-    /// <summary>
-    /// Override AddKeyToJson to handle MongoDB-specific key formats
-    /// For MongoDB, we need to ensure the key format in JSON matches how it was stored in BSON
-    /// </summary>
-    private new static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
-    {
-        // For MongoDB, we need to be consistent with how BSON stores and retrieves primitive types
-        // Use the same conversion logic as BsonValueToPrimitiveType to ensure consistency
-        destination[keyName] = keyValue.Kind switch
-        {
-            PrimitiveTypeKind.String => keyValue.AsString,
-            PrimitiveTypeKind.Integer => keyValue.AsInteger,
-            PrimitiveTypeKind.Double => keyValue.AsDouble,
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(keyValue.AsByteArray),// For byte arrays, we need to match how MongoDB BSON handles them
-                                                                                                // MongoDB stores byte arrays as binary data, which JSON.NET can't represent directly
-                                                                                                // So we convert to Base64 string for JSON representation
-            _ => keyValue.ToString(),
-        };
-    }
-
-    #endregion
-
     #region Condition Builders
 
-    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
-    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
-    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion

@@ -51,6 +51,20 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
+    public void PrimitiveType_BooleanConstructor_InitializesCorrectly()
+    {
+        // Arrange
+        const bool testValue = true;
+
+        // Act
+        var primitiveType = new PrimitiveType(testValue);
+
+        // Assert
+        Assert.Equal(PrimitiveTypeKind.Boolean, primitiveType.Kind);
+        Assert.Equal(testValue, primitiveType.AsBoolean);
+    }
+
+    [Fact]
     public void PrimitiveType_ByteArrayConstructor_InitializesCorrectly()
     {
         // Arrange
@@ -174,6 +188,17 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
+    public void PrimitiveType_AsBoolean_WithWrongType_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var primitiveType = new PrimitiveType("test");
+
+        // Act & Assert
+        var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsBoolean);
+        Assert.Contains("Cannot access boolean value when Kind is String", exception.Message);
+    }
+
+    [Fact]
     public void PrimitiveType_TryGetString_WithStringType_ReturnsTrue()
     {
         // Arrange
@@ -290,6 +315,35 @@ public class PrimitiveTypeTests
         Assert.Null(value);
     }
 
+    [Fact]
+    public void PrimitiveType_TryGetBoolean_WithBooleanType_ReturnsTrue()
+    {
+        // Arrange
+        const bool testValue = false;
+        var primitiveType = new PrimitiveType(testValue);
+
+        // Act
+        var success = primitiveType.TryGetBoolean(out var value);
+
+        // Assert
+        Assert.True(success);
+        Assert.Equal(testValue, value);
+    }
+
+    [Fact]
+    public void PrimitiveType_TryGetBoolean_WithNonBooleanType_ReturnsFalse()
+    {
+        // Arrange
+        var primitiveType = new PrimitiveType("test");
+
+        // Act
+        var success = primitiveType.TryGetBoolean(out var value);
+
+        // Assert
+        Assert.False(success);
+        Assert.False(value);
+    }
+
     [Theory]
     [InlineData("Hello World")]
     [InlineData("")]
@@ -359,6 +413,22 @@ public class PrimitiveTypeTests
         Assert.Equal(expectedBase64, result);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PrimitiveType_ToString_WithBoolean_ReturnsStringRepresentation(bool testValue)
+    {
+        // Arrange
+        var primitiveType = new PrimitiveType(testValue);
+        var expected = testValue.ToString();
+
+        // Act
+        var result = primitiveType.ToString();
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public void PrimitiveType_Equals_WithSameStringValues_ReturnsTrue()
     {
@@ -411,6 +481,20 @@ public class PrimitiveTypeTests
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
+    }
+
+    [Fact]
+    public void PrimitiveType_Equals_WithSameBooleanValues_ReturnsTrue()
+    {
+        // Arrange
+        const bool testValue = true;
+        var primitiveType1 = new PrimitiveType(testValue);
+        var primitiveType2 = new PrimitiveType(testValue);
+
+        // Act & Assert
+        Assert.True(primitiveType1.Equals(primitiveType2));
+        Assert.True(primitiveType1 == primitiveType2);
+        Assert.False(primitiveType1 != primitiveType2);
     }
 
     [Fact]
@@ -526,6 +610,20 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
+    public void PrimitiveType_ImplicitConversion_FromBoolean_WorksCorrectly()
+    {
+        // Arrange
+        const bool testValue = true;
+
+        // Act
+        PrimitiveType primitiveType = testValue;
+
+        // Assert
+        Assert.Equal(PrimitiveTypeKind.Boolean, primitiveType.Kind);
+        Assert.Equal(testValue, primitiveType.AsBoolean);
+    }
+
+    [Fact]
     public void PrimitiveType_Match_WithStringAction_ExecutesCorrectAction()
     {
         // Arrange
@@ -536,6 +634,7 @@ public class PrimitiveTypeTests
         // Act
         primitiveType.Match(
             onString: value => capturedValue = value,
+            onBoolean: _ => Assert.Fail("Should not execute boolean action"),
             onInteger: _ => Assert.Fail("Should not execute integer action"),
             onDouble: _ => Assert.Fail("Should not execute double action"),
             onByteArray: _ => Assert.Fail("Should not execute byte array action")
@@ -556,6 +655,7 @@ public class PrimitiveTypeTests
         // Act
         primitiveType.Match(
             onString: _ => Assert.Fail("Should not execute string action"),
+            onBoolean: _ => Assert.Fail("Should not execute boolean action"),
             onInteger: value => capturedValue = value,
             onDouble: _ => Assert.Fail("Should not execute double action"),
             onByteArray: _ => Assert.Fail("Should not execute byte array action")
@@ -576,6 +676,7 @@ public class PrimitiveTypeTests
         // Act
         primitiveType.Match(
             onString: _ => Assert.Fail("Should not execute string action"),
+            onBoolean: _ => Assert.Fail("Should not execute boolean action"),
             onInteger: _ => Assert.Fail("Should not execute integer action"),
             onDouble: value => capturedValue = value,
             onByteArray: _ => Assert.Fail("Should not execute byte array action")
@@ -596,6 +697,7 @@ public class PrimitiveTypeTests
         // Act
         primitiveType.Match(
             onString: _ => Assert.Fail("Should not execute string action"),
+            onBoolean: _ => Assert.Fail("Should not execute boolean action"),
             onInteger: _ => Assert.Fail("Should not execute integer action"),
             onDouble: _ => Assert.Fail("Should not execute double action"),
             onByteArray: span => capturedValue = span.ToArray()
@@ -603,6 +705,27 @@ public class PrimitiveTypeTests
 
         // Assert
         Assert.NotNull(capturedValue);
+        Assert.Equal(testValue, capturedValue);
+    }
+
+    [Fact]
+    public void PrimitiveType_Match_WithBooleanAction_ExecutesCorrectAction()
+    {
+        // Arrange
+        const bool testValue = false;
+        var primitiveType = new PrimitiveType(testValue);
+        bool? capturedValue = null;
+
+        // Act
+        primitiveType.Match(
+            onString: _ => Assert.Fail("Should not execute string action"),
+            onBoolean: value => capturedValue = value,
+            onInteger: _ => Assert.Fail("Should not execute integer action"),
+            onDouble: _ => Assert.Fail("Should not execute double action"),
+            onByteArray: _ => Assert.Fail("Should not execute byte array action")
+        );
+
+        // Assert
         Assert.Equal(testValue, capturedValue);
     }
 
@@ -615,6 +738,7 @@ public class PrimitiveTypeTests
         // Act & Assert - Should not throw when non-matching actions are null
         primitiveType.Match(
             onString: value => Assert.Equal("test", value),
+            onBoolean: null,
             onInteger: null,
             onDouble: null,
             onByteArray: null
@@ -631,6 +755,7 @@ public class PrimitiveTypeTests
         // Act
         var result = primitiveType.Match(
             onString: value => $"String: {value}",
+            onBoolean: value => $"Boolean: {value}",
             onInteger: value => $"Integer: {value}",
             onDouble: value => $"Double: {value}",
             onByteArray: span => $"ByteArray: {span.Length} bytes"
@@ -650,6 +775,7 @@ public class PrimitiveTypeTests
         // Act
         var result = primitiveType.Match(
             onString: value => $"String: {value}",
+            onBoolean: value => $"Boolean: {value}",
             onInteger: value => $"Integer: {value}",
             onDouble: value => $"Double: {value}",
             onByteArray: span => $"ByteArray: {span.Length} bytes"
@@ -669,6 +795,7 @@ public class PrimitiveTypeTests
         // Act
         var result = primitiveType.Match(
             onString: value => $"String: {value}",
+            onBoolean: value => $"Boolean: {value}",
             onInteger: value => $"Integer: {value}",
             onDouble: value => $"Double: {value}",
             onByteArray: span => $"ByteArray: {span.Length} bytes"
@@ -688,6 +815,7 @@ public class PrimitiveTypeTests
         // Act
         var result = primitiveType.Match(
             onString: value => $"String: {value}",
+            onBoolean: value => $"Boolean: {value}",
             onInteger: value => $"Integer: {value}",
             onDouble: value => $"Double: {value}",
             onByteArray: span => $"ByteArray: {span.Length} bytes"
@@ -695,6 +823,26 @@ public class PrimitiveTypeTests
 
         // Assert
         Assert.Equal($"ByteArray: {testValue.Length} bytes", result);
+    }
+
+    [Fact]
+    public void PrimitiveType_MatchWithReturn_WithBoolean_ReturnsCorrectValue()
+    {
+        // Arrange
+        const bool testValue = true;
+        var primitiveType = new PrimitiveType(testValue);
+
+        // Act
+        var result = primitiveType.Match(
+            onString: value => $"String: {value}",
+            onBoolean: value => $"Boolean: {value}",
+            onInteger: value => $"Integer: {value}",
+            onDouble: value => $"Double: {value}",
+            onByteArray: span => $"ByteArray: {span.Length} bytes"
+        );
+
+        // Assert
+        Assert.Equal($"Boolean: {testValue}", result);
     }
 
     [Fact]
@@ -770,6 +918,24 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
+    public void PrimitiveType_JsonSerialization_WithBoolean_WorksCorrectly()
+    {
+        // Arrange
+        const bool testValue = true;
+        var primitiveType = new PrimitiveType(testValue);
+
+        // Act
+        var json = JsonConvert.SerializeObject(primitiveType);
+        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+
+        // Assert
+        Assert.NotNull(deserialized);
+        Assert.Equal(primitiveType.Kind, deserialized.Kind);
+        Assert.Equal(primitiveType.AsBoolean, deserialized.AsBoolean);
+        Assert.Equal(primitiveType, deserialized);
+    }
+
+    [Fact]
     public void PrimitiveType_JsonSerialization_WithNull_WorksCorrectly()
     {
         // Arrange
@@ -791,6 +957,7 @@ public class PrimitiveTypeTests
         var primitiveTypes = new PrimitiveType[]
         {
             new("test string"),
+            new(true),
             new(42L),
             new(3.14159),
             new(new byte[] { 1, 2, 3, 4, 5 })
@@ -1004,11 +1171,12 @@ public class PrimitiveTypeTests
     {
         // Arrange - Complex scenario with all types and operations
         var stringType = new PrimitiveType("integration test");
+        var boolType = new PrimitiveType(false);
         var intType = new PrimitiveType(42L);
         var doubleType = new PrimitiveType(3.14159);
         var byteType = new PrimitiveType("Hello"u8.ToArray()); // "Hello"
 
-        var allTypes = new[] { stringType, intType, doubleType, byteType };
+        var allTypes = new[] { stringType, boolType, intType, doubleType, byteType };
 
         // Act & Assert - Test all operations work together
         foreach (var type in allTypes)
@@ -1019,17 +1187,19 @@ public class PrimitiveTypeTests
 
             // Test Try methods
             var stringSuccess = type.TryGetString(out _);
+            var boolSuccess = type.TryGetBoolean(out _);
             var intSuccess = type.TryGetInteger(out _);
             var doubleSuccess = type.TryGetDouble(out _);
             var byteSuccess = type.TryGetByteArray(out _);
 
             // Exactly one should succeed based on the type
-            var successCount = new[] { stringSuccess, intSuccess, doubleSuccess, byteSuccess }.Count(b => b);
+            var successCount = new[] { stringSuccess, boolSuccess, intSuccess, doubleSuccess, byteSuccess }.Count(b => b);
             Assert.Equal(1, successCount);
 
             // Test Match pattern
             var matchResult = type.Match(
                 onString: s => $"String: {s}",
+                onBoolean: b => $"Boolean: {b}",
                 onInteger: i => $"Integer: {i}",
                 onDouble: d => $"Double: {d}",
                 onByteArray: b => $"Bytes: {b.Length}"
@@ -1079,6 +1249,7 @@ public class PrimitiveTypeTests
 
                 // Test TryGet methods
                 sharedType.TryGetString(out var _);
+                sharedType.TryGetBoolean(out var _);
                 sharedType.TryGetInteger(out var _);
                 sharedType.TryGetDouble(out var _);
                 sharedType.TryGetByteArray(out var _);
@@ -1086,6 +1257,7 @@ public class PrimitiveTypeTests
                 // Test Match
                 sharedType.Match(
                     onString: s => s.Length,
+                    onBoolean: b => b ? 1 : 0,
                     onInteger: ib => (int)ib,
                     onDouble: d => (int)d,
                     onByteArray: b => b.Length
@@ -1165,12 +1337,14 @@ public class PrimitiveTypeTests
     {
         // Arrange & Act - Create instances of all PrimitiveTypeKind values
         var stringType = new PrimitiveType("test");
+        var booleanType = new PrimitiveType(true);
         var integerType = new PrimitiveType(42L);
         var doubleType = new PrimitiveType(3.14);
         var byteArrayType = new PrimitiveType(new byte[] { 1, 2, 3 });
 
         // Assert - All enum values are covered
         Assert.Equal(PrimitiveTypeKind.String, stringType.Kind);
+        Assert.Equal(PrimitiveTypeKind.Boolean, booleanType.Kind);
         Assert.Equal(PrimitiveTypeKind.Integer, integerType.Kind);
         Assert.Equal(PrimitiveTypeKind.Double, doubleType.Kind);
         Assert.Equal(PrimitiveTypeKind.ByteArray, byteArrayType.Kind);
@@ -1179,6 +1353,7 @@ public class PrimitiveTypeTests
         var testedKinds = new HashSet<PrimitiveTypeKind>
         {
             stringType.Kind,
+            booleanType.Kind,
             integerType.Kind,
             doubleType.Kind,
             byteArrayType.Kind

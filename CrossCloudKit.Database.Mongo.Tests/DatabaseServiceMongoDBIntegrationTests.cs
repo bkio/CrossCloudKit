@@ -25,31 +25,14 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 
     protected override IDatabaseService CreateDatabaseService()
     {
-        return new DatabaseServiceMongoDB(GetConnectionString(), TestDatabaseName);
+        return new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName);
     }
-
-    protected override async Task CleanupDatabaseAsync(string tableName)
-    {
-        try
-        {
-            var client = new MongoClient(GetConnectionString());
-            var database = client.GetDatabase(TestDatabaseName);
-
-            await database.DropCollectionAsync(tableName);
-        }
-        catch (Exception)
-        {
-            // Ignore cleanup errors in tests
-        }
-    }
-
-    protected override string GetTestTableName() => $"test-collection-{Guid.NewGuid():N}";
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceMongoDB_WithValidConnectionString_ShouldInitializeSuccessfully()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongoDB(GetConnectionString(), TestDatabaseName);
+        var service = new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName);
 
         // Assert
         service.IsInitialized.Should().BeTrue();
@@ -62,7 +45,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
     public void DatabaseServiceMongoDB_WithInvalidConnectionString_ShouldFailInitialization()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongoDB("mongodb://invalid-host:27017", TestDatabaseName);
+        var service = new DatabaseServiceMongo("mongodb://invalid-host:27017", TestDatabaseName);
 
         // Assert
         // Note: MongoDB client initialization is lazy, so this might still return true

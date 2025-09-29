@@ -319,12 +319,14 @@ var condition = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveT
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
 var result = await dbService.UpdateItemAsync(
     "Users", "Id", keyValue, updateData,
-    condition: condition
+    conditions: [condition]
 );
 
 // Check existence with conditions
-var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, condition);
+var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, [condition]);
 ```
+Multiple conditions can be provided. Each condition is joined with an AND operator.
+
 #### Array Operations
 ```csharp
 // Add elements to array
@@ -363,7 +365,7 @@ var allUsers = await dbService.ScanTableAsync("Users", new[] { "Id" });
 
 // Scan with filter
 var activeUsersFilter = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
-var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, activeUsersFilter);
+var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, [activeUsersFilter]);
 
 // Paginated scan
 var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(

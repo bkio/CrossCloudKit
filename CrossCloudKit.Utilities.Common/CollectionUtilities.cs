@@ -39,4 +39,25 @@ public static class CollectionUtilities
     {
         return pairs.FirstOrDefault(pair => pair.Key == key).Value;
     }
+
+    /// <summary>
+    /// Tries to get a value at the specified index from an array.
+    /// </summary>
+    /// <typeparam name="T">The type of elements in the array.</typeparam>
+    /// <param name="array">The array to read from. Can be null.</param>
+    /// <param name="index">The zero-based index of the element to retrieve.</param>
+    /// <param name="value">When this method returns, contains the value at the specified index if found; otherwise, the default value of <typeparamref name="T"/>.</param>
+    /// <returns><c>true</c> if the value was successfully retrieved; otherwise, <c>false</c>.</returns>
+    public static bool TryGetValue<T>(this T[]? array, int index, out T value)
+    {
+        if (array != null && index >= 0 && index < array.Length)
+        {
+            value = array[index];
+            return true;
+        }
+
+        // ReSharper disable once NullableWarningSuppressionIsUsed
+        value = default!;
+        return false;
+    }
 }

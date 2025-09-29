@@ -14,6 +14,7 @@ using Newtonsoft.Json.Linq;
 using Amazon.DynamoDBv2.DocumentModel;
 using System.Globalization;
 using System.Net;
+using System.Text;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using Expression = Amazon.DynamoDBv2.DocumentModel.Expression;
@@ -940,55 +941,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
-            if (!getKeysResult.IsSuccessful)
-                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
-
-            var keys = getKeysResult.Data;
-            foreach (var key in keys)
-            {
-
-            }
-
-            var tableResult = await EnsureTableExistsAsync(tableName, null, cancellationToken);
-            if (!tableResult.IsSuccessful)
-            {
-                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
-            }
-            var table = tableResult.Data;
-
-            var config = new ScanOperationConfig
-            {
-                Select = SelectValues.AllAttributes,
-                Limit = pageSize
-            };
-
-            if (!string.IsNullOrEmpty(pageToken))
-                config.PaginationToken = pageToken;
-
-            var search = table.Scan(config);
-            var searchTask = search.GetNextSetAsync(cancellationToken);
-
-            var documents = await searchTask;
-
-            var results = new List<JObject>();
-            foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
-            {
-                ApplyOptions(jsonObject);
-                results.Add(jsonObject);
-            }
-
-            var nextToken = search.IsDone ? null : search.PaginationToken;
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
-                (keys, results.AsReadOnly(), nextToken, null));
-        }
-        catch (Exception e)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceAWS->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
-        }
+        return await InternalScanTablePaginated(tableName, pageSize, pageToken, null, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -1013,62 +966,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var tableResult = await EnsureTableExistsAsync(tableName, null, cancellationToken);
-            if (!tableResult.IsSuccessful)
-            {
-                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
-            }
-            var table = tableResult.Data;
 
-            var config = new ScanOperationConfig
-            {
-                Select = SelectValues.AllAttributes,
-                Limit = pageSize,
-                FilterExpression = BuildConditionalExpression(filterConditions)
-            };
-
-            if (!string.IsNullOrEmpty(pageToken))
-            {
-                config.PaginationToken = pageToken;
-            }
-
-            var search = table.Scan(config);
-            var searchTask = search.GetNextSetAsync(cancellationToken);
-
-            IReadOnlyList<string>? keys = null;
-
-            if (string.IsNullOrEmpty(pageToken))
-            {
-                var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
-
-                await Task.WhenAll(getKeysTask, searchTask);
-
-                var getKeysResult = await getKeysTask;
-                if (!getKeysResult.IsSuccessful)
-                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
-                        .Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
-                keys = getKeysResult.Data;
-            }
-            var documents = await searchTask;
-
-            var results = new List<JObject>();
-            foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
-            {
-                ApplyOptions(jsonObject);
-                results.Add(jsonObject);
-            }
-
-            var nextToken = search.IsDone ? null : search.PaginationToken;
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
-                (keys, results.AsReadOnly(), nextToken, null));
-        }
-        catch (Exception e)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceAWS->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
-        }
+        return await InternalScanTablePaginated(tableName, pageSize, pageToken, filterConditions, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -1420,6 +1319,138 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure($"DatabaseServiceAWS->InternalScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
+    private async Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> InternalScanTablePaginated(
+        string tableName,
+        int pageSize,
+        string? pageToken,
+        IEnumerable<DbAttributeCondition>? filterConditions = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
+                    .Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            var keys = new List<string>(getKeysResult.Data);
+            keys.Sort();
+            var allKeysHash = CalculateAllKeysHash(keys);
+
+            var keyStartIx = 0;
+
+            PaginationKey? paginationKey = null;
+            if (!string.IsNullOrEmpty(pageToken))
+            {
+                var parseResult = ParsePaginationKey(pageToken);
+                if (!parseResult.IsSuccessful)
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
+                        .Failure(parseResult.ErrorMessage, parseResult.StatusCode);
+                paginationKey = parseResult.Data;
+
+                if (paginationKey.AllKeysHash != allKeysHash)
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
+                        .Failure($"Pagination token is invalid. Keys for table {tableName} has changed since this token was generated", HttpStatusCode.BadRequest);
+
+                keyStartIx = keys.IndexOf(paginationKey.KeyName);
+                if (keyStartIx < 0)
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
+                        .Failure("Invalid pagination key", HttpStatusCode.BadRequest);
+            }
+
+            var results = new List<JObject>();
+
+            for (var k = keyStartIx; k < keys.Count; k++)
+            {
+                var key = keys[k];
+
+                if (results.Count >= pageSize)
+                {
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                        (keys, results.AsReadOnly(),
+                            CreatePaginationKey(
+                            new PaginationKey(key, null, allKeysHash)),
+                        null));
+                }
+
+                var tableResult = await TryToGetAndLoadExistingTableAsync(tableName, key, cancellationToken: cancellationToken);
+                if (!tableResult.IsSuccessful)
+                {
+                    if (tableResult.StatusCode == HttpStatusCode.NotFound) continue;
+                    return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>
+                        .Failure(tableResult.ErrorMessage, tableResult.StatusCode);
+                }
+
+                var table = tableResult.Data;
+
+                var config = new ScanOperationConfig
+                {
+                    Select = SelectValues.AllAttributes,
+                    Limit = pageSize - results.Count
+                };
+                if (filterConditions != null)
+                {
+                    // ReSharper disable once PossibleMultipleEnumeration
+                    config.FilterExpression = BuildConditionalExpression(filterConditions);
+                }
+
+                if (paginationKey != null && paginationKey.KeyName == key)
+                    config.PaginationToken = paginationKey.GeneratedKey;
+
+                var search = table.Scan(config);
+                var documents = await search.GetNextSetAsync(cancellationToken);
+
+                foreach (var jsonObject in documents.Select(document => JObject.Parse(document.ToJson())))
+                {
+                    ApplyOptions(jsonObject);
+                    results.Add(jsonObject);
+                }
+
+                if (!search.IsDone)
+                {
+                    return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                        (keys,
+                            results.AsReadOnly(),
+                            CreatePaginationKey(new PaginationKey(key, search.PaginationToken, allKeysHash)),
+                            null));
+                }
+            }
+            return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>.Success(
+                (keys, results.AsReadOnly(), null, null));
+        }
+        catch (Exception e)
+        {
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
+                $"DatabaseServiceAWS->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+    private static string CreatePaginationKey(PaginationKey paginationKey)
+    {
+        return EncodingUtilities.Base64Encode($"{paginationKey.KeyName}{PaginationSeparator}{paginationKey.GeneratedKey ?? "null"}{PaginationSeparator}{paginationKey.AllKeysHash}");
+    }
+    private static OperationResult<PaginationKey> ParsePaginationKey(string paginationKey)
+    {
+        paginationKey = EncodingUtilities.Base64Decode(paginationKey);
+        var split = paginationKey.Split(PaginationSeparator, StringSplitOptions.RemoveEmptyEntries);
+        return split.Length != 3 || string.IsNullOrEmpty(split[0]) || string.IsNullOrEmpty(split[1]) || string.IsNullOrEmpty(split[2])
+            ? OperationResult<PaginationKey>.Failure("Invalid pagination key", HttpStatusCode.BadRequest)
+            : OperationResult<PaginationKey>.Success(new PaginationKey(split[0], split[1] == "null" ? null : split[1], split[2]));
+    }
+    private static string CalculateAllKeysHash(IEnumerable<string> keys)
+    {
+        var result = new StringBuilder();
+        foreach (var key in keys)
+        {
+            result.Append(key);
+        }
+        return CryptographyUtilities.CalculateStringSha256(result.ToString());
+    }
+    private const string PaginationSeparator = "[[[---]]]";
+    private record PaginationKey(string KeyName, string? GeneratedKey, string AllKeysHash);
 
     private static Expression? BuildConditionalExpression(IEnumerable<DbAttributeCondition>? conditions)
     {

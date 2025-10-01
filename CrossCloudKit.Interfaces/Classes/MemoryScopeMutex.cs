@@ -10,7 +10,7 @@ namespace CrossCloudKit.Interfaces.Classes;
 ///
 /// Async:
 /// <code>
-/// await using (var mutex = await MemoryServiceScopeMutex.CreateScopeAsync(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
+/// await using (var mutex = await MemoryScopeMutex.CreateScopeAsync(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
 /// {
 ///     // Critical section (async-safe)
 ///     await DoSomethingAsync();
@@ -20,7 +20,7 @@ namespace CrossCloudKit.Interfaces.Classes;
 ///
 /// Sync:
 /// <code>
-/// using (var mutex = MemoryServiceScopeMutex.Create(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
+/// using (var mutex = MemoryScopeMutex.Create(memoryService, memoryScope, "myKey", TimeSpan.FromSeconds(30)))
 /// {
 ///     // Critical section (sync-safe)
 ///     DoSomething();

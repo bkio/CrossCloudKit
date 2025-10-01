@@ -1,13 +1,11 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using Amazon.DynamoDBv2;
-using Amazon.DynamoDBv2.Model;
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
 using xRetry;
-using Xunit;
 
 namespace CrossCloudKit.Database.AWS.Tests;
 
@@ -36,64 +34,17 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         var accessKey = GetAWSAccessKey();
         var secretKey = GetAWSSecretKey();
         var region = GetAWSRegion();
+        var memoryService = new MemoryServiceBasic();
 
         // If credentials are not provided, return a service that will fail initialization
         if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
         {
-            return new DatabaseServiceAWS("invalid-key", "invalid-secret", region);
+            return new DatabaseServiceAWS("invalid-key", "invalid-secret", region, memoryService);
         }
 
-        return new DatabaseServiceAWS(accessKey, secretKey, region);
+        return new DatabaseServiceAWS(accessKey, secretKey, region, memoryService);
     }
 
-    protected override async Task CleanupDatabaseAsync(string tableName)
-    {
-        try
-        {
-            var accessKey = GetAWSAccessKey();
-            var secretKey = GetAWSSecretKey();
-            var region = GetAWSRegion();
-
-            if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
-            {
-                return; // Skip cleanup if no credentials
-            }
-
-            using var client = new AmazonDynamoDBClient(
-                new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey),
-                Amazon.RegionEndpoint.GetBySystemName(region));
-
-            await client.DeleteTableAsync(tableName);
-
-            // Wait for table to be deleted using simple polling
-            var maxWaitTime = TimeSpan.FromMinutes(2);
-            var startTime = DateTime.UtcNow;
-
-            while (DateTime.UtcNow - startTime < maxWaitTime)
-            {
-                try
-                {
-                    await client.DescribeTableAsync(tableName);
-                    await Task.Delay(1000); // Wait 1 second before checking again
-                }
-                catch (ResourceNotFoundException)
-                {
-                    // Table is deleted
-                    break;
-                }
-            }
-        }
-        catch (ResourceNotFoundException)
-        {
-            // Table doesn't exist, which is fine
-        }
-        catch (Exception)
-        {
-            // Ignore cleanup errors in tests
-        }
-    }
-
-    protected override string GetTestTableName() => $"test-table-{Guid.NewGuid():N}";
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithValidCredentials_ShouldInitializeSuccessfully()
@@ -102,6 +53,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         var accessKey = GetAWSAccessKey();
         var secretKey = GetAWSSecretKey();
         var region = GetAWSRegion();
+        var memoryService = new MemoryServiceBasic();
 
         // Skip if no credentials provided
         if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
@@ -110,7 +62,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         }
 
         // Act
-        var service = new DatabaseServiceAWS(accessKey, secretKey, region);
+        var service = new DatabaseServiceAWS(accessKey, secretKey, region, memoryService);
 
         // Assert
         service.IsInitialized.Should().BeTrue();
@@ -122,8 +74,10 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
     [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithInvalidCredentials_ShouldFailInitialization()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Arrange & Act
-        var service = new DatabaseServiceAWS("invalid-access-key", "invalid-secret-key", "us-east-1");
+        var service = new DatabaseServiceAWS("invalid-access-key", "invalid-secret-key", "us-east-1", memoryService);
 
         // Assert
         service.IsInitialized.Should().BeFalse();

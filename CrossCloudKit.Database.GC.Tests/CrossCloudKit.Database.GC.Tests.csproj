@@ -30,6 +30,7 @@
     <ProjectReference Include="..\CrossCloudKit.Database.GC\CrossCloudKit.Database.GC.csproj" />
     <ProjectReference Include="..\CrossCloudKit.Database.Tests.Common\CrossCloudKit.Database.Tests.Common.csproj" />
     <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.Memory.Basic\CrossCloudKit.Memory.Basic.csproj" />
     <ProjectReference Include="..\CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj" />
   </ItemGroup>
 

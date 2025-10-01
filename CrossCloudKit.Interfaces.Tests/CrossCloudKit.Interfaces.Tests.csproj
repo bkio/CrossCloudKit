@@ -26,6 +26,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\CrossCloudKit.Database.Basic\CrossCloudKit.Database.Basic.csproj" />
 		<ProjectReference Include="..\CrossCloudKit.File.Basic\CrossCloudKit.File.Basic.csproj" />
 		<ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
 		<ProjectReference Include="..\CrossCloudKit.Memory.Basic\CrossCloudKit.Memory.Basic.csproj" />

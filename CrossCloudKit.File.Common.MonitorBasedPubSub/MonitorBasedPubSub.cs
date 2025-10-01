@@ -12,7 +12,7 @@ using Newtonsoft.Json;
 
 namespace CrossCloudKit.File.Common.MonitorBasedPubSub;
 
-public class MonitorBasedPubSub: IAsyncDisposable
+public class MonitorBasedPubSub : IAsyncDisposable
 {
     public MonitorBasedPubSub(
         IFileService fileService,

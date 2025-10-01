@@ -16,6 +16,7 @@ public enum PrimitiveTypeKind
     String,
     Integer,
     Double,
+    Boolean,
     ByteArray
 }
 
@@ -57,6 +58,17 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         ArgumentNullException.ThrowIfNull(value);
 
         Kind = PrimitiveTypeKind.String;
+        _value = value;
+    }
+
+    /// <summary>
+    /// Creates a PrimitiveType containing a boolean value.
+    /// </summary>
+    /// <param name="value">The boolean value</param>
+    /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
+    public PrimitiveType(bool value)
+    {
+        Kind = PrimitiveTypeKind.Boolean;
         _value = value;
     }
 
@@ -120,6 +132,14 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         : throw new InvalidOperationException($"Cannot access integer value when Kind is {Kind}");
 
     /// <summary>
+    /// Gets the long integer value. Only valid when Kind is Integer.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when Kind is not Integer</exception>
+    public bool AsBoolean => Kind == PrimitiveTypeKind.Boolean
+        ? (bool)_value
+        : throw new InvalidOperationException($"Cannot access boolean value when Kind is {Kind}");
+
+    /// <summary>
     /// Gets the double value. Only valid when Kind is Double.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Double</exception>
@@ -156,6 +176,22 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
             return true;
         }
         value = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to get the boolean value if Kind is Boolean.
+    /// </summary>
+    /// <param name="value">The boolean value if successful</param>
+    /// <returns>True if Kind is Boolean, false otherwise</returns>
+    public bool TryGetBoolean(out bool value)
+    {
+        if (Kind == PrimitiveTypeKind.Boolean)
+        {
+            value = (bool)_value;
+            return true;
+        }
+        value = false;
         return false;
     }
 
@@ -212,7 +248,8 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         return Kind switch
         {
             PrimitiveTypeKind.String => (string)_value,
-            PrimitiveTypeKind.Integer => ((long)_value).ToString(),
+            PrimitiveTypeKind.Boolean => ((bool)_value).ToString(CultureInfo.InvariantCulture),
+            PrimitiveTypeKind.Integer => ((long)_value).ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.Double => ((double)_value).ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.ByteArray => Convert.ToBase64String((byte[])_value),
             _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
@@ -229,6 +266,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         return Kind switch
         {
             PrimitiveTypeKind.String => string.Equals((string)_value, (string)other._value, StringComparison.Ordinal),
+            PrimitiveTypeKind.Boolean => (bool)_value == (bool)other._value,
             PrimitiveTypeKind.Integer => (long)_value == (long)other._value,
             PrimitiveTypeKind.Double => Math.Abs((double)_value - (double)other._value) < 0.0000001,
             PrimitiveTypeKind.ByteArray => ((byte[])_value).AsSpan().SequenceEqual(((byte[])other._value).AsSpan()),
@@ -241,6 +279,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         return Kind switch
         {
             PrimitiveTypeKind.String => HashCode.Combine(Kind, _value),
+            PrimitiveTypeKind.Boolean => HashCode.Combine(Kind, _value),
             PrimitiveTypeKind.Integer => HashCode.Combine(Kind, _value),
             PrimitiveTypeKind.Double => HashCode.Combine(Kind, _value),
             PrimitiveTypeKind.ByteArray => HashCode.Combine(Kind, Convert.ToBase64String((byte[])_value)),
@@ -255,6 +294,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
 
     // Implicit conversion operators for convenience
     public static implicit operator PrimitiveType(string value) => new(value);
+    public static implicit operator PrimitiveType(bool value) => new(value);
     public static implicit operator PrimitiveType(long value) => new(value);
     public static implicit operator PrimitiveType(double value) => new(value);
     public static implicit operator PrimitiveType(byte[] value) => new(value);
@@ -263,11 +303,13 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Executes the appropriate action based on the Kind of the PrimitiveType.
     /// </summary>
     /// <param name="onString">Action to execute if Kind is String</param>
+    /// <param name="onBoolean">Action to execute if Kind is Boolean</param>
     /// <param name="onInteger">Action to execute if Kind is Integer</param>
     /// <param name="onDouble">Action to execute if Kind is Double</param>
     /// <param name="onByteArray">Action to execute if Kind is ByteArray</param>
     public void Match(
         Action<string>? onString = null,
+        Action<bool>? onBoolean = null,
         Action<long>? onInteger = null,
         Action<double>? onDouble = null,
         Action<ReadOnlySpan<byte>>? onByteArray = null)
@@ -276,6 +318,9 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         {
             case PrimitiveTypeKind.String:
                 onString?.Invoke((string)_value);
+                break;
+            case PrimitiveTypeKind.Boolean:
+                onBoolean?.Invoke((bool)_value);
                 break;
             case PrimitiveTypeKind.Integer:
                 onInteger?.Invoke((long)_value);
@@ -294,12 +339,14 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// </summary>
     /// <typeparam name="T">The return type</typeparam>
     /// <param name="onString">Function to execute if Kind is String</param>
+    /// <param name="onBoolean">Function to execute if Kind is Boolean</param>
     /// <param name="onInteger">Function to execute if Kind is Integer</param>
     /// <param name="onDouble">Function to execute if Kind is Double</param>
     /// <param name="onByteArray">Function to execute if Kind is ByteArray</param>
     /// <returns>The result of the executed function</returns>
     public T Match<T>(
         Func<string, T> onString,
+        Func<bool, T> onBoolean,
         Func<long, T> onInteger,
         Func<double, T> onDouble,
         Func<ReadOnlySpan<byte>, T> onByteArray)
@@ -307,6 +354,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
         return Kind switch
         {
             PrimitiveTypeKind.String => onString((string)_value),
+            PrimitiveTypeKind.Boolean => onBoolean((bool)_value),
             PrimitiveTypeKind.Integer => onInteger((long)_value),
             PrimitiveTypeKind.Double => onDouble((double)_value),
             PrimitiveTypeKind.ByteArray => onByteArray(((byte[])_value).AsSpan()),
@@ -340,6 +388,10 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
 
             case PrimitiveTypeKind.Integer:
                 writer.WriteValue(value.AsInteger);
+                break;
+
+            case PrimitiveTypeKind.Boolean:
+                writer.WriteValue(value.AsBoolean);
                 break;
 
             case PrimitiveTypeKind.Double:
@@ -378,6 +430,8 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
 
             return str.StartsWith("s-") ? new PrimitiveType(str[2..]) : new PrimitiveType(str);
         }
+
+        if (reader.TokenType == JsonToken.Boolean) return new PrimitiveType(Convert.ToBoolean(reader.Value));
 
         if (reader.TokenType == JsonToken.Integer) return new PrimitiveType(Convert.ToInt64(reader.Value));
 

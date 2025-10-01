@@ -1,6 +1,11 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+//
+// Note: It's essential that methods defined in IDatabaseService are not called directly from ...CoreAsync methods.
+// Instead, call CoreAsync methods when needed.
+//
+
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
@@ -14,7 +19,7 @@ using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.Database.Basic;
 
-public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService, IDisposable
+public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 {
     /// <summary>
     /// Holds initialization success
@@ -25,12 +30,9 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     /// Gets a value indicating whether the database service has been successfully initialized.
     /// </summary>
     // ReSharper disable once ConvertToAutoProperty
-    public bool IsInitialized => _initializationSucceed;
+    public override bool IsInitialized => _initializationSucceed;
 
-    private readonly string _databaseName;
     private readonly string _databasePath;
-
-    private readonly IMemoryService _memoryService;
 
     private const string RootFolderName = "CrossCloudKit.Database.Basic";
 
@@ -45,10 +47,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         string databaseName,
         IMemoryService memoryService,
         string? basePath = null,
-        Action<string>? errorMessageAction = null)
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
-        _databaseName = databaseName;
-        _memoryService = memoryService;
         _databasePath = "";
 
         ArgumentException.ThrowIfNullOrWhiteSpace(databaseName);
@@ -82,6 +82,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         var keyString = keyValue.Kind switch
         {
             PrimitiveTypeKind.String => keyValue.AsString,
+            PrimitiveTypeKind.Boolean => keyValue.AsBoolean.ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.Integer => keyValue.AsInteger.ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.Double => keyValue.AsDouble.ToString(CultureInfo.InvariantCulture),
             PrimitiveTypeKind.ByteArray => Convert.ToBase64String(keyValue.AsByteArray),
@@ -208,7 +209,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             JTokenType.String => new PrimitiveType(token.Value<string>().NotNull()),
             JTokenType.Integer => new PrimitiveType(token.Value<long>()),
             JTokenType.Float => new PrimitiveType(token.Value<double>()),
-            JTokenType.Boolean => new PrimitiveType(token.Value<bool>().ToString()),
+            JTokenType.Boolean => new PrimitiveType(token.Value<bool>()),
             _ => new PrimitiveType(token.ToString())
         };
     }
@@ -223,6 +224,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         return a.Kind switch
         {
             PrimitiveTypeKind.String => string.Compare(a.AsString, b.AsString, StringComparison.Ordinal),
+            PrimitiveTypeKind.Boolean => a.AsBoolean.CompareTo(b.AsBoolean),
             PrimitiveTypeKind.Integer => a.AsInteger.CompareTo(b.AsInteger),
             PrimitiveTypeKind.Double => a.AsDouble.CompareTo(b.AsDouble),
             PrimitiveTypeKind.ByteArray => CompareByteArrays(a.AsByteArray, b.AsByteArray),
@@ -244,21 +246,25 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     #region Modern Async API
 
     /// <inheritdoc />
-    public async Task<OperationResult<bool>> ItemExistsAsync(
+    protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
-        DbAttributeCondition? condition = null,
+        DbKey key,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var item = await ReadItemFromFileAsync(filePath, cancellationToken);
 
-            return OperationResult<bool>.Success(
-                item != null && (condition == null || EvaluateCondition(item, condition)));
+            if (item == null)
+                return OperationResult<bool>.Failure("Item not found", HttpStatusCode.NotFound);
+
+            if (conditions != null && conditions.Any(condition => !EvaluateCondition(item, condition)))
+                return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
+
+            return OperationResult<bool>.Success(true);
         }
         catch (Exception ex)
         {
@@ -267,17 +273,16 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> GetItemAsync(
+    protected override async Task<OperationResult<JObject?>> GetItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string[]? attributesToRetrieve = null,
+        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var item = await ReadItemFromFileAsync(filePath, cancellationToken);
 
             if (item == null)
@@ -286,7 +291,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             }
 
             // Add the key to the result
-            AddKeyToJson(item, keyName, keyValue);
+            AddKeyToJson(item, key.Name, key.Value);
             ApplyOptions(item);
 
             return OperationResult<JObject?>.Success(item);
@@ -298,31 +303,29 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
+    protected override async Task<OperationResult<IReadOnlyList<JObject>>> GetItemsCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType[] keyValues,
+        DbKey[] keys,
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            if (keyValues.Length == 0)
+            if (keys.Length == 0)
             {
                 return OperationResult<IReadOnlyList<JObject>>.Success([]);
             }
 
             var results = new List<JObject>();
 
-            foreach (var keyValue in keyValues)
+            foreach (var key in keys)
             {
-                var filePath = GetItemFilePath(tableName, keyName, keyValue);
+                var filePath = GetItemFilePath(tableName, key.Name, key.Value);
                 var item = await ReadItemFromFileAsync(filePath, cancellationToken);
 
                 if (item == null) continue;
 
-                AddKeyToJson(item, keyName, keyValue);
+                AddKeyToJson(item, key.Name, key.Value);
                 ApplyOptions(item);
                 results.Add(item);
             }
@@ -336,46 +339,57 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> PutItemAsync(
+    protected override async Task<OperationResult<JObject?>> PutItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject item,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.PutItem, tableName, keyName, keyValue, item,
-            returnBehavior, null, overwriteIfExists, cancellationToken);
+        return await PutOrUpdateItemAsync(
+            PutOrUpdateItemType.PutItem,
+            tableName,
+            key,
+            item,
+            returnBehavior,
+            null,
+            overwriteIfExists,
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> UpdateItemAsync(
+    protected override async Task<OperationResult<JObject?>> UpdateItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, keyName, keyValue, updateData,
-            returnBehavior, condition, false, cancellationToken);
+        return await PutOrUpdateItemAsync(
+            PutOrUpdateItemType.UpdateItem,
+            tableName,
+            key,
+            updateData,
+            returnBehavior,
+            conditions,
+            false,
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> DeleteItemAsync(
+    protected override async Task<OperationResult<JObject?>> DeleteItemCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
             if (existingItem == null)
@@ -383,7 +397,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 return OperationResult<JObject?>.Success(null);
             }
 
-            if (condition != null && !EvaluateCondition(existingItem, condition))
+            if (conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -392,7 +406,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -407,17 +421,16 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> AddElementsToArrayAsync(
+    protected override async Task<OperationResult<JObject?>> AddElementsToArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             if (elementsToAdd.Length == 0)
@@ -431,10 +444,19 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            if (!isCalledFromPostInsert)
+            {
+                var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [arrayAttributeName] = new JArray() }, cancellationToken);
+                if (!sanityCheckResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+                }
+            }
+
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
-            if (existingItem != null && condition != null && !EvaluateCondition(existingItem, condition))
+            if (existingItem != null && conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -443,10 +465,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues && existingItem != null)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
+            var noExistingItem = existingItem == null;
             existingItem ??= new JObject();
 
             if (!existingItem.TryGetValue(arrayAttributeName, out var arrayToken))
@@ -464,7 +487,20 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 }
             }
 
-            if (!await WriteItemToFileAsync(filePath, existingItem, cancellationToken))
+            var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            if (noExistingItem && !isCalledFromPostInsert)
+            {
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(writeItemTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+            }
+            if (!await writeItemTask)
             {
                 return OperationResult<JObject?>.Failure("Failed to write item", HttpStatusCode.InternalServerError);
             }
@@ -472,7 +508,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -485,17 +521,15 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
+    protected override async Task<OperationResult<JObject?>> RemoveElementsFromArrayCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             if (elementsToRemove.Length == 0)
@@ -509,7 +543,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 return OperationResult<JObject?>.Failure("All elements must have the same type.", HttpStatusCode.BadRequest);
             }
 
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
             if (existingItem == null)
@@ -517,7 +551,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 return OperationResult<JObject?>.Success(null);
             }
 
-            if (condition != null && !EvaluateCondition(existingItem, condition))
+            if (conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -526,7 +560,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -543,12 +577,15 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 }
             }
 
-            await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            if (!await WriteItemToFileAsync(filePath, existingItem, cancellationToken))
+            {
+                return OperationResult<JObject?>.Failure("WriteItemToFileAsync failed.", HttpStatusCode.InternalServerError);
+            }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -561,26 +598,31 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<double>> IncrementAttributeAsync(
+    protected override async Task<OperationResult<double>> IncrementAttributeCoreAsync(
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         string numericAttributeName,
         double incrementValue,
-        DbAttributeCondition? condition = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [numericAttributeName] = new JArray() }, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
+            {
+                return OperationResult<double>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+            }
+
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
-            if (existingItem != null && condition != null && !EvaluateCondition(existingItem, condition))
+            if (existingItem != null && conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
             {
                 return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
 
+            var noExistingItem = existingItem == null;
             existingItem ??= new JObject();
 
             var currentValue = 0.0;
@@ -597,7 +639,23 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             var newValue = currentValue + incrementValue;
             existingItem[numericAttributeName] = newValue;
 
-            await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            if (noExistingItem)
+            {
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(writeItemTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<double>.Failure($"PostInsertItemAsync failed with {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+            }
+            if (!await writeItemTask)
+            {
+                return OperationResult<double>.Failure("WriteItemToFileAsync failed.", HttpStatusCode.InternalServerError);
+            }
 
             return OperationResult<double>.Success(newValue);
         }
@@ -608,17 +666,14 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableCoreAsync(
         string tableName,
-        string[] keyNames,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
-        return await InternalScanTableUnsafeAsync(tableName, keyNames, cancellationToken);
+        return await InternalScanTableUnsafeAsync(tableName, cancellationToken);
     }
-    private async Task<OperationResult<IReadOnlyList<JObject>>> InternalScanTableUnsafeAsync(
+    private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableUnsafeAsync(
         string tableName,
-        string[] keyNames,
         CancellationToken cancellationToken = default)
     {
         try
@@ -626,71 +681,76 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             var tablePath = GetTablePath(tableName);
             if (!Directory.Exists(tablePath))
             {
-                return OperationResult<IReadOnlyList<JObject>>.Success([]);
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success(([], []));
             }
 
             var files = Directory.GetFiles(tablePath, "*.json");
             var results = new ConcurrentBag<JObject>();
 
-            await Task.Run(() =>
+            foreach (var filePath in files)
             {
-                Parallel.ForEach(files, filePath =>
+                try
                 {
-                    try
-                    {
-                        var item = ReadItemFromFileAsync(filePath, cancellationToken).Result;
-                        if (item == null) return;
+                    var item = ReadItemFromFileAsync(filePath, cancellationToken).Result;
+                    if (item == null) continue;
 
-                        // Try to extract the key from the filename
-                        var fileName = Path.GetFileNameWithoutExtension(filePath);
-                        foreach (var keyName in keyNames)
+                    // Try to extract the key from the filename
+                    var fileName = Path.GetFileNameWithoutExtension(filePath);
+
+                    var underscoreIndex = fileName.IndexOf('_');
+                    if (underscoreIndex > 0)
+                    {
+                        var keyName = fileName[..underscoreIndex];
+                        var keyValueString = fileName[(underscoreIndex + 1)..];
+
+                        if (TryParseKeyValue(keyValueString, out var keyValue))
                         {
-                            if (!fileName.StartsWith($"{keyName}_")) continue;
-
-                            var keyValueString = fileName.Substring($"{keyName}_".Length);
-                            if (!TryParseKeyValue(keyValueString, out var keyValue)) continue;
-
                             AddKeyToJson(item, keyName, keyValue);
-                            break;
                         }
-
-                        ApplyOptions(item);
-                        results.Add(item);
                     }
-                    catch (Exception)
-                    {
-                        // Skip corrupted files
-                    }
-                });
-            }, cancellationToken);
 
-            return OperationResult<IReadOnlyList<JObject>>.Success(results.ToList().AsReadOnly());
+                    ApplyOptions(item);
+                    results.Add(item);
+                }
+                catch (Exception)
+                {
+                    // Skip corrupted files
+                }
+            }
+
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            return !getKeysResult.IsSuccessful
+                ? OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode)
+                : OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((getKeysResult.Data, results.ToList().AsReadOnly()));
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure($"DatabaseServiceBasic->InternalScanTableUnsafeAsync: {e.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure($"DatabaseServiceBasic->InternalScanTableUnsafeAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTablePaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var allItemsResult = await InternalScanTableUnsafeAsync(tableName, keyNames, cancellationToken);
+            var allItemsResult = await InternalScanTableUnsafeAsync(tableName, cancellationToken);
             if (!allItemsResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
             }
 
             var allItems = allItemsResult.Data;
-            var totalCount = allItems.Count;
+            var totalCount = allItems.Items.Count;
 
             var skip = 0;
             if (int.TryParse(pageToken, out var pageTokenInt))
@@ -698,65 +758,75 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 skip = pageTokenInt;
             }
 
-            var pagedItems = allItems.Skip(skip).Take(pageSize).ToList();
+            var pagedItems = allItems.Items.Skip(skip).Take(pageSize).ToList();
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
 
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (pagedItems.AsReadOnly(), nextPageToken, totalCount));
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (allItems.Keys, pagedItems.AsReadOnly(), nextPageToken, totalCount));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceBasic->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IReadOnlyList<JObject>>> ScanTableWithFilterAsync(
+    protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition> filterConditions,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
+        return await InternalScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
+    }
+
+    private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>>
+        InternalScanTableWithFilterCoreAsync(
+            string tableName,
+            IEnumerable<DbAttributeCondition> filterConditions,
+            CancellationToken cancellationToken = default)
+    {
         try
         {
-            var allItemsResult = await InternalScanTableUnsafeAsync(tableName, keyNames, cancellationToken);
+            var allItemsResult = await InternalScanTableUnsafeAsync(tableName, cancellationToken);
             if (!allItemsResult.IsSuccessful)
             {
-                return OperationResult<IReadOnlyList<JObject>>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
             }
 
-            var filteredItems = allItemsResult.Data.Where(item => EvaluateCondition(item, filterCondition)).ToList();
-            return OperationResult<IReadOnlyList<JObject>>.Success(filteredItems.AsReadOnly());
+            var filteredItems = allItemsResult.Data.Items.Where(item => filterConditions.All(c => EvaluateCondition(item, c))).ToList();
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((allItemsResult.Data.Keys, filteredItems.AsReadOnly()));
         }
         catch (Exception e)
         {
-            return OperationResult<IReadOnlyList<JObject>>.Failure(
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(
                 $"DatabaseServiceBasic->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        string[] keyNames,
-        DbAttributeCondition filterCondition,
+        IEnumerable<DbAttributeCondition> filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
-            var filteredItemsResult = await ScanTableWithFilterAsync(tableName, keyNames, filterCondition, cancellationToken);
+            var filteredItemsResult = await InternalScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
             if (!filteredItemsResult.IsSuccessful)
             {
-                return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(filteredItemsResult.ErrorMessage, filteredItemsResult.StatusCode);
+                return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(filteredItemsResult.ErrorMessage, filteredItemsResult.StatusCode);
             }
 
             var filteredItems = filteredItemsResult.Data;
-            var totalCount = filteredItems.Count;
+            var totalCount = filteredItems.Items.Count;
 
             var skip = 0;
             if (int.TryParse(pageToken, out var pageTokenInt))
@@ -764,16 +834,107 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 skip = pageTokenInt;
             }
 
-            var pagedItems = filteredItems.Skip(skip).Take(pageSize).ToList();
+            var pagedItems = filteredItems.Items.Skip(skip).Take(pageSize).ToList();
             var nextPageToken = skip + pageSize < totalCount ? (skip + pageSize).ToString() : null;
 
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Success(
-                (pagedItems.AsReadOnly(), nextPageToken, totalCount));
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (filteredItems.Keys, pagedItems.AsReadOnly(), nextPageToken, totalCount));
         }
         catch (Exception e)
         {
-            return OperationResult<(IReadOnlyList<JObject>, string?, long?)>.Failure(
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
                 $"DatabaseServiceBasic->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!Directory.Exists(_databasePath))
+            {
+                return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success([]));
+            }
+
+            var directories = Directory.GetDirectories(_databasePath);
+            var tableNames = directories
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Cast<string>()
+                .Where(t => !t.StartsWith(SystemTableNamePrefix))
+                .ToList();
+
+            return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly()));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<IReadOnlyList<string>>.Failure($"DatabaseServiceBasic->GetTableNamesAsync: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var tablePath = GetTablePath(tableName);
+
+            // Check if table directory exists
+            if (!Directory.Exists(tablePath))
+            {
+                // Table doesn't exist, consider this a successful deletion
+                return OperationResult<bool>.Success(true);
+            }
+
+            // Delete the table directory
+            var deleteTableTask = Task.Run(() =>
+            {
+                try
+                {
+                    Directory.Delete(tablePath, recursive: true);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return OperationResult<bool>.Failure($"Access denied when deleting table directory: {ex.Message}",
+                        HttpStatusCode.Forbidden);
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    // Directory already doesn't exist, consider success
+                    return OperationResult<bool>.Success(true);
+                }
+                catch (IOException ex)
+                {
+                    return OperationResult<bool>.Failure($"I/O error when deleting table directory: {ex.Message}",
+                        HttpStatusCode.Conflict);
+                }
+                return OperationResult<bool>.Success(true);
+            }, cancellationToken);
+
+            var postDropTableTask = PostDropTableAsync(tableName, cancellationToken);
+
+            await Task.WhenAll(deleteTableTask, postDropTableTask);
+
+            var deleteTableResult = await deleteTableTask;
+            if (!deleteTableResult.IsSuccessful)
+            {
+                return deleteTableResult;
+            }
+
+            var postDropTableResult = await postDropTableTask;
+            if (!postDropTableResult.IsSuccessful)
+            {
+                return OperationResult<bool>.Failure(
+                    $"PostDropTableAsync has failed with {postDropTableResult.ErrorMessage}",
+                    postDropTableResult.StatusCode);
+            }
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<bool>.Failure($"DatabaseServiceBasic->DropTableAsync: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -790,21 +951,25 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
     private async Task<OperationResult<JObject?>> PutOrUpdateItemAsync(
         PutOrUpdateItemType putOrUpdateItemType,
         string tableName,
-        string keyName,
-        PrimitiveType keyValue,
+        DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        DbAttributeCondition? conditionExpression = null,
+        IEnumerable<DbAttributeCondition>? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
+            var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, newItem, cancellationToken);
+            if (!sanityCheckResult.IsSuccessful)
+            {
+                return OperationResult<JObject?>.Failure(sanityCheckResult.ErrorMessage, sanityCheckResult.StatusCode);
+            }
+
             if (!EnsureTableExists(tableName))
                 return OperationResult<JObject?>.Failure($"Could not create table '{tableName}'", HttpStatusCode.InternalServerError);
 
-            var filePath = GetItemFilePath(tableName, keyName, keyValue);
+            var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
             if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
@@ -816,7 +981,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             }
             else // UpdateItem
             {
-                if (conditionExpression != null && existingItem != null && !EvaluateCondition(existingItem, conditionExpression))
+                if (conditions != null && existingItem != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
                 {
                     return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
@@ -826,7 +991,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues && existingItem != null)
             {
                 returnItem = new JObject(existingItem);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -835,14 +1000,31 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
                 : new JObject(newItem);
 
             // Don't store the key in the file itself
-            itemToSave.Remove(keyName);
+            itemToSave.Remove(key.Name);
 
-            await WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
+            var writeItemTask = WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
+
+            if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
+            {
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+
+                await Task.WhenAll(writeItemTask, postInsertTask);
+
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+            }
+            if (!await writeItemTask)
+            {
+                return OperationResult<JObject?>.Failure("Failed to write item", HttpStatusCode.InternalServerError);
+            }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = new JObject(itemToSave);
-                AddKeyToJson(returnItem, keyName, keyValue);
+                AddKeyToJson(returnItem, key.Name, key.Value);
                 ApplyOptions(returnItem);
             }
 
@@ -869,6 +1051,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         return primitive.Kind switch
         {
             PrimitiveTypeKind.String => primitive.AsString,
+            PrimitiveTypeKind.Boolean => primitive.AsBoolean,
             PrimitiveTypeKind.Integer => primitive.AsInteger,
             PrimitiveTypeKind.Double => primitive.AsDouble,
             PrimitiveTypeKind.ByteArray => Convert.ToBase64String(primitive.AsByteArray),
@@ -923,41 +1106,48 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDatabaseService
         }
     }
 
-    private async Task<MemoryScopeMutex> CreateFileMutexScopeAsync(
-        CancellationToken cancellationToken)
-    {
-        return await MemoryScopeMutex.CreateScopeAsync(
-            _memoryService,
-            FileMutexScope,
-            _databaseName,
-            TimeSpan.FromMinutes(1),
-            cancellationToken);
-    }
-    private static readonly IMemoryScope FileMutexScope = new MemoryScopeLambda("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
-
     #endregion
 
     #region Condition Builders
 
-    public DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
-    public DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
         new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
-    public DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
-    public DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
-    public DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
         new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
-    public DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
-    public DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+
+    /// <inheritdoc />
+    public override DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
         new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion

@@ -3,8 +3,8 @@
 
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
-using MongoDB.Driver;
 using xRetry;
 
 namespace CrossCloudKit.Database.Mongo.Tests;
@@ -25,31 +25,14 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 
     protected override IDatabaseService CreateDatabaseService()
     {
-        return new DatabaseServiceMongoDB(GetConnectionString(), TestDatabaseName);
+        return new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName, new MemoryServiceBasic());
     }
-
-    protected override async Task CleanupDatabaseAsync(string tableName)
-    {
-        try
-        {
-            var client = new MongoClient(GetConnectionString());
-            var database = client.GetDatabase(TestDatabaseName);
-
-            await database.DropCollectionAsync(tableName);
-        }
-        catch (Exception)
-        {
-            // Ignore cleanup errors in tests
-        }
-    }
-
-    protected override string GetTestTableName() => $"test-collection-{Guid.NewGuid():N}";
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceMongoDB_WithValidConnectionString_ShouldInitializeSuccessfully()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongoDB(GetConnectionString(), TestDatabaseName);
+        var service = new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName, new MemoryServiceBasic());
 
         // Assert
         service.IsInitialized.Should().BeTrue();
@@ -62,7 +45,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
     public void DatabaseServiceMongoDB_WithInvalidConnectionString_ShouldFailInitialization()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongoDB("mongodb://invalid-host:27017", TestDatabaseName);
+        var service = new DatabaseServiceMongo("mongodb://invalid-host:27017", TestDatabaseName, new MemoryServiceBasic());
 
         // Assert
         // Note: MongoDB client initialization is lazy, so this might still return true

@@ -319,12 +319,14 @@ var condition = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveT
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
 var result = await dbService.UpdateItemAsync(
     "Users", "Id", keyValue, updateData,
-    condition: condition
+    conditions: [condition]
 );
 
 // Check existence with conditions
-var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, condition);
+var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, [condition]);
 ```
+Multiple conditions can be provided. Each condition is joined with an AND operator.
+
 #### Array Operations
 ```csharp
 // Add elements to array
@@ -363,7 +365,7 @@ var allUsers = await dbService.ScanTableAsync("Users", new[] { "Id" });
 
 // Scan with filter
 var activeUsersFilter = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
-var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, activeUsersFilter);
+var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, [activeUsersFilter]);
 
 // Paginated scan
 var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(
@@ -606,6 +608,55 @@ REDIS_PASSWORD=your-redis-password
 - Automatic project and namespace handling
 - Support for service account authentication and Application Default Credentials
 - Efficient batch operations
+
+#### Automatic Backup and Restore
+- **Automated Scheduled Backups**: Configure backups using cron expressions
+- **Cross-Provider Support**: Works with all CrossCloudKit database services
+- **Point-in-Time Restoration**: Restore from any backup file
+- **Cloud Storage Integration**: Stores backups in any supported file service
+- **Distributed Operations**: Uses mutex locking to prevent concurrent backup/restore operations
+- **Event-Driven Notifications**: Publishes backup events via PubSub services
+- **Error Handling**: Comprehensive error reporting and retry mechanism
+```csharp
+    using CrossCloudKit.Interfaces.Classes;
+
+    // Initialize your services
+    var databaseService = new DatabaseServiceAWS(/* parameters */);
+    var fileService = new FileServiceAWS(/* parameters */);
+    var pubSubService = new PubSubServiceAWS(/* parameters */);
+
+    // Create backup service with daily backups at 1:00 AM UTC
+    var backupService = new DatabaseServiceBackup(
+        databaseService: databaseService,
+        fileService: fileService,
+        backupBucketName: "my-backup-bucket",
+        pubsubService: pubSubService,
+        cronExpression: "0 1 * * *", // Daily at 1:00 AM
+        timeZoneInfo: TimeZoneInfo.Utc,
+        backupRootPath: "database-backups/",
+        errorMessageAction: ex => Console.WriteLine($"Backup error: {ex.Message}")
+    );
+    // Every hour: "0 * * * *"
+    // Daily at 2:30 AM: "30 2 * * *"
+    // Weekly on Sundays at midnight: "0 0 * * 0"
+    // Monthly on the 1st at midnight: "0 0 1 * *"
+    // Every 6 hours: "0 */6 * * *"
+
+    // Get backup cursors
+    var backupCursors = backupService.GetBackupFileCursorsAsync().ToListAsync();
+
+    // Restore from a specific backup (e.g., most recent)
+    var latestBackup = backupCursors.Last();
+    var restoreResult = await backupService.RestoreBackupAsync(latestBackup);
+    if (restoreResult.IsSuccessful)
+    {
+        Console.WriteLine("Database restored successfully!");
+    }
+    else
+    {
+        Console.WriteLine($"Restore failed: {restoreResult.ErrorMessage}");
+    }
+```
 
 ### File Storage Services
 

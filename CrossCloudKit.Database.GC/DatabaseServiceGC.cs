@@ -8,6 +8,7 @@
 
 using System.Globalization;
 using System.Net;
+using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using Google.Apis.Auth.OAuth2;
@@ -38,11 +39,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// </summary>
     /// <param name="projectId">GC Project ID</param>
     /// <param name="serviceAccountKeyFilePath">Path to the service account JSON key file</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceGC(
         string projectId,
         string serviceAccountKeyFilePath,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountKeyFilePath);
@@ -83,12 +86,14 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// <param name="projectId">GC Project ID</param>
     /// <param name="serviceAccountJsonContent">JSON content of the service account key</param>
     /// <param name="isBase64Encoded">Whether the JSON content is base64 encoded</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceGC(
         string projectId,
         string serviceAccountJsonContent,
         bool isBase64Encoded,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceAccountJsonContent);
@@ -140,11 +145,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// </summary>
     /// <param name="projectId">GC Project ID</param>
     /// <param name="serviceAccountJsonHexContent">Hex-encoded JSON content of the service account key</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceGC(
         string projectId,
         ReadOnlySpan<char> serviceAccountJsonHexContent,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
@@ -191,11 +198,13 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// </summary>
     /// <param name="projectId">GC Project ID</param>
     /// <param name="useDefaultCredentials">Must be true to use this constructor</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceGC(
         string projectId,
         bool useDefaultCredentials,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
@@ -627,31 +636,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         CancellationToken cancellationToken = default)
     {
-        if (_dsdb == null)
-        {
-            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure("DatabaseServiceGC->ScanTableAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
-        }
-        try
-        {
-            var query = new Query(tableName);
-
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
-            var queryResultsTask = _dsdb.RunQueryAsync(query);
-
-            await Task.WhenAll(getKeysTask, queryResultsTask);
-
-            var getKeysResult = await getKeysTask;
-            if (!getKeysResult.IsSuccessful)
-                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
-
-            var results = ConvertEntitiesToJson(await queryResultsTask);
-
-            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((getKeysResult.Data, results.AsReadOnly()));
-        }
-        catch (Exception e)
-        {
-            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure($"DatabaseServiceGC->ScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
-        }
+        return await InternalScanTableAsync(tableName, null, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -666,70 +651,119 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        if (_dsdb == null)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTablePaginatedAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
-        }
-        try
-        {
-            var query = new Query(tableName)
-            {
-                Limit = pageSize
-            };
 
-            if (!string.IsNullOrEmpty(pageToken))
-            {
-                try
-                {
-                    var cursorBytes = Convert.FromBase64String(pageToken);
-                    query.StartCursor = Google.Protobuf.ByteString.CopyFrom(cursorBytes);
-                }
-                catch
-                {
-                    // Invalid page token, ignore and start from beginning
-                }
-            }
-
-            var queryTask = _dsdb.RunQueryAsync(query);
-
-            IReadOnlyList<string>? keys = null;
-
-            if (string.IsNullOrEmpty(pageToken))
-            {
-                var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
-
-                await Task.WhenAll(getKeysTask, queryTask);
-
-                var getKeysResult = await getKeysTask;
-                if (!getKeysResult.IsSuccessful)
-                    return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
-                keys = getKeysResult.Data;
-            }
-            var queryResults = await queryTask;
-
-            var results = ConvertEntitiesToJson(queryResults);
-
-            string? nextPageToken = null;
-            if (queryResults.EndCursor != null && !queryResults.EndCursor.IsEmpty)
-            {
-                nextPageToken = Convert.ToBase64String(queryResults.EndCursor.ToByteArray());
-            }
-
-            // Note: Google Cloud Datastore doesn't easily provide total count for queries
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
-                (keys, results.AsReadOnly(), nextPageToken, null));
-        }
-        catch (Exception e)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceGC->ScanTablePaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
-        }
+        return await InternalScanTablePaginatedAsync(tableName, pageSize, pageToken, null, cancellationToken);
     }
 
     /// <inheritdoc />
     protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
         IEnumerable<DbAttributeCondition> filterConditions,
+        CancellationToken cancellationToken = default)
+    {
+        return await InternalScanTableAsync(tableName, filterConditions, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    protected override async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
+        string tableName,
+        IEnumerable<DbAttributeCondition> filterConditions,
+        int pageSize,
+        string? pageToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await InternalScanTablePaginatedAsync(tableName, pageSize, pageToken, filterConditions, cancellationToken);
+    }
+
+    private async
+        Task<OperationResult<(
+            IReadOnlyList<string>? Keys,
+            IReadOnlyList<JObject> Items,
+            string? NextPageToken,
+            long? TotalCount)>> InternalScanTablePaginatedAsync(
+        string tableName,
+        int pageSize,
+        string? pageToken = null,
+        IEnumerable<DbAttributeCondition>? filterConditions = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_dsdb == null)
+        {
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
+        }
+        try
+        {
+            IReadOnlyList<string>? keys = null;
+            if (string.IsNullOrEmpty(pageToken))
+            {
+                var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+                if (!getKeysResult.IsSuccessful)
+                    return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+                keys = getKeysResult.Data;
+            }
+            var results = new List<JObject>();
+
+            var nextPageToken = pageToken;
+            do
+            {
+                var query = new Query(tableName)
+                {
+                    Limit = pageSize - results.Count
+                };
+
+                if (!string.IsNullOrEmpty(nextPageToken))
+                {
+                    try
+                    {
+                        query.StartCursor = Google.Protobuf.ByteString.CopyFrom(Convert.FromBase64String(nextPageToken));
+                    }
+                    catch
+                    {
+                        // Invalid page token, ignore and start from beginning
+                    }
+                }
+
+                var queryResults = await _dsdb.RunQueryAsync(query);
+
+                // ReSharper disable once PossibleMultipleEnumeration
+                results.AddRange(ConvertEntitiesToJson(queryResults, filterConditions, pageSize));
+
+                if (queryResults.EndCursor != null && !queryResults.EndCursor.IsEmpty)
+                {
+                    var newToken = Convert.ToBase64String(queryResults.EndCursor.ToByteArray());
+                    if (newToken == nextPageToken && queryResults.Entities.Count == 0)
+                    {
+                        nextPageToken = null;
+                    }
+                    else
+                    {
+                        nextPageToken = newToken;
+                    }
+                }
+                else
+                {
+                    nextPageToken = null;
+                }
+            } while (results.Count < pageSize && nextPageToken != null);
+
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
+                (keys, results.AsReadOnly(), nextPageToken, null));
+        }
+        catch (Exception e)
+        {
+            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
+                $"DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+        }
+    }
+
+    private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableAsync(
+        string tableName,
+        IEnumerable<DbAttributeCondition>? filterConditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -756,79 +790,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         catch (Exception e)
         {
             return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(
-                $"DatabaseServiceGC->ScanTableWithFilterAsync: {e.Message}", HttpStatusCode.InternalServerError);
-        }
-    }
-
-    /// <inheritdoc />
-    protected override async
-        Task<OperationResult<(
-            IReadOnlyList<string>? Keys,
-            IReadOnlyList<JObject> Items,
-            string? NextPageToken,
-            long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
-        string tableName,
-        IEnumerable<DbAttributeCondition> filterConditions,
-        int pageSize,
-        string? pageToken = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (_dsdb == null)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure("DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: DSDB is null.", HttpStatusCode.ServiceUnavailable);
-        }
-        try
-        {
-            var query = new Query(tableName)
-            {
-                Limit = pageSize * 2 // Get more to account for filtering
-            };
-
-            if (!string.IsNullOrEmpty(pageToken))
-            {
-                try
-                {
-                    var cursorBytes = Convert.FromBase64String(pageToken);
-                    query.StartCursor = Google.Protobuf.ByteString.CopyFrom(cursorBytes);
-                }
-                catch
-                {
-                    // Invalid page token, ignore and start from beginning
-                }
-            }
-
-            var queryTask = _dsdb.RunQueryAsync(query);
-
-            IReadOnlyList<string>? keys = null;
-
-            if (string.IsNullOrEmpty(pageToken))
-            {
-                var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
-
-                await Task.WhenAll(getKeysTask, queryTask);
-
-                var getKeysResult = await getKeysTask;
-                if (!getKeysResult.IsSuccessful)
-                    return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
-                keys = getKeysResult.Data;
-            }
-            var queryResults = await queryTask;
-
-            var results = ConvertEntitiesToJson(queryResults, filterConditions, pageSize);
-
-            string? nextPageToken = null;
-            if (queryResults.EndCursor != null && !queryResults.EndCursor.IsEmpty && results.Count == pageSize)
-            {
-                nextPageToken = Convert.ToBase64String(queryResults.EndCursor.ToByteArray());
-            }
-
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
-                (keys, results.AsReadOnly(), nextPageToken, null));
-        }
-        catch (Exception e)
-        {
-            return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Failure(
-                $"DatabaseServiceGC->ScanTableWithFilterPaginatedAsync: {e.Message}", HttpStatusCode.InternalServerError);
+                $"DatabaseServiceGC->InternalScanTableAsync: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -909,6 +871,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                             {
                                 PrimitiveTypeKind.String => new JValue(element.AsString),
                                 PrimitiveTypeKind.Integer => new JValue(element.AsInteger),
+                                PrimitiveTypeKind.Boolean => new JValue(element.AsBoolean),
                                 PrimitiveTypeKind.Double => new JValue(element.AsDouble),
                                 PrimitiveTypeKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
                                 _ => new JValue(element.ToString())
@@ -947,6 +910,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         {
                             PrimitiveTypeKind.String => new JValue(element.AsString),
                             PrimitiveTypeKind.Integer => new JValue(element.AsInteger),
+                            PrimitiveTypeKind.Boolean => new JValue(element.AsBoolean),
                             PrimitiveTypeKind.Double => new JValue(element.AsDouble),
                             PrimitiveTypeKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
                             _ => new JValue(element.ToString())
@@ -1067,7 +1031,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                             var elementsToRemoveStrings = elementsToRemove.Select(element => element.Kind switch
                             {
                                 PrimitiveTypeKind.String => element.AsString,
-                                PrimitiveTypeKind.Integer => element.AsInteger.ToString(),
+                                PrimitiveTypeKind.Integer => element.AsInteger.ToString(CultureInfo.InvariantCulture),
+                                PrimitiveTypeKind.Boolean => element.AsBoolean.ToString(CultureInfo.InvariantCulture),
                                 PrimitiveTypeKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
                                 PrimitiveTypeKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
                                 _ => element.ToString()
@@ -1281,7 +1246,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
     {
         try
         {

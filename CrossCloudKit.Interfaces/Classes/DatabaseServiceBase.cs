@@ -12,8 +12,10 @@ using System.Runtime.CompilerServices;
 
 namespace CrossCloudKit.Interfaces.Classes;
 
-public abstract class DatabaseServiceBase : IDatabaseService
+public abstract class DatabaseServiceBase(IMemoryService memoryService, string? databaseNameIfApplicable = null) : IDatabaseService
 {
+    internal readonly IMemoryService MemoryService = memoryService;
+
     private static JToken FromPrimitiveTypeToJToken(PrimitiveType primitive)
     {
         return primitive.Kind switch
@@ -49,6 +51,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await ItemExistsCoreAsync(tableName, key, conditions, false, cancellationToken);
     }
 
@@ -68,6 +71,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await GetItemCoreAsync(tableName, key, attributesToRetrieve, false, cancellationToken);
     }
 
@@ -87,6 +91,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await GetItemsCoreAsync(tableName, keys, attributesToRetrieve, cancellationToken);
     }
 
@@ -107,6 +112,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await PutItemCoreAsync(tableName, key, item, returnBehavior, overwriteIfExists, cancellationToken);
     }
 
@@ -129,6 +135,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await UpdateItemCoreAsync(tableName, key, updateData, returnBehavior, conditions, cancellationToken);
     }
 
@@ -150,6 +157,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await DeleteItemCoreAsync(tableName, key, returnBehavior, conditions, false, cancellationToken);
     }
 
@@ -173,6 +181,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await AddElementsToArrayCoreAsync(tableName, key, arrayAttributeName, elementsToAdd, returnBehavior, conditions, false, cancellationToken);
     }
 
@@ -198,6 +207,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await RemoveElementsFromArrayCoreAsync(tableName, key, arrayAttributeName, elementsToRemove, returnBehavior, conditions, cancellationToken);
     }
 
@@ -221,6 +231,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await IncrementAttributeCoreAsync(tableName, key, numericAttributeName, incrementValue, conditions, cancellationToken);
     }
 
@@ -239,6 +250,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await ScanTableCoreAsync(tableName, cancellationToken);
     }
 
@@ -255,6 +267,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await ScanTablePaginatedCoreAsync(tableName, pageSize, pageToken, cancellationToken);
     }
 
@@ -272,6 +285,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await ScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
     }
 
@@ -290,6 +304,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await ScanTableWithFilterPaginatedCoreAsync(tableName, filterConditions, pageSize, pageToken, cancellationToken);
     }
 
@@ -315,11 +330,12 @@ public abstract class DatabaseServiceBase : IDatabaseService
     public async Task<OperationResult<bool>> DropTableAsync(string tableName, CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        return await DropTableCoreAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        return await DropTableCoreAsync(tableName, false, cancellationToken);
     }
 
     /// <inheritdoc cref="DropTableAsync"/>
-    protected abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default);
+    protected abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
     public abstract DbAttributeCondition BuildAttributeExistsCondition(string attributeName);
@@ -357,6 +373,7 @@ public abstract class DatabaseServiceBase : IDatabaseService
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
+        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await GetTableKeysCoreAsync(tableName, false, cancellationToken);
     }
 
@@ -374,9 +391,8 @@ public abstract class DatabaseServiceBase : IDatabaseService
             cancellationToken);
         if (!getResult.IsSuccessful)
             return OperationResult<IReadOnlyList<string>>.Failure(getResult.ErrorMessage, getResult.StatusCode);
-        if (getResult.Data == null)
-            return OperationResult<IReadOnlyList<string>>.Failure("Not found.", HttpStatusCode.NotFound);
-        if (!getResult.Data.NotNull().TryGetTypedValue(SystemTableKeysAttributeName, out List<string> result))
+        if (getResult.Data == null
+            || !getResult.Data.TryGetTypedValue(SystemTableKeysAttributeName, out List<string> result))
             result = [];
         return OperationResult<IReadOnlyList<string>>.Success(result);
     }
@@ -385,6 +401,9 @@ public abstract class DatabaseServiceBase : IDatabaseService
         DbKey key,
         CancellationToken cancellationToken)
     {
+        if (tableName == SystemTableName)
+            return OperationResult<bool>.Success(true);
+
         var addElementResult = await AddElementsToArrayCoreAsync(
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
@@ -406,16 +425,26 @@ public abstract class DatabaseServiceBase : IDatabaseService
         string tableName,
         CancellationToken cancellationToken)
     {
+        if (tableName == SystemTableName)
+            return OperationResult<bool>.Success(true);
+
         var deleteResult = await DeleteItemCoreAsync(
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
-            DbReturnItemBehavior.DoNotReturn,
+            DbReturnItemBehavior.ReturnNewValues,
             null,
             true,
             cancellationToken);
-        return deleteResult.IsSuccessful
-            ? OperationResult<bool>.Success(true)
-            : OperationResult<bool>.Failure(deleteResult.ErrorMessage, deleteResult.StatusCode);
+        if (!deleteResult.IsSuccessful)
+            return OperationResult<bool>.Failure(deleteResult.ErrorMessage, deleteResult.StatusCode);
+
+        if (deleteResult.Data == null ||
+            !deleteResult.Data.TryGetTypedValue(SystemTableKeysAttributeName, out List<string> keys)
+            || keys.Count == 0)
+        {
+            return await DropTableCoreAsync(SystemTableName, true, cancellationToken);
+        }
+        return OperationResult<bool>.Success(true);
     }
     protected async Task<OperationResult<bool>> AttributeNamesSanityCheck(
         DbKey key,
@@ -423,6 +452,9 @@ public abstract class DatabaseServiceBase : IDatabaseService
         JObject item,
         CancellationToken cancellationToken)
     {
+        if (tableName == SystemTableName)
+            return OperationResult<bool>.Success(true);
+
         var conditions = new List<DbAttributeCondition>();
         foreach (var attr in item)
         {
@@ -449,29 +481,21 @@ public abstract class DatabaseServiceBase : IDatabaseService
                 : OperationResult<bool>.Success(true);
     }
 
-    private const string SystemTableKeyName = "table";
+    protected const string SystemTableKeyName = "table";
     private const string SystemTableKeysAttributeName = "keys";
     private const string SystemTableNamePrefix = "cross-cloud-kit-database-system-table";
     internal static string SystemTableNamePostfix { private get; set; }  = "";
-    internal static string SystemTableName => SystemTableNamePrefix + SystemTableNamePostfix;
+    protected static string SystemTableName => SystemTableNamePrefix + SystemTableNamePostfix;
 
     private async Task EnsureReadyForOperation()
     {
-        IMemoryService? memoryService;
-
-        lock (_backupLock)
+        if (_backupInActionMemoryService.Value)
         {
-            memoryService = _backupInActionMemoryService;
-        }
-
-        if (memoryService != null)
-        {
-            await using var mutex = await DatabaseServiceBackup.CreateBackupMutexScopeAsync(memoryService);
+            await using var mutex = await DatabaseServiceBackup.CreateBackupMutexScopeAsync(MemoryService);
         }
     }
 
     internal async Task<OperationResult<bool>> RegisterBackupSystem(
-        IMemoryService memoryService,
         IPubSubService pubsubService,
         Action<Exception>? onError,
         CancellationToken cancellationToken)
@@ -484,18 +508,12 @@ public abstract class DatabaseServiceBase : IDatabaseService
             {
                 case BackupCheckPubSubStartedMessage:
                 {
-                    lock (_backupLock)
-                    {
-                        _backupInActionMemoryService = memoryService;
-                    }
+                    _backupInActionMemoryService.SetValue(true);
                     break;
                 }
                 case BackupCheckPubSubEndedMessage:
                 {
-                    lock (_backupLock)
-                    {
-                        _backupInActionMemoryService = null;
-                    }
+                    _backupInActionMemoryService.SetValue(false);
                     break;
                 }
             }
@@ -508,17 +526,13 @@ public abstract class DatabaseServiceBase : IDatabaseService
     private const string BackupCheckPubSubEndedMessage = "ended";
 
     internal async Task<OperationResult<bool>> BackupOrRestoreOperationStarts(
-        IMemoryService memoryService,
         IPubSubService pubsubService,
         CancellationToken cancellationToken)
     {
         var publishResult = await pubsubService.PublishAsync(BackupCheckTopicName, BackupCheckPubSubStartedMessage, cancellationToken);
         if (!publishResult.IsSuccessful) return publishResult;
 
-        lock (_backupLock)
-        {
-            _backupInActionMemoryService = memoryService;
-        }
+        _backupInActionMemoryService.SetValue(true);
 
         // Wait for 10 seconds to allow other services to realize the backup is in progress.
         await Task.Delay(10000, cancellationToken);
@@ -532,12 +546,22 @@ public abstract class DatabaseServiceBase : IDatabaseService
         var publishResult = await pubsubService.PublishAsync(BackupCheckTopicName, BackupCheckPubSubEndedMessage, cancellationToken);
         if (!publishResult.IsSuccessful) return publishResult;
 
-        lock (_backupLock)
-        {
-            _backupInActionMemoryService = null;
-        }
+        _backupInActionMemoryService.SetValue(false);
         return OperationResult<bool>.Success(true);
     }
-    private readonly Lock _backupLock = new();
-    private IMemoryService? _backupInActionMemoryService;
+    private readonly Atomicable<bool> _backupInActionMemoryService = new(false, ThreadSafetyMode.MultipleProducers);
+
+    private async Task<MemoryScopeMutex> CreateMutexScopeAsync(
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        return await MemoryScopeMutex.CreateScopeAsync(
+            MemoryService,
+            MemoryScope,
+            $"{_mutexScopePrefix}{tableName}",
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    }
+    private static readonly MemoryScopeLambda MemoryScope = new("CrossCloudKit.Interfaces.Classes.DatabaseServiceBase:MutexScope");
+    private readonly string _mutexScopePrefix = databaseNameIfApplicable != null ? $"{databaseNameIfApplicable}:" : "";
 }

@@ -32,10 +32,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     // ReSharper disable once ConvertToAutoProperty
     public override bool IsInitialized => _initializationSucceed;
 
-    private readonly string _databaseName;
     private readonly string _databasePath;
-
-    private readonly IMemoryService _memoryService;
 
     private const string RootFolderName = "CrossCloudKit.Database.Basic";
 
@@ -50,10 +47,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string databaseName,
         IMemoryService memoryService,
         string? basePath = null,
-        Action<string>? errorMessageAction = null)
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
-        _databaseName = databaseName;
-        _memoryService = memoryService;
         _databasePath = "";
 
         ArgumentException.ThrowIfNullOrWhiteSpace(databaseName);
@@ -258,7 +253,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
-        await using IAsyncDisposable mutex = !isCalledFromSanityCheck ? await CreateFileMutexScopeAsync(cancellationToken) : EmptyDisposable.Instance;
         try
         {
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
@@ -286,7 +280,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
-        await using IAsyncDisposable mutex = !isCalledInternally ? await CreateFileMutexScopeAsync(cancellationToken) : EmptyDisposable.Instance;
         try
         {
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
@@ -316,7 +309,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             if (keys.Length == 0)
@@ -395,7 +387,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
-        await using IAsyncDisposable mutex = !isCalledFromPostDropTable ? await CreateFileMutexScopeAsync(cancellationToken) : EmptyDisposable.Instance;
         try
         {
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
@@ -440,7 +431,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
-        await using IAsyncDisposable mutex = !isCalledFromPostInsert ? await CreateFileMutexScopeAsync(cancellationToken) : EmptyDisposable.Instance;
         try
         {
             if (elementsToAdd.Length == 0)
@@ -540,7 +530,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             if (elementsToRemove.Length == 0)
@@ -617,7 +606,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         IEnumerable<DbAttributeCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, new JObject { [numericAttributeName] = new JArray() }, cancellationToken);
@@ -682,7 +670,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         return await InternalScanTableUnsafeAsync(tableName, cancellationToken);
     }
     private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableUnsafeAsync(
@@ -754,7 +741,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             var allItemsResult = await InternalScanTableUnsafeAsync(tableName, cancellationToken);
@@ -791,7 +777,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         IEnumerable<DbAttributeCondition> filterConditions,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         return await InternalScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
     }
 
@@ -832,7 +817,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             var filteredItemsResult = await InternalScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
@@ -864,14 +848,13 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default)
+    protected override Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             if (!Directory.Exists(_databasePath))
             {
-                return OperationResult<IReadOnlyList<string>>.Success([]);
+                return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success([]));
             }
 
             var directories = Directory.GetDirectories(_databasePath);
@@ -881,18 +864,17 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 .Cast<string>()
                 .ToList();
 
-            return OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly());
+            return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly()));
         }
         catch (Exception ex)
         {
-            return OperationResult<IReadOnlyList<string>>.Failure($"DatabaseServiceBasic->GetTableNamesAsync: {ex.Message}", HttpStatusCode.InternalServerError);
+            return Task.FromResult(OperationResult<IReadOnlyList<string>>.Failure($"DatabaseServiceBasic->GetTableNamesAsync: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             var tablePath = GetTablePath(tableName);
@@ -975,8 +957,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
-
-        await using var mutex = await CreateFileMutexScopeAsync(cancellationToken);
         try
         {
             var sanityCheckResult = await AttributeNamesSanityCheck(key, tableName, newItem, cancellationToken);
@@ -1122,28 +1102,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         else if (Options.AutoConvertRoundableFloatToInt == DbAutoConvertRoundableFloatToInt.Yes)
         {
             JsonUtilities.ConvertRoundFloatToIntAllInJObject(jsonObject);
-        }
-    }
-
-    private async Task<MemoryScopeMutex> CreateFileMutexScopeAsync(
-        CancellationToken cancellationToken)
-    {
-        return await MemoryScopeMutex.CreateScopeAsync(
-            _memoryService,
-            FileMutexScope,
-            _databaseName,
-            TimeSpan.FromMinutes(1),
-            cancellationToken);
-    }
-    private static readonly IMemoryScope FileMutexScope = new MemoryScopeLambda("CrossCloudKit.Database.Basic.DatabaseServiceBasic");
-    private sealed class EmptyDisposable : IDisposable, IAsyncDisposable
-    {
-        public static EmptyDisposable Instance => new();
-        public void Dispose() { }
-
-        public ValueTask DisposeAsync()
-        {
-            return ValueTask.CompletedTask;
         }
     }
 

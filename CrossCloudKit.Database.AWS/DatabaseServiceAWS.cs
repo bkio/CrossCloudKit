@@ -15,6 +15,7 @@ using Amazon.DynamoDBv2.DocumentModel;
 using System.Globalization;
 using System.Net;
 using System.Text;
+using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using Expression = Amazon.DynamoDBv2.DocumentModel.Expression;
@@ -45,12 +46,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// <param name="accessKey">AWS Access Key</param>
     /// <param name="secretKey">AWS Secret Key</param>
     /// <param name="region">AWS Region that DynamoDB Client will connect to (e.g., eu-west-1)</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceAWS(
         string accessKey,
         string secretKey,
         string region,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(secretKey);
@@ -83,10 +86,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// DatabaseServiceAWS: Constructor for Local DynamoDB Edition
     /// </summary>
     /// <param name="serviceUrl">Service URL for DynamoDB</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceAWS(
         string serviceUrl,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceUrl);
 
@@ -141,7 +146,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             // Create table with flexible key type (default to string for compatibility)
             var createTableRequest = new CreateTableRequest
             {
-                TableName = tableName,
+                TableName = GetTableName(tableName, key),
                 KeySchema =
                 [
                     new KeySchemaElement(key.Name, KeyType.HASH) // Partition key
@@ -253,7 +258,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             if (!equalityCheck.IsSuccessful)
                 return equalityCheck;
         }
-        if (existingKeyCheckResult.StatusCode != HttpStatusCode.NotFound)
+        else if (existingKeyCheckResult.StatusCode != HttpStatusCode.NotFound)
             return OperationResult<bool>.Failure(existingKeyCheckResult.ErrorMessage, existingKeyCheckResult.StatusCode);
 
         AddKeyToBuilder(
@@ -344,11 +349,11 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     {
         // For condition values, we should use proper DynamoDB types
         // to ensure correct comparisons work
-        var asStr = value.ToString();
         return value.Kind switch
         {
-            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => new AttributeValue { N = asStr },
-            _ => new AttributeValue { S = asStr }
+            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => new AttributeValue { N = value.ToString() },
+            PrimitiveTypeKind.Boolean => new AttributeValue { BOOL = value.AsBoolean },
+            _ => new AttributeValue { S = value.ToString() }
         };
     }
 
@@ -539,6 +544,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             {
                 return OperationResult<JObject?>.Failure(tableResult.ErrorMessage, tableResult.StatusCode);
             }
+
             var table = tableResult.Data;
 
             var config = new DeleteItemOperationConfig
@@ -557,7 +563,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 config.ConditionalExpression = BuildConditionalExpression(conditions);
             }
 
-            var document = await table.DeleteItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config, cancellationToken);
+            var document = await table.DeleteItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config,
+                cancellationToken);
 
             if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
             {
@@ -572,6 +579,10 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             }
 
             return OperationResult<JObject?>.Success(null);
+        }
+        catch (ConditionalCheckFailedException e)
+        {
+            return OperationResult<JObject?>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
         }
         catch (Exception ex)
         {
@@ -685,9 +696,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             return OperationResult<JObject?>.Success(null);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException e)
         {
-            return OperationResult<JObject?>.Failure("Condition check failed", HttpStatusCode.PreconditionFailed);
+            return OperationResult<JObject?>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
         }
         catch (Exception ex)
         {
@@ -764,7 +775,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             if (!updateResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure(string.IsNullOrWhiteSpace(updateResult.ErrorMessage) ? "Array update failed" : updateResult.ErrorMessage, HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure(string.IsNullOrWhiteSpace(updateResult.ErrorMessage) ? "Array update failed" : updateResult.ErrorMessage, updateResult.StatusCode);
             }
 
             return returnBehavior switch
@@ -775,9 +786,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 _ => OperationResult<JObject?>.Success(null)
             };
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException e)
         {
-            return OperationResult<JObject?>.Failure("Condition check failed", HttpStatusCode.PreconditionFailed);
+            return OperationResult<JObject?>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
         }
         catch (Exception ex)
         {
@@ -856,9 +867,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             return OperationResult<double>.Failure("Failed to get updated value from DynamoDB response", HttpStatusCode.InternalServerError);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException e)
         {
-            return OperationResult<double>.Failure("Condition check failed", HttpStatusCode.PreconditionFailed);
+            return OperationResult<double>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
         }
         catch (ResourceNotFoundException ex)
         {
@@ -995,7 +1006,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 }
 
                 var response = await _dynamoDbClient.ListTablesAsync(request, cancellationToken);
-                tableNames.AddRange(response.TableNames);
+                tableNames.AddRange(response.TableNames.Select(t => t.Contains('-') ? t[..t.LastIndexOf('-')] : t)); //Without -key
                 lastEvaluatedTableName = response.LastEvaluatedTableName;
             }
             while (!string.IsNullOrEmpty(lastEvaluatedTableName));
@@ -1009,11 +1020,16 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
     {
         if (_dynamoDbClient == null)
         {
             return OperationResult<bool>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (tableName == SystemTableName)
+        {
+            return await InternalDropKeyTable(SystemTableName, SystemTableKeyName, cancellationToken);
         }
 
         var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
@@ -1025,14 +1041,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         var errors = new ConcurrentBag<string>();
 
         var keys = getKeysResult.Data;
-        var scanTasks = keys.Select(key => Task.Run(async () =>
+        var tasks = keys.Select(key => Task.Run(async () =>
         {
             var dropResult = await InternalDropKeyTable(tableName, key, cancellationToken);
             if (!dropResult.IsSuccessful)
                 errors.Add($"{dropResult.ErrorMessage} ({dropResult.StatusCode})");
-        }, cancellationToken));
+        }, cancellationToken)).ToList();
 
-        await Task.WhenAll(scanTasks);
+        await Task.WhenAll(tasks);
 
         if (!errors.IsEmpty)
         {
@@ -1052,12 +1068,11 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
     private async Task<OperationResult<bool>> InternalDropKeyTable(string tableName, string keyName, CancellationToken cancellationToken = default)
     {
+        var compiledTableName = GetTableName(tableName, keyName);
         if (_dynamoDbClient == null)
         {
             return OperationResult<bool>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
         }
-
-        var compiledTableName = GetTableName(tableName, keyName);
         try
         {
             // Check if the table exists before attempting deletion
@@ -1169,6 +1184,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             {
                 AddKeyToJson(item, key.Name, key.Value);
             }
+            NullEmptyStrings(item); // Edge case resolve: Dynamodb ignores attributes with empty strings
 
             var itemAsDocument = Document.FromJson(item.ToString());
 
@@ -1253,9 +1269,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             return OperationResult<JObject?>.Success(null);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException e)
         {
-            return OperationResult<JObject?>.Failure("Condition check failed", HttpStatusCode.PreconditionFailed);
+            return OperationResult<JObject?>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
         }
         catch (Exception ex)
         {
@@ -1410,7 +1426,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     results.Add(jsonObject);
                 }
 
-                if (!search.IsDone)
+                if (documents.Count > 0 && !search.IsDone)
                 {
                     return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>.Success(
                         (keys,
@@ -1546,16 +1562,19 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         switch (value.Kind)
         {
             case PrimitiveTypeKind.String:
-                expression.ExpressionAttributeValues[placeholder] = value.AsString;
+                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsString, false);
+                break;
+            case PrimitiveTypeKind.Boolean:
+                expression.ExpressionAttributeValues[placeholder] = new DynamoDBBool(value.AsBoolean);
                 break;
             case PrimitiveTypeKind.Integer:
-                expression.ExpressionAttributeValues[placeholder] = value.AsInteger;
+                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsInteger.ToString(CultureInfo.InvariantCulture), true);
                 break;
             case PrimitiveTypeKind.Double:
-                expression.ExpressionAttributeValues[placeholder] = value.AsDouble;
+                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsDouble.ToString(CultureInfo.InvariantCulture), true);
                 break;
             case PrimitiveTypeKind.ByteArray:
-                expression.ExpressionAttributeValues[placeholder] = value.ToString();
+                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.ToString());
                 break;
         }
     }
@@ -1669,12 +1688,35 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 PrimitiveTypeKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsInteger),
                 PrimitiveTypeKind.Double when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsDouble),
                 PrimitiveTypeKind.Double when token.Type is JTokenType.Integer => ((double)(long)token).CompareTo(primitive.AsDouble),
+                PrimitiveTypeKind.Boolean when token.Type is JTokenType.Boolean => ((bool)token).CompareTo(primitive.AsBoolean),
                 _ => string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal)
             };
         }
         catch
         {
             return string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal);
+        }
+    }
+
+    private static void NullEmptyStrings(JToken token)
+    {
+        if (token.Type == JTokenType.Object)
+        {
+            foreach (var prop in token.Children<JProperty>())
+            {
+                NullEmptyStrings(prop.Value);
+            }
+        }
+        else if (token.Type == JTokenType.Array)
+        {
+            foreach (var child in token.Children())
+            {
+                NullEmptyStrings(child);
+            }
+        }
+        else if (token.Type == JTokenType.String && token.ToString() == "")
+        {
+            token.Replace(JValue.CreateNull());
         }
     }
 

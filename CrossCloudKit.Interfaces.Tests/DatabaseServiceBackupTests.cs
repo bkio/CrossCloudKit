@@ -48,7 +48,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: "0 0 1 1 *", // Only run once a year for test
             backupRootPath: "backups"
@@ -56,47 +55,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
         // Assert - No exception should be thrown, service should be created
         backupService.Should().NotBeNull();
-    }
-
-    [Fact]
-    public void Constructor_WithNullServices_ShouldThrowException()
-    {
-        // Act & Assert
-        var action1 = () => new DatabaseServiceBackup(
-            null!,
-            _fileService,
-            _backupBucketName,
-            _memoryService,
-            _pubSubService
-        );
-        action1.Should().Throw<ArgumentNullException>();
-
-        var action2 = () => new DatabaseServiceBackup(
-            _databaseService,
-            null!,
-            _backupBucketName,
-            _memoryService,
-            _pubSubService
-        );
-        action2.Should().Throw<ArgumentNullException>();
-
-        var action3 = () => new DatabaseServiceBackup(
-            _databaseService,
-            _fileService,
-            _backupBucketName,
-            null!,
-            _pubSubService
-        );
-        action3.Should().Throw<ArgumentNullException>();
-
-        var action4 = () => new DatabaseServiceBackup(
-            _databaseService,
-            _fileService,
-            _backupBucketName,
-            _memoryService,
-            null!
-        );
-        action4.Should().Throw<ArgumentNullException>();
     }
 
     [Fact]
@@ -529,7 +487,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: "0 1 * * *" // Daily at 1 AM
         );
@@ -538,7 +495,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName + "2",
-            _memoryService,
             _pubSubService,
             cronExpression: "0 0 * * 0" // Weekly on Sunday
         );
@@ -556,7 +512,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: "invalid cron"
         );
@@ -574,7 +529,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: "0 0 1 1 *",
             backupRootPath: customPath
@@ -715,7 +669,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: cronExpression,
             backupRootPath: "backups"
@@ -792,7 +745,6 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             _databaseService,
             _fileService,
             _backupBucketName,
-            _memoryService,
             _pubSubService,
             cronExpression: cronExpression,
             backupRootPath: "backups"

@@ -9,6 +9,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using MongoDB.Bson;
@@ -45,12 +46,14 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     /// <param name="mongoHost">MongoDB Host</param>
     /// <param name="mongoPort">MongoDB Port</param>
     /// <param name="mongoDatabase">MongoDB Database Name</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceMongo(
         string mongoHost,
         int mongoPort,
         string mongoDatabase,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mongoHost);
         ArgumentException.ThrowIfNullOrWhiteSpace(mongoDatabase);
@@ -73,11 +76,13 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     /// </summary>
     /// <param name="connectionString">MongoDB connection string</param>
     /// <param name="mongoDatabase">MongoDB Database Name</param>
+    /// <param name="memoryService">This memory service will be used to ensure global atomicity on functions</param>
     /// <param name="errorMessageAction">Error messages will be pushed to this action</param>
     public DatabaseServiceMongo(
         string connectionString,
         string mongoDatabase,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentException.ThrowIfNullOrWhiteSpace(mongoDatabase);
@@ -96,13 +101,56 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// DatabaseServiceMongoDB: Advanced constructor for MongoDB with configuration JSON
+    /// DatabaseServiceMongoDB: Advanced constructor for MongoDB initialization using a client configuration JSON.
     /// </summary>
+    /// <param name="mongoClientConfigJson">
+    /// JSON configuration string for MongoDB client.
+    /// Can be provided either directly as JSON or as a base64-encoded JSON (commonly used in local environments via <c>launchSettings.json</c>).
+    /// Example structure may include hostnames, ports, replica set info, authentication mechanism, and user credentials.
+    /// </param>
+    /// <param name="mongoPassword">
+    /// Password string used for authentication.
+    /// Applied together with <c>auth.usersWanted</c> configuration values (database, username, and auth mechanism) if present in the JSON.
+    /// </param>
+    /// <param name="mongoDatabase">
+    /// The target MongoDB database name to connect to.
+    /// If the provided JSON contains different database values, this parameter takes precedence for selecting the working database.
+    /// </param>
+    /// <param name="memoryService">
+    /// An implementation of <see cref="IMemoryService"/> used to ensure global atomicity across database operations.
+    /// Prevents race conditions when multiple functions attempt to access or modify the same data.
+    /// </param>
+    /// <param name="errorMessageAction">
+    /// Optional delegate for error handling.
+    /// If provided, exceptions encountered during initialization (e.g., invalid JSON, network issues, authentication errors) are passed to this callback.
+    /// If <c>null</c>, errors are silently handled by setting the initialization state to failed.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// This constructor is intended for scenarios where MongoDB configuration is provided in a structured JSON format,
+    /// often used in enterprise setups with replica sets, multiple hosts, or authentication requirements.
+    /// </para>
+    /// <para>
+    /// Authentication:
+    /// If the configuration JSON contains valid values for <c>db</c>, <c>user</c>, and <c>autoAuthMechanism</c>,
+    /// a <see cref="MongoCredential"/> is created using <paramref name="mongoPassword"/>.
+    /// Otherwise, the client is initialized without explicit credentials.
+    /// </para>
+    /// <para>
+    /// Ports:
+    /// Each host can specify its own port via <c>port</c>. If no port is specified, the default MongoDB port (27017) is used.
+    /// </para>
+    /// <para>
+    /// Errors:
+    /// Any errors during JSON parsing, credential building, or client creation will result in <c>_bInitializationSucceed</c> being set to <c>false</c>.
+    /// </para>
+    /// </remarks>
     public DatabaseServiceMongo(
         string mongoClientConfigJson,
         string mongoPassword,
         string mongoDatabase,
-        Action<string>? errorMessageAction = null)
+        IMemoryService memoryService,
+        Action<string>? errorMessageAction = null) : base(memoryService)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mongoClientConfigJson);
         ArgumentException.ThrowIfNullOrWhiteSpace(mongoDatabase);
@@ -175,14 +223,14 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         }
     }
 
-    private async Task<bool> TableExistsAsync(string tableName, CancellationToken cancellationToken)
+    private Task<bool> TableExists(string tableName)
     {
-        if (_mongoDB == null) return false;
+        if (_mongoDB == null) return Task.FromResult(false);
 
         var filter = new BsonDocument("name", tableName);
         var options = new ListCollectionNamesOptions { Filter = filter };
 
-        return await (await _mongoDB.ListCollectionNamesAsync(options, cancellationToken)).AnyAsync(cancellationToken: cancellationToken);
+        return Task.FromResult(_mongoDB.ListCollectionNames(options).Any());
     }
 
     /// <summary>
@@ -194,7 +242,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         {
             if (_mongoDB == null) return false;
 
-            if (!await TableExistsAsync(tableName, cancellationToken))
+            if (!await TableExists(tableName))
             {
                 await _mongoDB.CreateCollectionAsync(tableName, cancellationToken: cancellationToken);
             }
@@ -261,25 +309,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 return OperationResult<bool>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(key.Name, key.Value);
-
-            var conditionBuilt = false;
-            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
-            {
-                conditionBuilt = true;
-                if (await FindOneAsync(table, finalFilter, cancellationToken) != null)
-                {
-                    return OperationResult<bool>.Success(true);
-                }
-            }
-
-            if (await FindOneAsync(table, filter, cancellationToken) == null)
-            {
-                return OperationResult<bool>.Failure("Item not found.", HttpStatusCode.NotFound);
-            }
-            return conditionBuilt
-                ? OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed)
-                : OperationResult<bool>.Success(true);
+            return await ExistenceAndConditionMatchCheckAsync(table, BuildEqFilter(key.Name, key.Value), conditions, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -424,13 +454,16 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Failure("Failed to get table", HttpStatusCode.InternalServerError);
             }
 
-            var filter = BuildEqFilter(key.Name, key.Value);
-            if (conditions != null && BuildConditionsFilter(out filter, conditions, filter))
+            var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(
+                table,
+                BuildEqFilter(key.Name, key.Value),
+                conditions,
+                cancellationToken);
+            if (!existenceAndConditionCheckResult.IsSuccessful)
             {
-                if (!await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
-                {
-                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                }
+                return existenceAndConditionCheckResult.StatusCode == HttpStatusCode.NotFound
+                    ? OperationResult<JObject?>.Success(null)
+                    : OperationResult<JObject?>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
             }
 
             JObject? returnItem = null;
@@ -498,13 +531,9 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             var filter = BuildEqFilter(key.Name, key.Value);
 
-            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
-            {
-                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                {
-                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                }
-            }
+            var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(table, filter, conditions, cancellationToken);
+            if (!existenceAndConditionCheckResult.IsSuccessful && existenceAndConditionCheckResult.StatusCode != HttpStatusCode.NotFound)
+                return OperationResult<JObject?>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
 
             JObject? returnItem = null;
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
@@ -519,12 +548,14 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                         ApplyOptions(returnItem);
                     }
                 }
+                returnItem ??= new JObject();
             }
 
             var elementsToAddList = elementsToAdd.Select(element => element.Kind switch
             {
                 PrimitiveTypeKind.String => (object)element.AsString,
                 PrimitiveTypeKind.Integer => element.AsInteger,
+                PrimitiveTypeKind.Boolean => element.AsBoolean,
                 PrimitiveTypeKind.Double => element.AsDouble,
                 PrimitiveTypeKind.ByteArray => element.AsByteArray,
                 _ => element.ToString()
@@ -582,11 +613,10 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         foreach (var condition in conditions)
         {
             var conditionFilter = BuildFilterFromCondition(condition);
-            if (conditionFilter != null)
-            {
-                anyFilterAdded = true;
-                finalFilter = Builders<BsonDocument>.Filter.And(finalFilter, conditionFilter);
-            }
+            if (conditionFilter == null) continue;
+
+            anyFilterAdded = true;
+            finalFilter = Builders<BsonDocument>.Filter.And(finalFilter, conditionFilter);
         }
 
         return anyFilterAdded;
@@ -622,13 +652,12 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
 
             var filter = BuildEqFilter(key.Name, key.Value);
-            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
-            {
-                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                {
-                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                }
-            }
+
+            var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(table, filter, conditions, cancellationToken);
+            if (!existenceAndConditionCheckResult.IsSuccessful)
+                return existenceAndConditionCheckResult.StatusCode == HttpStatusCode.NotFound
+                        ? OperationResult<JObject?>.Success(null)
+                        : OperationResult<JObject?>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
 
             JObject? returnItem = null;
             if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
@@ -649,6 +678,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             {
                 PrimitiveTypeKind.String => (object)element.AsString,
                 PrimitiveTypeKind.Integer => element.AsInteger,
+                PrimitiveTypeKind.Boolean => element.AsBoolean,
                 PrimitiveTypeKind.Double => element.AsDouble,
                 PrimitiveTypeKind.ByteArray => element.AsByteArray,
                 _ => element.ToString()
@@ -704,13 +734,9 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             var filter = BuildEqFilter(key.Name, key.Value);
 
-            if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
-            {
-                if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                {
-                    return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                }
-            }
+            var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(table, filter, conditions, cancellationToken);
+            if (!existenceAndConditionCheckResult.IsSuccessful && existenceAndConditionCheckResult.StatusCode != HttpStatusCode.NotFound)
+                return OperationResult<double>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
 
             var update = Builders<BsonDocument>.Update.Inc(numericAttributeName, incrementValue);
             var options = new FindOneAndUpdateOptions<BsonDocument>
@@ -976,7 +1002,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -986,7 +1012,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
 
             // Check if collection exists before attempting to drop it
-            if (!await TableExistsAsync(tableName, cancellationToken))
+            if (!await TableExists(tableName))
             {
                 // Collection doesn't exist, consider this a successful deletion
                 return OperationResult<bool>.Success(true);
@@ -1060,7 +1086,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             {
                 if (!shouldOverrideIfExists)
                 {
-                    if (await HasTableMatchingResultWithFilterAsync(table, filter, cancellationToken))
+                    if (await CheckForExistenceWithFilter(table, filter, cancellationToken))
                     {
                         return OperationResult<JObject?>.Failure("Item already exists", HttpStatusCode.Conflict);
                     }
@@ -1068,13 +1094,9 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
             else // UpdateItem
             {
-                if (conditions != null && BuildConditionsFilter(out var finalFilter, conditions, filter))
-                {
-                    if (!await HasTableMatchingResultWithFilterAsync(table, finalFilter, cancellationToken))
-                    {
-                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                    }
-                }
+                var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(table, filter, conditions, cancellationToken);
+                if (!existenceAndConditionCheckResult.IsSuccessful)
+                    return OperationResult<JObject?>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
             }
 
             JObject? returnItem = null;
@@ -1172,7 +1194,31 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         }
     }
 
-    private static async Task<bool> HasTableMatchingResultWithFilterAsync(
+    private static async Task<OperationResult<bool>> ExistenceAndConditionMatchCheckAsync(
+        IMongoCollection<BsonDocument> table,
+        FilterDefinition<BsonDocument> filter,
+        IEnumerable<DbAttributeCondition>? conditions = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (conditions == null || !BuildConditionsFilter(out var finalFilter, conditions, filter))
+        {
+            return await CheckForExistenceWithFilter(table, filter, cancellationToken)
+                ? OperationResult<bool>.Success(true)
+                : OperationResult<bool>.Failure("Not found.", HttpStatusCode.NotFound);
+        }
+
+        var existsTask = CheckForExistenceWithFilter(table, filter, cancellationToken);
+        var conditionCheckTask = CheckForExistenceWithFilter(table, finalFilter, cancellationToken);
+        await Task.WhenAll(existsTask, conditionCheckTask);
+
+        return !await existsTask
+            ? OperationResult<bool>.Failure("Not found.", HttpStatusCode.NotFound)
+            : !await conditionCheckTask
+                ? OperationResult<bool>.Failure("Condition not satisfied.", HttpStatusCode.PreconditionFailed)
+                : OperationResult<bool>.Success(true);
+    }
+
+    private static async Task<bool> CheckForExistenceWithFilter(
         IMongoCollection<BsonDocument> table,
         FilterDefinition<BsonDocument> filter,
         CancellationToken cancellationToken = default)
@@ -1221,6 +1267,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         {
             PrimitiveTypeKind.String => (object)condition.Value.AsString,
             PrimitiveTypeKind.Integer => condition.Value.AsInteger,
+            PrimitiveTypeKind.Boolean => condition.Value.AsBoolean,
             PrimitiveTypeKind.Double => condition.Value.AsDouble,
             PrimitiveTypeKind.ByteArray => condition.Value.AsByteArray,
             _ => condition.Value.ToString()
@@ -1250,6 +1297,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         {
             PrimitiveTypeKind.String => [condition.ElementValue.AsString],
             PrimitiveTypeKind.Integer => [condition.ElementValue.AsInteger],
+            PrimitiveTypeKind.Boolean => [condition.ElementValue.AsBoolean],
             PrimitiveTypeKind.Double => [condition.ElementValue.AsDouble],
             PrimitiveTypeKind.ByteArray => [condition.ElementValue.AsByteArray],
             _ => [condition.ElementValue.ToString()]

@@ -19,11 +19,11 @@ public abstract class DatabaseServiceTestBase
 {
     protected abstract IDatabaseService CreateDatabaseService();
 
-    private async Task CleanupDatabaseAsync(string tableName, bool dropSystemTable = true)
+    private async Task CleanupDatabaseAsync(string tableName)
     {
+        var service = CreateDatabaseService();
         try
         {
-            var service = CreateDatabaseService();
             if (service.IsInitialized)
             {
                 try
@@ -34,22 +34,25 @@ public abstract class DatabaseServiceTestBase
                 {
                     // Ignore errors in cleanup
                 }
-                if (dropSystemTable)
-                {
-                    try
-                    {
-                        await service.DropTableAsync(DatabaseServiceBase.SystemTableName);
-                    }
-                    catch
-                    {
-                        // Ignore errors in cleanup
-                    }
-                }
             }
         }
         catch (Exception)
         {
             // Ignore cleanup errors in tests - this is common practice for test cleanup
+        }
+        finally
+        {
+            if (service is IDisposable disposable)
+            {
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch (Exception e)
+                {
+                    // Ignore cleanup errors in tests - this is common practice for test cleanup
+                }
+            }
         }
     }
 
@@ -2871,8 +2874,12 @@ public abstract class DatabaseServiceTestBase
             var paginatedResult = await service.ScanTableWithFilterPaginatedAsync(tableName, [userEntityFilter], 2, null);
             paginatedResult.IsSuccessful.Should().BeTrue("Paginated filtering should work");
             paginatedResult.Data.Keys.Should().NotBeNull("First page should return keys");
-            paginatedResult.Data.Keys!.Count.Should().Be(paginatedResult.Data.Items.Count, "Keys count should match items count on current page");
-            paginatedResult.Data.Items.Count.Should().BeLessOrEqualTo(2, "Should respect page size");
+            paginatedResult.Data.Items.Count.Should().Be(2, "Should respect page size");
+            paginatedResult.Data.NextPageToken.Should().NotBeNull("Next page token should be returned");
+
+            var secondPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, [userEntityFilter], 2, paginatedResult.Data.NextPageToken);
+            secondPageResult.IsSuccessful.Should().BeTrue("Paginated filtering should work");
+            secondPageResult.Data.Items.Count.Should().Be(1, "Expected 1 item on second page");
         }
         finally
         {

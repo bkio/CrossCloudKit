@@ -3,6 +3,7 @@
 
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
 using xRetry;
 using Xunit;
@@ -42,22 +43,24 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     /// <returns>A configured DatabaseServiceGC instance</returns>
     private static DatabaseServiceGC CreateServiceForTesting(string projectId)
     {
+        var memoryService = new MemoryServiceBasic();
+
         // First try to get Base64 encoded credentials from environment
         var base64Credentials = Environment.GetEnvironmentVariable("GOOGLE_BASE64_CREDENTIALS");
         if (!string.IsNullOrEmpty(base64Credentials))
         {
-            return new DatabaseServiceGC(projectId, base64Credentials, isBase64Encoded: true, Console.WriteLine);
+            return new DatabaseServiceGC(projectId, base64Credentials, isBase64Encoded: true, memoryService, Console.WriteLine);
         }
 
         // If no Base64 credentials, try JSON credentials from environment
         var jsonCredentials = Environment.GetEnvironmentVariable("GOOGLE_JSON_CREDENTIALS");
         if (!string.IsNullOrEmpty(jsonCredentials))
         {
-            return new DatabaseServiceGC(projectId, jsonCredentials, isBase64Encoded: false, Console.WriteLine);
+            return new DatabaseServiceGC(projectId, jsonCredentials, isBase64Encoded: false, memoryService, Console.WriteLine);
         }
 
         // If no credentials in environment, try using default credentials
-        return new DatabaseServiceGC(projectId, useDefaultCredentials: true, Console.WriteLine);
+        return new DatabaseServiceGC(projectId, useDefaultCredentials: true, memoryService, Console.WriteLine);
     }
 
     protected override IDatabaseService CreateDatabaseService()
@@ -71,6 +74,8 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithServiceAccountFilePath_ShouldInitialize()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // This test demonstrates using a file path (will fail initialization with non-existent file)
 
         // Arrange
@@ -79,7 +84,7 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
         void ErrorAction(string message) => errorMessages.Add(message);
 
         // Act
-        var service = new DatabaseServiceGC(TestProjectId, mockFilePath, ErrorAction);
+        var service = new DatabaseServiceGC(TestProjectId, mockFilePath, memoryService, ErrorAction);
 
         // Assert
         service.Should().NotBeNull();
@@ -96,10 +101,12 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithDefaultCredentials_ShouldInitialize()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // This test may succeed if running with proper ADC setup, or fail gracefully
 
         // Arrange & Act
-        var service = new DatabaseServiceGC(TestProjectId, useDefaultCredentials: true);
+        var service = new DatabaseServiceGC(TestProjectId, useDefaultCredentials: true, memoryService);
 
         // Assert
         service.Should().NotBeNull();
@@ -115,35 +122,43 @@ public class DatabaseServiceGCIntegrationTests : DatabaseServiceTestBase
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullProjectId_ShouldThrowArgumentException()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(null!, useDefaultCredentials: true));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("", useDefaultCredentials: true));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("   ", useDefaultCredentials: true));
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(null!, useDefaultCredentials: true, memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("", useDefaultCredentials: true, memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC("   ", useDefaultCredentials: true, memoryService));
     }
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithDefaultCredentialsFalse_ShouldThrowArgumentException()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Act & Assert
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, useDefaultCredentials: false));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, useDefaultCredentials: false, memoryService));
     }
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullServiceAccountPath_ShouldThrowArgumentException()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, ""));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   "));
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!, memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "", memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   ", memoryService));
     }
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceGC_WithNullJsonContent_ShouldThrowArgumentException()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!, isBase64Encoded: false));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "", isBase64Encoded: false));
-        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   ", isBase64Encoded: false));
+        Assert.Throws<ArgumentNullException>(() => new DatabaseServiceGC(TestProjectId, null!, isBase64Encoded: false, memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "", isBase64Encoded: false, memoryService));
+        Assert.Throws<ArgumentException>(() => new DatabaseServiceGC(TestProjectId, "   ", isBase64Encoded: false, memoryService));
     }
 
     [RetryFact(3, 5000)]

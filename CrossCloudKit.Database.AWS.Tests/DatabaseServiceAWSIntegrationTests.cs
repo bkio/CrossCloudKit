@@ -3,6 +3,7 @@
 
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
 using xRetry;
 
@@ -33,14 +34,15 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         var accessKey = GetAWSAccessKey();
         var secretKey = GetAWSSecretKey();
         var region = GetAWSRegion();
+        var memoryService = new MemoryServiceBasic();
 
         // If credentials are not provided, return a service that will fail initialization
         if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
         {
-            return new DatabaseServiceAWS("invalid-key", "invalid-secret", region);
+            return new DatabaseServiceAWS("invalid-key", "invalid-secret", region, memoryService);
         }
 
-        return new DatabaseServiceAWS(accessKey, secretKey, region);
+        return new DatabaseServiceAWS(accessKey, secretKey, region, memoryService);
     }
 
 
@@ -51,6 +53,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         var accessKey = GetAWSAccessKey();
         var secretKey = GetAWSSecretKey();
         var region = GetAWSRegion();
+        var memoryService = new MemoryServiceBasic();
 
         // Skip if no credentials provided
         if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
@@ -59,7 +62,7 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         }
 
         // Act
-        var service = new DatabaseServiceAWS(accessKey, secretKey, region);
+        var service = new DatabaseServiceAWS(accessKey, secretKey, region, memoryService);
 
         // Assert
         service.IsInitialized.Should().BeTrue();
@@ -71,8 +74,10 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
     [RetryFact(3, 5000)]
     public void DatabaseServiceAWS_WithInvalidCredentials_ShouldFailInitialization()
     {
+        var memoryService = new MemoryServiceBasic();
+
         // Arrange & Act
-        var service = new DatabaseServiceAWS("invalid-access-key", "invalid-secret-key", "us-east-1");
+        var service = new DatabaseServiceAWS("invalid-access-key", "invalid-secret-key", "us-east-1", memoryService);
 
         // Assert
         service.IsInitialized.Should().BeFalse();

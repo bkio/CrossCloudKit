@@ -3,8 +3,8 @@
 
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
+using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
-using MongoDB.Driver;
 using xRetry;
 
 namespace CrossCloudKit.Database.Mongo.Tests;
@@ -25,14 +25,14 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 
     protected override IDatabaseService CreateDatabaseService()
     {
-        return new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName);
+        return new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName, new MemoryServiceBasic());
     }
 
     [RetryFact(3, 5000)]
     public void DatabaseServiceMongoDB_WithValidConnectionString_ShouldInitializeSuccessfully()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName);
+        var service = new DatabaseServiceMongo(GetConnectionString(), TestDatabaseName, new MemoryServiceBasic());
 
         // Assert
         service.IsInitialized.Should().BeTrue();
@@ -45,7 +45,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
     public void DatabaseServiceMongoDB_WithInvalidConnectionString_ShouldFailInitialization()
     {
         // Arrange & Act
-        var service = new DatabaseServiceMongo("mongodb://invalid-host:27017", TestDatabaseName);
+        var service = new DatabaseServiceMongo("mongodb://invalid-host:27017", TestDatabaseName, new MemoryServiceBasic());
 
         // Assert
         // Note: MongoDB client initialization is lazy, so this might still return true

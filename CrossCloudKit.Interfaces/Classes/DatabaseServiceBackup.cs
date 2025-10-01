@@ -30,7 +30,6 @@ public class DatabaseServiceBackup: IAsyncDisposable
         IDatabaseService databaseService,
         IFileService fileService,
         string backupBucketName,
-        IMemoryService memoryService,
         IPubSubService pubsubService,
         string cronExpression = "0 1 * * *",
         TimeZoneInfo? timeZoneInfo = null,
@@ -42,7 +41,6 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
         _databaseService = castedDb;
         _fileService = fileService;
-        _memoryService = memoryService;
         _pubsubService = pubsubService;
 
         var initResult = InitializationCheck();
@@ -57,7 +55,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
         _cronExpression = CronExpression.Parse(cronExpression);
         _timeZone = timeZoneInfo ?? TimeZoneInfo.Utc;
 
-        var regResult = _databaseService.RegisterBackupSystem(_memoryService, _pubsubService, _errorMessageAction, _cts.Token).GetAwaiter().GetResult();
+        var regResult = _databaseService.RegisterBackupSystem(_pubsubService, _errorMessageAction, _cts.Token).GetAwaiter().GetResult();
         if (!regResult.IsSuccessful)
             throw new InvalidOperationException($"RegisterBackupSystem failed with: {regResult.ErrorMessage} ({regResult.StatusCode})");
 
@@ -167,10 +165,10 @@ public class DatabaseServiceBackup: IAsyncDisposable
             return OperationResult<bool>.Failure(ex.Message, HttpStatusCode.InternalServerError);
         }
 
-        await using var mutex = await CreateBackupMutexScopeAsync(_memoryService);
+        await using var mutex = await CreateBackupMutexScopeAsync(_databaseService.MemoryService);
 
         OperationResult<bool> opEndResult;
-        OperationResult<bool> opStartResult = await _databaseService.BackupOrRestoreOperationStarts(_memoryService, _pubsubService, _cts.Token);
+        OperationResult<bool> opStartResult = await _databaseService.BackupOrRestoreOperationStarts(_pubsubService, _cts.Token);
         if (!opStartResult.IsSuccessful) return opStartResult;
         try
         {
@@ -239,7 +237,6 @@ public class DatabaseServiceBackup: IAsyncDisposable
     private readonly TimeZoneInfo _timeZone;
     private readonly DatabaseServiceBase _databaseService;
     private readonly IFileService _fileService;
-    private readonly IMemoryService _memoryService;
     private readonly IPubSubService _pubsubService;
     private readonly string _backupBucketName;
     private readonly Action<Exception>? _errorMessageAction;
@@ -307,10 +304,10 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
         var finalArray = new JArray();
         {
-            await using var mutex = await CreateBackupMutexScopeAsync(_memoryService);
+            await using var mutex = await CreateBackupMutexScopeAsync(_databaseService.MemoryService);
 
             OperationResult<bool> opEndResult;
-            OperationResult<bool> opStartResult = await _databaseService.BackupOrRestoreOperationStarts(_memoryService, _pubsubService, _cts.Token);
+            OperationResult<bool> opStartResult = await _databaseService.BackupOrRestoreOperationStarts(_pubsubService, _cts.Token);
             if (!opStartResult.IsSuccessful)
                 throw new InvalidOperationException($"BackupOrRestoreOperationStarts failed with: {opStartResult.ErrorMessage} ({opStartResult.StatusCode})");
             try
@@ -387,8 +384,6 @@ public class DatabaseServiceBackup: IAsyncDisposable
             return OperationResult<bool>.Failure("Database service is not initialized.", HttpStatusCode.ServiceUnavailable);
         if (_fileService is not { IsInitialized: true })
             return OperationResult<bool>.Failure("File service is not initialized.", HttpStatusCode.ServiceUnavailable);
-        if (_memoryService is not { IsInitialized: true })
-            return OperationResult<bool>.Failure("Memory service is not initialized.", HttpStatusCode.ServiceUnavailable);
         return _pubsubService is not { IsInitialized: true }
             ? OperationResult<bool>.Failure("Pub/Sub service is not initialized.", HttpStatusCode.ServiceUnavailable)
             : OperationResult<bool>.Success(true);

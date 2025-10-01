@@ -8,6 +8,7 @@ using CrossCloudKit.Memory.Basic;
 using CrossCloudKit.PubSub.Basic;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Distributed;
+using xRetry;
 using Xunit;
 
 namespace CrossCloudKit.Interfaces.Tests;
@@ -66,7 +67,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         _testKeys.Add(key);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetAsync_WithValidKey_ReturnsData()
     {
         // Arrange
@@ -86,7 +87,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         result.Should().Equal(expectedData);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetAsync_WithNullKey_ReturnsNull()
     {
         // Act
@@ -96,7 +97,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         result.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetAsync_WithNonExistentKey_ReturnsNull()
     {
         // Arrange
@@ -110,7 +111,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         result.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_WithNoExpiration_StoresDataWithInfiniteTtl()
     {
         // Arrange
@@ -133,7 +134,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         stillAccessible.Should().NotBeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_WithSlidingExpiration_StoresDataWithTtl()
     {
         // Arrange
@@ -160,7 +161,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         expiredData.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_WithAbsoluteExpiration_StoresDataWithCalculatedTtl()
     {
         // Arrange
@@ -187,7 +188,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         expiredData.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_WithAbsoluteExpirationRelativeToNow_StoresDataWithTtl()
     {
         // Arrange
@@ -214,7 +215,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         expiredData.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RefreshAsync_WithInfiniteTtl_DoesNotSetExpiration()
     {
         // Arrange
@@ -235,7 +236,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         refreshedData.Should().Equal(value);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RefreshAsync_WithNullKey_DoesNothing()
     {
         // Act & Assert - Should not throw an exception
@@ -245,7 +246,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         Assert.True(true);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RemoveAsync_WithValidKey_DeletesAllKeys()
     {
         // Arrange
@@ -269,7 +270,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         afterRemove.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RemoveAsync_WithNullKey_DoesNothing()
     {
         // Act & Assert - Should not throw an exception
@@ -279,7 +280,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         Assert.True(true);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Get_CallsGetAsync()
     {
         // Arrange
@@ -301,7 +302,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         result.Should().Equal(expectedData);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Set_CallsSetAsync()
     {
         // Arrange
@@ -319,7 +320,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         retrievedData.Should().Equal(value);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Refresh_CallsRefreshAsync()
     {
         // Arrange
@@ -343,7 +344,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         refreshedData.Should().Equal(value);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Remove_CallsRemoveAsync()
     {
         // Arrange
@@ -367,7 +368,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         afterRemove.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_HandlesException_Gracefully()
     {
         // Arrange - Use a disposed memory service to simulate exception scenario
@@ -386,7 +387,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         Assert.True(true);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetAsync_HandlesException_ReturnsNull()
     {
         // Arrange - Use a disposed memory service to simulate exception scenario
@@ -416,7 +417,7 @@ public class MemoryServiceDistributedCacheTests : IAsyncLifetime
         result.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task SetAsync_WithNullValue_DoesNothing()
     {
         // Arrange

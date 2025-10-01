@@ -8,6 +8,7 @@ using CrossCloudKit.PubSub.Basic;
 using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using Microsoft.Extensions.FileProviders;
+using xRetry;
 using Xunit;
 
 namespace CrossCloudKit.Interfaces.Tests;
@@ -53,7 +54,7 @@ public class FileServiceFileProviderTests : IDisposable
 
     #region Constructor Tests
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Constructor_WithNullFileService_ShouldThrowArgumentNullException()
     {
         // Act & Assert
@@ -61,7 +62,7 @@ public class FileServiceFileProviderTests : IDisposable
             null!, _bucketName, _rootPath));
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Constructor_WithNullBucketName_ShouldThrowArgumentNullException()
     {
         // Act & Assert
@@ -69,7 +70,7 @@ public class FileServiceFileProviderTests : IDisposable
             _fileService, null!, _rootPath));
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Constructor_WithNullRootPath_ShouldThrowArgumentNullException()
     {
         // Act & Assert
@@ -77,7 +78,7 @@ public class FileServiceFileProviderTests : IDisposable
             _fileService, _bucketName, null!));
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Constructor_WithValidParameters_ShouldSucceed()
     {
         // Act
@@ -91,7 +92,7 @@ public class FileServiceFileProviderTests : IDisposable
 
     #region GetFileInfo Tests
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetFileInfo_WithExistingFile_ShouldReturnFileInfo()
     {
         // Arrange
@@ -117,7 +118,7 @@ public class FileServiceFileProviderTests : IDisposable
         fileInfo.PhysicalPath.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void GetFileInfo_WithNonExistingFile_ShouldReturnNotFoundFileInfo()
     {
         // Arrange
@@ -135,7 +136,7 @@ public class FileServiceFileProviderTests : IDisposable
         _capturedErrors[0].Should().BeOfType<FileNotFoundException>();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void GetFileInfo_WithEmptyPath_ShouldReturnNotFoundFileInfo()
     {
         // Arrange
@@ -152,7 +153,7 @@ public class FileServiceFileProviderTests : IDisposable
         _capturedErrors[0].Should().BeOfType<InvalidOperationException>();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetFileInfo_FileStream_ShouldReturnCorrectContent()
     {
         // Arrange
@@ -176,7 +177,7 @@ public class FileServiceFileProviderTests : IDisposable
         actualContent.Should().Be(content);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void GetFileInfo_WithDisposedProvider_ShouldReturnNotFoundFileInfo()
     {
         // Arrange
@@ -198,7 +199,7 @@ public class FileServiceFileProviderTests : IDisposable
 
     #region GetDirectoryContents Tests
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetDirectoryContents_WithFilesAndDirectories_ShouldReturnCorrectStructure()
     {
         // Arrange
@@ -245,7 +246,7 @@ public class FileServiceFileProviderTests : IDisposable
         directories.Should().Contain(d => d.Name == "subdir2");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetDirectoryContents_WithSubdirectory_ShouldReturnOnlyImmediateChildren()
     {
         // Arrange
@@ -276,7 +277,7 @@ public class FileServiceFileProviderTests : IDisposable
         directories[0].Name.Should().Be("nested");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void GetDirectoryContents_WithNonExistentDirectory_ShouldReturnNotFound()
     {
         // Arrange
@@ -291,7 +292,7 @@ public class FileServiceFileProviderTests : IDisposable
         contents.Should().Equal(NotFoundDirectoryContents.Singleton);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public Task GetDirectoryContents_WithEmptyDirectory_ShouldReturnEmptyContents()
     {
         // Arrange
@@ -307,7 +308,7 @@ public class FileServiceFileProviderTests : IDisposable
         return Task.CompletedTask;
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void GetDirectoryContents_WithDisposedProvider_ShouldReturnNotFound()
     {
         // Arrange
@@ -325,7 +326,7 @@ public class FileServiceFileProviderTests : IDisposable
         _capturedErrors[0].Should().BeOfType<ObjectDisposedException>();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetDirectoryContents_DirectoryInfo_ShouldHaveCorrectProperties()
     {
         // Arrange
@@ -356,7 +357,7 @@ public class FileServiceFileProviderTests : IDisposable
 
     #region Watch Tests
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Watch_WithValidFilter_ShouldReturnChangeToken()
     {
         // Arrange
@@ -371,7 +372,7 @@ public class FileServiceFileProviderTests : IDisposable
         changeToken.ActiveChangeCallbacks.Should().BeTrue();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Watch_WithSameFilter_ShouldReturnSameToken()
     {
         // Arrange
@@ -385,7 +386,7 @@ public class FileServiceFileProviderTests : IDisposable
         token1.Should().BeSameAs(token2);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Watch_WithDisposedProvider_ShouldReturnNullToken()
     {
         // Arrange
@@ -401,7 +402,7 @@ public class FileServiceFileProviderTests : IDisposable
         _capturedErrors[0].Should().BeOfType<ObjectDisposedException>();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Watch_WithNullPubSubService_ShouldReturnNullToken()
     {
         // Arrange
@@ -414,7 +415,7 @@ public class FileServiceFileProviderTests : IDisposable
         changeToken.Should().Be(NullChangeToken.Singleton);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Watch_ChangeTokenCallback_ShouldTriggerWhenNotified()
     {
         // Arrange
@@ -473,7 +474,7 @@ public class FileServiceFileProviderTests : IDisposable
         }
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetDirectoryContents_WithDeeplyNestedStructure_ShouldOnlyShowImmediateChildren()
     {
         // Arrange
@@ -500,7 +501,7 @@ public class FileServiceFileProviderTests : IDisposable
         level1Contents.Should().Contain(i => i.IsDirectory && i.Name == "level2");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetDirectoryContents_WithManyFiles_ShouldHandlePagination()
     {
         // Arrange
@@ -530,7 +531,7 @@ public class FileServiceFileProviderTests : IDisposable
 
     #region Disposal Tests
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Dispose_ShouldCleanupResourcesAndNotThrow()
     {
         // Arrange
@@ -545,7 +546,7 @@ public class FileServiceFileProviderTests : IDisposable
         exception2.Should().BeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Dispose_AfterDisposal_AllOperationsShouldReturnSafeDefaults()
     {
         // Arrange

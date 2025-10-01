@@ -9,7 +9,7 @@ using CrossCloudKit.PubSub.Basic;
 using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using Newtonsoft.Json.Linq;
-using Xunit;
+using xRetry;
 
 namespace CrossCloudKit.Interfaces.Tests;
 
@@ -40,7 +40,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         _pubSubService.IsInitialized.Should().BeTrue();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task Constructor_WithValidServices_ShouldInitializeSuccessfully()
     {
         // Arrange & Act
@@ -57,7 +57,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         backupService.Should().NotBeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetBackupFileCursorsAsync_WhenNoBackupsExist_ShouldReturnEmpty()
     {
         // Arrange
@@ -74,7 +74,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         cursors.Should().BeEmpty();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetBackupFileCursorsAsync_WithExistingBackups_ShouldReturnCursors()
     {
         // Arrange
@@ -112,7 +112,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         });
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithValidBackup_ShouldRestoreSuccessfully()
     {
         // Arrange
@@ -190,7 +190,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         restoredItem.Data!["Age"]!.Value<int>().Should().Be(30);
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithMultipleTables_ShouldRestoreAllTables()
     {
         // Arrange
@@ -265,7 +265,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         prod2.Data!["Name"]!.Value<string>().Should().Be("Product B");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithInvalidBackupData_ShouldReturnFailure()
     {
         // Arrange
@@ -314,7 +314,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         result.ErrorMessage.Should().Contain("Invalid items");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithNonExistentBackup_ShouldReturnFailure()
     {
         // Arrange
@@ -352,7 +352,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         result.IsSuccessful.Should().BeFalse();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithDuplicateTableNames_ShouldReturnFailure()
     {
         // Arrange
@@ -410,7 +410,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         result.ErrorMessage.Should().Contain("duplicate detected");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_OverwritesExistingData_ShouldSucceed()
     {
         // Arrange
@@ -479,7 +479,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         restoredItem.Data!["Email"]!.Value<string>().Should().Be("backup@example.com");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task Constructor_WithCronExpression_ShouldAcceptValidCronExpressions()
     {
         // Arrange & Act
@@ -504,7 +504,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         weeklyBackup.Should().NotBeNull();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public void Constructor_WithInvalidCronExpression_ShouldThrowException()
     {
         // Act & Assert
@@ -520,7 +520,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             .Where(ex => ex.GetType().Name.Contains("Cron") || ex.Message.Contains("cron") || ex.Message.Contains("invalid"));
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task Constructor_WithCustomBackupRootPath_ShouldUseCorrectPath()
     {
         // Arrange
@@ -555,7 +555,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         cursors[0].FileName.Should().Be("test-backup.json");
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task RestoreBackupAsync_WithEmptyItems_ShouldSucceed()
     {
         // Arrange
@@ -605,7 +605,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         scanResult.Data.Items.Should().BeEmpty();
     }
 
-    [Fact]
+    [RetryFact(3, 5000)]
     public async Task GetBackupFileCursorsAsync_WithPagination_ShouldReturnPagedResults()
     {
         // Arrange

@@ -993,6 +993,8 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 tableNames.AddRange(cursor.Current);
             }
 
+            tableNames = tableNames.Where(t => !t.StartsWith(SystemTableNamePrefix)).ToList();
+
             return OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly());
         }
         catch (Exception ex)

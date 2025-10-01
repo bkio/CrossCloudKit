@@ -14,18 +14,49 @@ using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.Interfaces.Classes;
 
+/// <summary>
+/// Represents a cursor for navigating backup files stored in the file service.
+/// Used to identify and access specific backup files for restoration operations.
+/// </summary>
 public sealed class DbBackupFileCursor
 {
     internal DbBackupFileCursor(string fileName)
     {
         FileName = fileName;
     }
+
+    /// <summary>
+    /// Gets the name of the backup file without the root path prefix.
+    /// </summary>
     public string FileName { get; }
 }
 
+/// <summary>
+/// Provides automated database backup and restoration capabilities for CrossCloudKit database services.
+/// This service runs scheduled backups using cron expressions and stores backup files in any supported file service.
+/// Supports point-in-time restoration and distributed mutex locking to prevent concurrent operations.
+/// </summary>
+/// <remarks>
+/// The backup service creates JSON files containing complete database snapshots with table structure and data.
+/// All backup and restore operations are protected by distributed mutex locks to ensure data consistency.
+/// The service publishes events through the PubSub service during backup and restore operations.
+/// </remarks>
 // ReSharper disable once ClassNeverInstantiated.Global
 public class DatabaseServiceBackup: IAsyncDisposable
 {
+    /// <summary>
+    /// Initializes a new instance of the DatabaseServiceBackup class with specified services and configuration.
+    /// </summary>
+    /// <param name="databaseService">The database service to back up. Must derive from DatabaseServiceBase.</param>
+    /// <param name="fileService">The file service used to store backup files.</param>
+    /// <param name="backupBucketName">The name of the bucket or container where backup files will be stored.</param>
+    /// <param name="pubsubService">The PubSub service used for publishing backup operation events.</param>
+    /// <param name="cronExpression">The cron expression defining the backup schedule. Defaults to "0 1 * * *" (daily at 1:00 AM).</param>
+    /// <param name="timeZoneInfo">The time zone for interpreting the cron expression. Defaults to UTC.</param>
+    /// <param name="backupRootPath">The root path within the bucket where backups will be stored. Defaults to empty string.</param>
+    /// <param name="errorMessageAction">Optional callback for handling errors that occur during backup operations.</param>
+    /// <exception cref="ArgumentException">Thrown when the database service does not derive from DatabaseServiceBase.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when any of the required services are not properly initialized or registration fails.</exception>
     public DatabaseServiceBackup(
         IDatabaseService databaseService,
         IFileService fileService,
@@ -62,6 +93,17 @@ public class DatabaseServiceBackup: IAsyncDisposable
         _backgroundTask = Task.Run(async () => await RunBackgroundTaskAsync());
     }
 
+    /// <summary>
+    /// Asynchronously lists all available backup files as cursors for restoration operations.
+    /// </summary>
+    /// <param name="pageSize">The number of files to retrieve per page during enumeration. Defaults to 1000.</param>
+    /// <param name="cancellationToken">A cancellation token to cancel the enumeration operation.</param>
+    /// <returns>An async enumerable of DbBackupFileCursor objects representing available backup files.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the service is not properly initialized or file listing fails.</exception>
+    /// <remarks>
+    /// This method uses pagination internally to efficiently handle large numbers of backup files.
+    /// The returned cursors can be used with RestoreBackupAsync to perform point-in-time restoration.
+    /// </remarks>
     public async IAsyncEnumerable<DbBackupFileCursor> GetBackupFileCursorsAsync(
         int pageSize = 1000,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -99,6 +141,22 @@ public class DatabaseServiceBackup: IAsyncDisposable
         } while (!string.IsNullOrEmpty(continuationToken));
     }
 
+    /// <summary>
+    /// Restores the database from a specified backup file, replacing all existing data.
+    /// </summary>
+    /// <param name="backupFileCursor">The backup file cursor identifying which backup to restore.</param>
+    /// <returns>An OperationResult indicating the success or failure of the restoration operation.</returns>
+    /// <remarks>
+    /// This operation performs a complete database restoration by:
+    /// 1. Downloading and parsing the backup file
+    /// 2. Validating all data integrity
+    /// 3. Acquiring a distributed mutex lock to prevent concurrent operations
+    /// 4. Dropping existing tables and recreating them with backup data
+    /// 5. Publishing restoration events through the PubSub service
+    ///
+    /// WARNING: This operation is destructive and will completely replace all existing database content.
+    /// The operation is atomic - either all tables are restored successfully, or the operation fails entirely.
+    /// </remarks>
     public async Task<OperationResult<bool>> RestoreBackupAsync(DbBackupFileCursor backupFileCursor)
     {
         if (_disposed)
@@ -114,7 +172,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
             await using var mStream = new MemoryTributary();
             await _fileService.DownloadFileAsync(
                 _backupBucketName,
-                $"{_backupBucketName}{backupFileCursor.FileName}",
+                $"{_backupRootPath}{backupFileCursor.FileName}",
                 new StringOrStream(mStream, 0, Encoding.UTF8),
                 null,
                 _cts.Token);
@@ -176,7 +234,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
             var tasks = tables.Values.Select(async tableData =>
             {
-                var dropResult = await _databaseService.DropTableAsync(tableData.TableName, _cts.Token);
+                var dropResult = await _databaseService.DropTableCoreAsync(tableData.TableName, false, _cts.Token);
                 if (!dropResult.IsSuccessful)
                 {
                     errors.Add(dropResult.ErrorMessage);
@@ -184,7 +242,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
                 var innerTasks = tableData.Items.Select(async item =>
                 {
-                    var putResult = await _databaseService.PutItemAsync(
+                    var putResult = await _databaseService.PutItemCoreAsync(
                         tableData.TableName,
                         new DbKey(tableData.KeyName,
                             new PrimitiveType(
@@ -220,6 +278,16 @@ public class DatabaseServiceBackup: IAsyncDisposable
     }
     private record RestoreTableRecord(string TableName, string KeyName, JArray Items);
 
+    /// <summary>
+    /// Creates a distributed mutex scope for coordinating backup and restore operations across multiple processes.
+    /// </summary>
+    /// <param name="memoryService">The memory service used for distributed locking.</param>
+    /// <returns>A MemoryScopeMutex that can be used to coordinate backup/restore operations.</returns>
+    /// <remarks>
+    /// This mutex ensures that only one backup or restore operation can run at a time across all instances
+    /// of the backup service. The mutex has a 5-minute time-to-live to prevent indefinite locks in case
+    /// of process failures. This method is used internally by both backup and restore operations.
+    /// </remarks>
     internal static async Task<MemoryScopeMutex> CreateBackupMutexScopeAsync(IMemoryService memoryService)
     {
         return await MemoryScopeMutex.CreateScopeAsync(
@@ -312,7 +380,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                 throw new InvalidOperationException($"BackupOrRestoreOperationStarts failed with: {opStartResult.ErrorMessage} ({opStartResult.StatusCode})");
             try
             {
-                var tableNamesResult = await _databaseService.GetTableNamesAsync(_cts.Token);
+                var tableNamesResult = await _databaseService.GetTableNamesCoreAsync(_cts.Token);
                 if (!tableNamesResult.IsSuccessful)
                     throw new InvalidOperationException($"GetTableNamesAsync failed with: {tableNamesResult.ErrorMessage}");
                 var tableNames = tableNamesResult.Data;
@@ -321,7 +389,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
                 foreach (var tableName in tableNames)
                 {
-                    var scanResult = await _databaseService.ScanTableAsync(tableName, _cts.Token);
+                    var scanResult = await _databaseService.ScanTableCoreAsync(tableName, _cts.Token);
                     if (!scanResult.IsSuccessful)
                         throw new InvalidOperationException($"ScanTableAsync failed with: {scanResult.ErrorMessage}");
                     if (scanResult.Data.Items.Count == 0)
@@ -361,14 +429,13 @@ public class DatabaseServiceBackup: IAsyncDisposable
             return;
 
         var compiled = finalArray.ToString(Formatting.None);
-        var backupPath = $"{_backupRootPath}/{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}.json";
 
         await using var mStream = new MemoryTributary(Encoding.UTF8.GetBytes(compiled));
 
         var uploadResult = await _fileService.UploadFileAsync(
             new StringOrStream(mStream, mStream.Length, Encoding.UTF8),
             _backupBucketName,
-            backupPath,
+            $"{_backupRootPath}{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}.json",
             cancellationToken: _cts.Token);
         if (!uploadResult.IsSuccessful)
             throw new InvalidOperationException($"UploadFileAsync failed with: {uploadResult.ErrorMessage}");
@@ -389,6 +456,20 @@ public class DatabaseServiceBackup: IAsyncDisposable
             : OperationResult<bool>.Success(true);
     }
 
+    /// <summary>
+    /// Asynchronously disposes of the backup service, stopping the background task and releasing resources.
+    /// </summary>
+    /// <returns>A ValueTask representing the asynchronous disposal operation.</returns>
+    /// <remarks>
+    /// This method gracefully shuts down the background backup task by:
+    /// 1. Cancelling the background task using the cancellation token
+    /// 2. Waiting up to 5 seconds for the background task to complete
+    /// 3. Disposing of the cancellation token source
+    /// 4. Marking the service as disposed
+    ///
+    /// Any exceptions during disposal are silently ignored to prevent issues during cleanup.
+    /// Once disposed, the service cannot be reused and will reject further operations.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         try

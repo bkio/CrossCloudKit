@@ -117,7 +117,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     }
 
     /// <inheritdoc cref="PutItemAsync"/>
-    protected abstract Task<OperationResult<JObject?>> PutItemCoreAsync(
+    protected internal abstract Task<OperationResult<JObject?>> PutItemCoreAsync(
         string tableName,
         DbKey key,
         JObject item,
@@ -255,7 +255,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     }
 
     /// <inheritdoc cref="ScanTableAsync"/>
-    protected abstract Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableCoreAsync(
+    protected internal abstract Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableCoreAsync(
         string tableName,
         CancellationToken cancellationToken = default);
 
@@ -324,7 +324,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     }
 
     /// <inheritdoc cref="GetTableNamesAsync"/>
-    protected abstract Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default);
+    protected internal abstract Task<OperationResult<IReadOnlyList<string>>> GetTableNamesCoreAsync(CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
     public async Task<OperationResult<bool>> DropTableAsync(string tableName, CancellationToken cancellationToken = default)
@@ -335,7 +335,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     }
 
     /// <inheritdoc cref="DropTableAsync"/>
-    protected abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default);
+    protected internal abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
     public abstract DbAttributeCondition BuildAttributeExistsCondition(string attributeName);
@@ -483,7 +483,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
 
     protected const string SystemTableKeyName = "table";
     private const string SystemTableKeysAttributeName = "keys";
-    private const string SystemTableNamePrefix = "cross-cloud-kit-database-system-table";
+    protected const string SystemTableNamePrefix = "cross-cloud-kit-database-system-table";
     internal static string SystemTableNamePostfix { private get; set; }  = "";
     protected static string SystemTableName => SystemTableNamePrefix + SystemTableNamePostfix;
 

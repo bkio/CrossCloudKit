@@ -1006,7 +1006,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 }
 
                 var response = await _dynamoDbClient.ListTablesAsync(request, cancellationToken);
-                tableNames.AddRange(response.TableNames.Select(t => t.Contains('-') ? t[..t.LastIndexOf('-')] : t)); //Without -key
+                tableNames.AddRange(response.TableNames
+                    .Where(t => !t.StartsWith(SystemTableNamePrefix))
+                    .Select(t => t.Contains('-') ? t[..t.LastIndexOf('-')] : t)); //Without -key
                 lastEvaluatedTableName = response.LastEvaluatedTableName;
             }
             while (!string.IsNullOrEmpty(lastEvaluatedTableName));

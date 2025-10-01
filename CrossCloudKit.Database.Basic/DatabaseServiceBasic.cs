@@ -862,6 +862,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 .Select(Path.GetFileName)
                 .Where(name => !string.IsNullOrEmpty(name))
                 .Cast<string>()
+                .Where(t => !t.StartsWith(SystemTableNamePrefix))
                 .ToList();
 
             return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success(tableNames.AsReadOnly()));

@@ -1227,13 +1227,12 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
             foreach (var entity in queryResults.Entities)
             {
-                if (entity.Key.Path.Count > 0)
+                if (entity.Key.Path.Count <= 0) continue;
+
+                var kindName = entity.Key.Path.Last().Name;
+                if (!string.IsNullOrEmpty(kindName) && !kindName.StartsWith("__") && !kindName.StartsWith(SystemTableNamePrefix))
                 {
-                    var kindName = entity.Key.Path.Last().Name;
-                    if (!string.IsNullOrEmpty(kindName) && !kindName.StartsWith("__"))
-                    {
-                        kindNames.Add(kindName);
-                    }
+                    kindNames.Add(kindName);
                 }
             }
 

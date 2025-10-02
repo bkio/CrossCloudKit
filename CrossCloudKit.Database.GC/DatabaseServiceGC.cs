@@ -396,7 +396,6 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         DbKey key,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -444,7 +443,6 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         DbKey key,
         string[]? attributesToRetrieve = null,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -563,7 +561,6 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         const int maxRetryNumber = 5;
@@ -701,7 +698,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
             IReadOnlyList<string>? keys = null;
             if (string.IsNullOrEmpty(pageToken))
             {
-                var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+                var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
                 if (!getKeysResult.IsSuccessful)
                     return OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
                 keys = getKeysResult.Data;
@@ -774,7 +771,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         {
             var query = new Query(tableName);
 
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, cancellationToken);
             var queryResultsTask = _dsdb.RunQueryAsync(query);
 
             await Task.WhenAll(getKeysTask, queryResultsTask);
@@ -890,7 +887,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                             {
-                                var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
+                                var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
                                 return getResult;
                             }
 
@@ -944,7 +941,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                         if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                         {
-                            var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
+                            var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
                             return getResult;
                         }
 
@@ -1062,7 +1059,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                                 if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                                 {
-                                    var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
+                                    var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
                                     return getResult;
                                 }
 
@@ -1245,7 +1242,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1521,7 +1518,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                     if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                     {
-                        var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
+                        var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
                         return getResult;
                     }
 

@@ -364,7 +364,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -426,7 +425,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string[]? attributesToRetrieve = null,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -483,7 +481,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             }
 
             var batchRequests
-                = keys.Select(key => GetItemCoreAsync(tableName, key, attributesToRetrieve, true, cancellationToken)).ToList();
+                = keys.Select(key => GetItemCoreAsync(tableName, key, attributesToRetrieve, cancellationToken)).ToList();
             if (batchRequests.Count > 0)
                 await Task.WhenAll(batchRequests);
 
@@ -534,7 +532,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -731,7 +728,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             // For DynamoDB, removing from LIST type arrays requires a different approach
             // We need to get the current item, modify it, and put it back with list_append
-            var getResult = await GetItemCoreAsync(tableName, key, null, true, cancellationToken);
+            var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
             if (!getResult.IsSuccessful || getResult.Data == null)
             {
                 return OperationResult<JObject?>.Failure("Item not found for array removal operation", HttpStatusCode.NotFound);
@@ -1022,7 +1019,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
     {
         if (_dynamoDbClient == null)
         {
@@ -1034,7 +1031,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             return await InternalDropKeyTable(SystemTableName, SystemTableKeyName, cancellationToken);
         }
 
-        var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+        var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
         if (!getKeysResult.IsSuccessful)
             return getKeysResult.StatusCode == HttpStatusCode.NotFound
                 ? OperationResult<bool>.Success(true)
@@ -1288,7 +1285,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     {
         try
         {
-            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
             if (!getKeysResult.IsSuccessful)
                 return OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
 
@@ -1350,7 +1347,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     {
         try
         {
-            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
             if (!getKeysResult.IsSuccessful)
                 return OperationResult<(IReadOnlyList<string>?, IReadOnlyList<JObject>, string?, long?)>
                     .Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);

@@ -10,6 +10,7 @@ using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using Newtonsoft.Json.Linq;
 using xRetry;
+using Xunit.Abstractions;
 
 namespace CrossCloudKit.Interfaces.Tests;
 
@@ -22,14 +23,16 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
     private readonly string _basePath;
     private readonly string _backupBucketName;
 
-    public DatabaseServiceBackupTests()
+    private readonly ITestOutputHelper _testOutputHelper;
+
+    public DatabaseServiceBackupTests(ITestOutputHelper testOutputHelper)
     {
         _basePath = Path.Combine(Path.GetTempPath(), $"DatabaseServiceBackupTests_{Guid.NewGuid():N}");
         _backupBucketName = "test-backup-bucket";
 
         // Initialize Basic services
-        _memoryService = new MemoryServiceBasic();
-        _pubSubService = new PubSubServiceBasic();
+        _memoryService = new MemoryServiceBasic(null, _basePath);
+        _pubSubService = new PubSubServiceBasic(_basePath);
         _fileService = new FileServiceBasic(_memoryService, _pubSubService, _basePath);
         _databaseService = new DatabaseServiceBasic("test-db", _memoryService, _basePath);
 
@@ -38,6 +41,8 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         _fileService.IsInitialized.Should().BeTrue();
         _memoryService.IsInitialized.Should().BeTrue();
         _pubSubService.IsInitialized.Should().BeTrue();
+
+        _testOutputHelper = testOutputHelper;
     }
 
     [RetryFact(3, 5000)]
@@ -243,10 +248,12 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var testCursor = cursors[0];
 
         // Act
-        var result = await backupService.RestoreBackupAsync(testCursor);
+        var restoreResult = await backupService.RestoreBackupAsync(testCursor);
 
         // Assert
-        result.IsSuccessful.Should().BeTrue();
+        if (!restoreResult.IsSuccessful)
+            _testOutputHelper.WriteLine($"Restore failed with: {restoreResult.ErrorMessage}");
+        restoreResult.IsSuccessful.Should().BeTrue();
 
         // Verify both tables were restored
         var user1 = await _databaseService.GetItemAsync("Users", new DbKey("Id", new PrimitiveType("user1")));
@@ -634,6 +641,217 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         cursors.Should().HaveCount(15);
         cursors.Select(c => c.FileName).Should().Contain("backup-01.json");
         cursors.Select(c => c.FileName).Should().Contain("backup-15.json");
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_ThenRestore_WithMultipleTables_ShouldPreserveAllData()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Create test data in multiple tables
+        var usersTable = "Users";
+        var productsTable = "Products";
+        var ordersTable = "Orders";
+
+        // Users table data
+        var user1Key = new DbKey("Id", new PrimitiveType("user1"));
+        var user1Data = new JObject
+        {
+            ["Id"] = "user1",
+            ["Name"] = "John Doe",
+            ["Email"] = "john@example.com",
+            ["Age"] = 30,
+            ["IsActive"] = true
+        };
+
+        var user2Key = new DbKey("Id", new PrimitiveType("user2"));
+        var user2Data = new JObject
+        {
+            ["Id"] = "user2",
+            ["Name"] = "Jane Smith",
+            ["Email"] = "jane@example.com",
+            ["Age"] = 25,
+            ["IsActive"] = false
+        };
+
+        // Products table data
+        var product1Key = new DbKey("ProductId", new PrimitiveType("prod1"));
+        var product1Data = new JObject
+        {
+            ["ProductId"] = "prod1",
+            ["Name"] = "Laptop",
+            ["Price"] = 999.99,
+            ["Category"] = "Electronics",
+            ["InStock"] = true
+        };
+
+        var product2Key = new DbKey("ProductId", new PrimitiveType("prod2"));
+        var product2Data = new JObject
+        {
+            ["ProductId"] = "prod2",
+            ["Name"] = "Mouse",
+            ["Price"] = 25.50,
+            ["Category"] = "Accessories",
+            ["InStock"] = false
+        };
+
+        // Orders table data
+        var order1Key = new DbKey("OrderId", new PrimitiveType("order1"));
+        var order1Data = new JObject
+        {
+            ["OrderId"] = "order1",
+            ["UserId"] = "user1",
+            ["ProductId"] = "prod1",
+            ["Quantity"] = 1,
+            ["Total"] = 999.99
+        };
+
+        // Insert all test data
+        await _databaseService.PutItemAsync(usersTable, user1Key, user1Data);
+        await _databaseService.PutItemAsync(usersTable, user2Key, user2Data);
+        await _databaseService.PutItemAsync(productsTable, product1Key, product1Data);
+        await _databaseService.PutItemAsync(productsTable, product2Key, product2Data);
+        await _databaseService.PutItemAsync(ordersTable, order1Key, order1Data);
+
+        // Act - Take backup
+        var backupResult = await backupService.TakeBackup();
+
+        // Assert - Backup should succeed and return cursor
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().NotBeNull();
+        var backupCursor = backupResult.Data!;
+        backupCursor.FileName.Should().NotBeEmpty();
+
+        // Verify backup file exists
+        var cursors = new List<DbBackupFileCursor>();
+        await foreach (var cursor in backupService.GetBackupFileCursorsAsync())
+        {
+            cursors.Add(cursor);
+        }
+        cursors.Should().Contain(c => c.FileName == backupCursor.FileName);
+
+        // Clear database to test restore
+        await _databaseService.DropTableAsync(usersTable);
+        await _databaseService.DropTableAsync(productsTable);
+        await _databaseService.DropTableAsync(ordersTable);
+
+        // Verify tables are gone
+        var user1BeforeRestore = await _databaseService.GetItemAsync(usersTable, user1Key);
+        user1BeforeRestore.IsSuccessful.Should().BeTrue();
+        user1BeforeRestore.Data.Should().BeNull();
+
+        // Act - Restore from backup
+        var restoreResult = await backupService.RestoreBackupAsync(backupCursor);
+
+        // Assert - Restore should succeed
+        if (!restoreResult.IsSuccessful)
+            _testOutputHelper.WriteLine($"Restore failed with: {restoreResult.ErrorMessage}");
+        restoreResult.IsSuccessful.Should().BeTrue();
+
+        // Verify all data was restored correctly
+        // Users table
+        var restoredUser1 = await _databaseService.GetItemAsync(usersTable, user1Key);
+        var restoredUser2 = await _databaseService.GetItemAsync(usersTable, user2Key);
+
+        restoredUser1.IsSuccessful.Should().BeTrue();
+        restoredUser2.IsSuccessful.Should().BeTrue();
+
+        restoredUser1.Data!["Name"]!.Value<string>().Should().Be("John Doe");
+        restoredUser1.Data!["Email"]!.Value<string>().Should().Be("john@example.com");
+        restoredUser1.Data!["Age"]!.Value<int>().Should().Be(30);
+        restoredUser1.Data!["IsActive"]!.Value<bool>().Should().BeTrue();
+
+        restoredUser2.Data!["Name"]!.Value<string>().Should().Be("Jane Smith");
+        restoredUser2.Data!["Email"]!.Value<string>().Should().Be("jane@example.com");
+        restoredUser2.Data!["Age"]!.Value<int>().Should().Be(25);
+        restoredUser2.Data!["IsActive"]!.Value<bool>().Should().BeFalse();
+
+        // Products table
+        var restoredProduct1 = await _databaseService.GetItemAsync(productsTable, product1Key);
+        var restoredProduct2 = await _databaseService.GetItemAsync(productsTable, product2Key);
+
+        restoredProduct1.IsSuccessful.Should().BeTrue();
+        restoredProduct2.IsSuccessful.Should().BeTrue();
+
+        restoredProduct1.Data!["Name"]!.Value<string>().Should().Be("Laptop");
+        restoredProduct1.Data!["Price"]!.Value<double>().Should().Be(999.99);
+        restoredProduct1.Data!["Category"]!.Value<string>().Should().Be("Electronics");
+        restoredProduct1.Data!["InStock"]!.Value<bool>().Should().BeTrue();
+
+        restoredProduct2.Data!["Name"]!.Value<string>().Should().Be("Mouse");
+        restoredProduct2.Data!["Price"]!.Value<double>().Should().Be(25.50);
+        restoredProduct2.Data!["Category"]!.Value<string>().Should().Be("Accessories");
+        restoredProduct2.Data!["InStock"]!.Value<bool>().Should().BeFalse();
+
+        // Orders table
+        var restoredOrder1 = await _databaseService.GetItemAsync(ordersTable, order1Key);
+
+        restoredOrder1.IsSuccessful.Should().BeTrue();
+        restoredOrder1.Data!["UserId"]!.Value<string>().Should().Be("user1");
+        restoredOrder1.Data!["ProductId"]!.Value<string>().Should().Be("prod1");
+        restoredOrder1.Data!["Quantity"]!.Value<int>().Should().Be(1);
+        restoredOrder1.Data!["Total"]!.Value<double>().Should().Be(999.99);
+
+        // Verify all tables have correct item counts
+        var usersCount = await _databaseService.ScanTableAsync(usersTable);
+        var productsCount = await _databaseService.ScanTableAsync(productsTable);
+        var ordersCount = await _databaseService.ScanTableAsync(ordersTable);
+
+        usersCount.IsSuccessful.Should().BeTrue();
+        productsCount.IsSuccessful.Should().BeTrue();
+        ordersCount.IsSuccessful.Should().BeTrue();
+
+        usersCount.Data.Items.Should().HaveCount(2);
+        productsCount.Data.Items.Should().HaveCount(2);
+        ordersCount.Data.Items.Should().HaveCount(1);
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_WithEmptyDatabase_ShouldReturnNull()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Ensure database is empty - drop any existing tables
+        var existingTables = await _databaseService.GetTableNamesAsync();
+        if (existingTables.IsSuccessful && existingTables.Data.Count > 0)
+        {
+            foreach (var tableName in existingTables.Data)
+            {
+                await _databaseService.DropTableAsync(tableName);
+            }
+        }
+
+        // Act
+        var backupResult = await backupService.TakeBackup();
+
+        // Assert
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().BeNull();
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_WithEmptyTables_ShouldReturnNull()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Create tables but don't add any data
+        var testTable = "EmptyTable";
+        var testKey = new DbKey("Id", new PrimitiveType("test"));
+        var testData = new JObject { ["Id"] = "test", ["Name"] = "Test" };
+
+        // Insert and then delete to create empty table
+        await _databaseService.PutItemAsync(testTable, testKey, testData);
+        await _databaseService.DeleteItemAsync(testTable, testKey);
+
+        // Act
+        var backupResult = await backupService.TakeBackup();
+
+        // Assert
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().BeNull();
     }
 
     private DatabaseServiceBackup CreateBackupService(string cronExpression = "0 0 1 1 *") // Once a year to avoid automatic execution during tests

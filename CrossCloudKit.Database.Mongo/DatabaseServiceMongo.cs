@@ -298,7 +298,6 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -322,7 +321,6 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string[]? attributesToRetrieve = null,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -443,7 +441,6 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -786,7 +783,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             var filter = Builders<BsonDocument>.Filter.Empty;
 
             var findTask = table.Find(filter).ToListAsync(cancellationToken);
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, cancellationToken);
 
             await Task.WhenAll(getKeysTask, findTask);
 
@@ -846,7 +843,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 return (totalCount, skip, items);
             }, cancellationToken);
 
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, cancellationToken);
 
             await Task.WhenAll(getKeysTask, scanTask);
 
@@ -887,7 +884,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             BuildConditionsFilter(out var filter, filterConditions);
 
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, cancellationToken);
             var findTask = table.Find(filter).ToListAsync(cancellationToken);
 
             await Task.WhenAll(getKeysTask, findTask);
@@ -950,7 +947,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 return (totalCount, skip, items);
             }, cancellationToken);
 
-            var getKeysTask = GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysTask = GetTableKeysCoreAsync(tableName, cancellationToken);
 
             await Task.WhenAll(getKeysTask, scanTask);
 
@@ -1004,7 +1001,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
     {
         try
         {

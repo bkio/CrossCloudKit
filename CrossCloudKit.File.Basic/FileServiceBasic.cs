@@ -29,12 +29,14 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
         string? basePath = null)
     {
         // Use a default path in the temp directory if not specified
-        _basePath = basePath ?? Path.Combine(Path.GetTempPath(), RootFolderName);
+        basePath ??= Path.GetTempPath();
+        _basePath = Path.Combine(basePath, RootFolderName);
 
         try
         {
             // Ensure the base directory exists
-            Directory.CreateDirectory(_basePath);
+            if (!Directory.Exists(_basePath))
+                Directory.CreateDirectory(_basePath);
 
             IsInitialized = true;
 

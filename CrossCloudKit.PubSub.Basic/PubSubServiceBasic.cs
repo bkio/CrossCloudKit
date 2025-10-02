@@ -30,9 +30,10 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
     private record SubscriptionInfo(Func<string, string, Task> OnMessage, Action<Exception>? OnError);
 
-    public PubSubServiceBasic()
+    public PubSubServiceBasic(string? basePath = null)
     {
-        _storageDirectory = Path.Combine(Path.GetTempPath(), RootFolderName);
+        basePath ??= Path.GetTempPath();
+        _storageDirectory = Path.Combine(basePath, RootFolderName);
         Directory.CreateDirectory(_storageDirectory);
 
         _processId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");

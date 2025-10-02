@@ -55,11 +55,12 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
         try
         {
-            basePath ??= Environment.CurrentDirectory;
+            basePath ??= Path.GetTempPath();
             _databasePath = Path.Combine(basePath, RootFolderName, databaseName.MakeValidFileName());
 
             // Ensure database directory exists
-            Directory.CreateDirectory(_databasePath);
+            if (!Directory.Exists(_databasePath))
+                Directory.CreateDirectory(_databasePath);
 
             _initializationSucceed = true;
         }
@@ -130,7 +131,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         }
     }
 
-    private static async Task<bool> WriteItemToFileAsync(string filePath, JObject item, CancellationToken cancellationToken = default)
+    private static async Task<OperationResult<bool>> WriteItemToFileAsync(string filePath, JObject item, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -144,11 +145,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
             await FileSystemUtilities.WriteToFileEnsureWrittenToDiskAsync(json, filePath, cancellationToken);
 
-            return true;
+            return OperationResult<bool>.Success(true);
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return false;
+            return OperationResult<bool>.Failure($"WriteItemToFileAsync has failed with: {e.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
@@ -250,7 +251,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -277,7 +277,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string[]? attributesToRetrieve = null,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -384,7 +383,6 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -500,9 +498,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
-            if (!await writeItemTask)
+            var writeItemResult = await writeItemTask;
+            if (!writeItemResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("Failed to write item", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure($"Failed to write item: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode);
             }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
@@ -577,9 +576,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 }
             }
 
-            if (!await WriteItemToFileAsync(filePath, existingItem, cancellationToken))
+            var writeItemResult = await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            if (!writeItemResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("WriteItemToFileAsync failed.", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure($"WriteItemToFileAsync failed: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode);
             }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
@@ -652,12 +652,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                     return OperationResult<double>.Failure($"PostInsertItemAsync failed with {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
-            if (!await writeItemTask)
-            {
-                return OperationResult<double>.Failure("WriteItemToFileAsync failed.", HttpStatusCode.InternalServerError);
-            }
 
-            return OperationResult<double>.Success(newValue);
+            var writeItemResult = await writeItemTask;
+            return !writeItemResult.IsSuccessful
+                ? OperationResult<double>.Failure($"WriteItemToFileAsync failed: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode)
+                : OperationResult<double>.Success(newValue);
         }
         catch (Exception ex)
         {
@@ -718,7 +717,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 }
             }
 
-            var getKeysResult = await GetTableKeysCoreAsync(tableName, true, cancellationToken);
+            var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
             return !getKeysResult.IsSuccessful
                 ? OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode)
                 : OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((getKeysResult.Data, results.ToList().AsReadOnly()));
@@ -874,7 +873,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     }
 
     /// <inheritdoc />
-    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default)
+    protected override async Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1016,9 +1015,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
-            if (!await writeItemTask)
+
+            var writeItemResult = await writeItemTask;
+            if (!writeItemResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure("Failed to write item", HttpStatusCode.InternalServerError);
+                return OperationResult<JObject?>.Failure($"WriteItemToFileAsync failed: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode);
             }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)

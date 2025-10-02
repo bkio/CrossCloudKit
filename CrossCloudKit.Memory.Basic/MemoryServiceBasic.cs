@@ -28,11 +28,16 @@ public sealed class MemoryServiceBasic : IMemoryService
 
     private const string RootFolderName = "CrossCloudKit.Memory.Basic";
 
-    public MemoryServiceBasic(IPubSubService? pubSubService = null)
+    public MemoryServiceBasic(
+        IPubSubService? pubSubService = null,
+        string? basePath = null)
     {
         _pubSubService = pubSubService;
-        _storageDirectory = Path.Combine(Path.GetTempPath(), RootFolderName);
-        Directory.CreateDirectory(_storageDirectory);
+
+        basePath ??= Path.GetTempPath();
+        _storageDirectory = Path.Combine(basePath, RootFolderName);
+        if (!Directory.Exists(_storageDirectory))
+            Directory.CreateDirectory(_storageDirectory);
 
         // Start background cleanup every 1 minute
         _cleanupTimer = new Timer(CleanupExpiredFiles, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));

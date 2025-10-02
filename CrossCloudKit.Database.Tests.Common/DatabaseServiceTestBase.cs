@@ -56,11 +56,11 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
-    private static string GetTestTableName()
+    private static string GetTestTableName([System.Runtime.CompilerServices.CallerMemberName] string testName = "")
     {
         var rand = $"{Guid.NewGuid():N}";
         DatabaseServiceBase.SystemTableNamePostfix = $"-{rand}";
-        return $"test-table-{rand}";
+        return $"{testName}-{rand}";
     }
 
     private static PrimitiveType CreateStringKey(string value = "test-key") => new(value);

@@ -142,6 +142,45 @@ public class DatabaseServiceBackup: IAsyncDisposable
     }
 
     /// <summary>
+    /// Manually triggers a database backup operation outside of the scheduled cron-based backups.
+    /// </summary>
+    /// <returns>
+    /// An OperationResult&lt;DbBackupFileCursor?&gt; containing:
+    /// <list type="bullet">
+    /// <item><description>A DbBackupFileCursor when backup is successfully created and contains data</description></item>
+    /// <item><description>null when operation succeeds but there is no data to back up (empty database)</description></item>
+    /// <item><description>An error result with details if the operation fails</description></item>
+    /// </list>
+    /// </returns>
+    /// <remarks>
+    /// This method provides on-demand backup functionality that bypasses the automatic scheduling.
+    /// The backup operation includes:
+    /// <list type="bullet">
+    /// <item><description>Acquiring a distributed mutex lock to prevent concurrent operations</description></item>
+    /// <item><description>Scanning all tables in the database</description></item>
+    /// <item><description>Serializing table data to JSON format</description></item>
+    /// <item><description>Uploading the backup file to the configured file service (only if data exists)</description></item>
+    /// <item><description>Publishing backup events through the PubSub service</description></item>
+    /// </list>
+    /// The backup file is stored with a timestamp-based filename (yyyy-MM-dd-HH-mm-ss.json) in the configured backup location.
+    /// If the database contains no tables or all tables are empty, no backup file is created and null is returned.
+    /// If any service dependencies are not initialized, the operation will fail with a ServiceUnavailable status.
+    /// </remarks>
+    public async Task<OperationResult<DbBackupFileCursor?>> TakeBackup()
+    {
+        DbBackupFileCursor? result;
+        try
+        {
+            result = await BackupOperation();
+        }
+        catch (Exception e)
+        {
+            return OperationResult<DbBackupFileCursor?>.Failure(e.Message, HttpStatusCode.InternalServerError);
+        }
+        return OperationResult<DbBackupFileCursor?>.Success(result);
+    }
+
+    /// <summary>
     /// Restores the database from a specified backup file, replacing all existing data.
     /// </summary>
     /// <param name="backupFileCursor">The backup file cursor identifying which backup to restore.</param>
@@ -234,7 +273,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
             var tasks = tables.Values.Select(async tableData =>
             {
-                var dropResult = await _databaseService.DropTableCoreAsync(tableData.TableName, false, _cts.Token);
+                var dropResult = await _databaseService.DropTableCoreAsync(tableData.TableName, _cts.Token);
                 if (!dropResult.IsSuccessful)
                 {
                     errors.Add(dropResult.ErrorMessage);
@@ -362,7 +401,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
     private const string KeyNameJsonKey = "key_name";
     private const string ItemsJsonKey = "items";
 
-    private async Task BackupOperation()
+    private async Task<DbBackupFileCursor?> BackupOperation()
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(DatabaseServiceBackup));
 
@@ -385,7 +424,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                     throw new InvalidOperationException($"GetTableNamesAsync failed with: {tableNamesResult.ErrorMessage}");
                 var tableNames = tableNamesResult.Data;
                 if (tableNames.Count == 0)
-                    return;
+                    return null;
 
                 foreach (var tableName in tableNames)
                 {
@@ -426,19 +465,22 @@ public class DatabaseServiceBackup: IAsyncDisposable
         }
 
         if (finalArray.Count == 0)
-            return;
+            return null;
 
         var compiled = finalArray.ToString(Formatting.None);
 
         await using var mStream = new MemoryTributary(Encoding.UTF8.GetBytes(compiled));
 
+        var fileName = $"{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}.json";
+
         var uploadResult = await _fileService.UploadFileAsync(
             new StringOrStream(mStream, mStream.Length, Encoding.UTF8),
             _backupBucketName,
-            $"{_backupRootPath}{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}.json",
+            $"{_backupRootPath}{fileName}",
             cancellationToken: _cts.Token);
         if (!uploadResult.IsSuccessful)
             throw new InvalidOperationException($"UploadFileAsync failed with: {uploadResult.ErrorMessage}");
+        return new DbBackupFileCursor(fileName);
     }
 
     private static readonly IMemoryScope BackupMemoryMutexScope = new MemoryScopeLambda("CrossCloudKit.Interfaces.Classes.DatabaseServiceBackup");

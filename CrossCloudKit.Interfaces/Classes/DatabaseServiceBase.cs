@@ -52,7 +52,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         await EnsureReadyForOperation();
         await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
-        return await ItemExistsCoreAsync(tableName, key, conditions, false, cancellationToken);
+        return await ItemExistsCoreAsync(tableName, key, conditions, cancellationToken);
     }
 
     /// <inheritdoc cref="ItemExistsAsync"/>
@@ -60,7 +60,6 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromSanityCheck = false,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -72,7 +71,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         await EnsureReadyForOperation();
         await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
-        return await GetItemCoreAsync(tableName, key, attributesToRetrieve, false, cancellationToken);
+        return await GetItemCoreAsync(tableName, key, attributesToRetrieve, cancellationToken);
     }
 
     /// <inheritdoc cref="GetItemAsync"/>
@@ -80,7 +79,6 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         string[]? attributesToRetrieve = null,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -158,7 +156,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         await EnsureReadyForOperation();
         await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
-        return await DeleteItemCoreAsync(tableName, key, returnBehavior, conditions, false, cancellationToken);
+        return await DeleteItemCoreAsync(tableName, key, returnBehavior, conditions, cancellationToken);
     }
 
     /// <inheritdoc cref="DeleteItemAsync"/>
@@ -167,7 +165,6 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         IEnumerable<DbAttributeCondition>? conditions = null,
-        bool isCalledFromPostDropTable = false,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -331,11 +328,11 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         await EnsureReadyForOperation();
         await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
-        return await DropTableCoreAsync(tableName, false, cancellationToken);
+        return await DropTableCoreAsync(tableName, cancellationToken);
     }
 
     /// <inheritdoc cref="DropTableAsync"/>
-    protected internal abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, bool isCalledInternally, CancellationToken cancellationToken = default);
+    protected internal abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
     public abstract DbAttributeCondition BuildAttributeExistsCondition(string attributeName);
@@ -374,20 +371,20 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         await EnsureReadyForOperation();
         await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
-        return await GetTableKeysCoreAsync(tableName, false, cancellationToken);
+        return await GetTableKeysCoreAsync(tableName, cancellationToken);
     }
 
     /// <inheritdoc cref="GetTableKeysAsync"/>
     protected async Task<OperationResult<IReadOnlyList<string>>> GetTableKeysCoreAsync(
         string tableName,
-        bool isCalledInternally = false,
         CancellationToken cancellationToken = default)
     {
+        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+
         var getResult = await GetItemCoreAsync(
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
             [SystemTableKeysAttributeName],
-            isCalledInternally,
             cancellationToken);
         if (!getResult.IsSuccessful)
             return OperationResult<IReadOnlyList<string>>.Failure(getResult.ErrorMessage, getResult.StatusCode);
@@ -403,6 +400,8 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     {
         if (tableName == SystemTableName)
             return OperationResult<bool>.Success(true);
+
+        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
 
         var addElementResult = await AddElementsToArrayCoreAsync(
             SystemTableName,
@@ -428,12 +427,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (tableName == SystemTableName)
             return OperationResult<bool>.Success(true);
 
+        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+
         var deleteResult = await DeleteItemCoreAsync(
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
             DbReturnItemBehavior.ReturnNewValues,
             null,
-            true,
             cancellationToken);
         if (!deleteResult.IsSuccessful)
             return OperationResult<bool>.Failure(deleteResult.ErrorMessage, deleteResult.StatusCode);
@@ -442,7 +442,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
             !deleteResult.Data.TryGetTypedValue(SystemTableKeysAttributeName, out List<string> keys)
             || keys.Count == 0)
         {
-            return await DropTableCoreAsync(SystemTableName, true, cancellationToken);
+            return await DropTableCoreAsync(SystemTableName, cancellationToken);
         }
         return OperationResult<bool>.Success(true);
     }
@@ -467,11 +467,12 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (conditions.Count == 0)
             return OperationResult<bool>.Success(true);
 
+        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+
         var ifKeyAttrUsedSanityCheckResult = await ItemExistsCoreAsync(
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
             conditions,
-            true,
             cancellationToken);
 
         return !ifKeyAttrUsedSanityCheckResult.IsSuccessful

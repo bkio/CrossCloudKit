@@ -1417,15 +1417,7 @@ public abstract class DatabaseServiceTestBase
         }
         finally
         {
-            // Clean up - try to drop the table if it still exists (safety cleanup)
-            try
-            {
-                await service.DropTableAsync(tableName);
-            }
-            catch
-            {
-                // Ignore cleanup errors since table might already be dropped
-            }
+            await CleanupDatabaseAsync(tableName);
         }
     }
 
@@ -1487,16 +1479,8 @@ public abstract class DatabaseServiceTestBase
         }
         finally
         {
-            // Cleanup both tables
-            try
-            {
-                await service.DropTableAsync(tableName1);
-                await service.DropTableAsync(tableName2);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
+            await CleanupDatabaseAsync(tableName1);
+            await CleanupDatabaseAsync(tableName2);
         }
     }
 

@@ -363,7 +363,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -520,7 +520,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, key, updateData, returnBehavior, conditions, false, cancellationToken);
@@ -531,7 +531,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -594,7 +594,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
@@ -710,7 +710,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -799,7 +799,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -878,7 +878,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         }
     }
 
-    private static void BuildConditionExpression(IEnumerable<DbAttributeCondition>? conditions, UpdateItemRequest request)
+    private static void BuildConditionExpression(IEnumerable<DbCondition>? conditions, UpdateItemRequest request)
     {
         if (conditions == null) return;
 
@@ -908,14 +908,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             // Add expression attribute names for the condition if needed
             if (condition.ConditionType is
-                not (DbAttributeConditionType.AttributeEquals
-                or DbAttributeConditionType.AttributeNotEquals
-                or DbAttributeConditionType.AttributeGreater
-                or DbAttributeConditionType.AttributeGreaterOrEqual
-                or DbAttributeConditionType.AttributeLess
-                or DbAttributeConditionType.AttributeLessOrEqual
-                or DbAttributeConditionType.ArrayElementExists
-                or DbAttributeConditionType.ArrayElementNotExists)) continue;
+                not (DbConditionType.AttributeEquals
+                or DbConditionType.AttributeNotEquals
+                or DbConditionType.AttributeGreater
+                or DbConditionType.AttributeGreaterOrEqual
+                or DbConditionType.AttributeLess
+                or DbConditionType.AttributeLessOrEqual
+                or DbConditionType.ArrayElementExists
+                or DbConditionType.ArrayElementNotExists)) continue;
 
             request.ExpressionAttributeNames[condAttrPlaceholder] = condition.AttributeName;
             // Update the condition expression to use the attribute name alias
@@ -955,7 +955,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// <inheritdoc />
     protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        IEnumerable<DbAttributeCondition> filterConditions,
+        IEnumerable<DbCondition> filterConditions,
         CancellationToken cancellationToken = default)
     {
         return await InternalScanTableAsync(tableName, BuildConditionalExpression(filterConditions), cancellationToken);
@@ -969,7 +969,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             string? NextPageToken,
             long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        IEnumerable<DbAttributeCondition>? filterConditions,
+        IEnumerable<DbCondition>? filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -1159,7 +1159,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        IEnumerable<DbCondition>? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -1342,7 +1342,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         int pageSize,
         string? pageToken,
-        IEnumerable<DbAttributeCondition>? filterConditions = null,
+        IEnumerable<DbCondition>? filterConditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -1467,7 +1467,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     private const string PaginationSeparator = "[[[---]]]";
     private record PaginationKey(string KeyName, string? GeneratedKey, string AllKeysHash);
 
-    private static Expression? BuildConditionalExpression(IEnumerable<DbAttributeCondition>? conditions)
+    private static Expression? BuildConditionalExpression(IEnumerable<DbCondition>? conditions)
     {
         if (conditions == null)
             return null;
@@ -1488,50 +1488,50 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             switch (condition.ConditionType)
             {
-                case DbAttributeConditionType.AttributeExists:
+                case DbConditionType.AttributeExists:
                     expr.ExpressionStatement = $"attribute_exists({attrPlaceholder})";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     break;
-                case DbAttributeConditionType.AttributeNotExists:
+                case DbConditionType.AttributeNotExists:
                     expr.ExpressionStatement = $"attribute_not_exists({attrPlaceholder})";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     break;
-                case DbAttributeConditionType.AttributeEquals when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeEquals when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} = {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.AttributeNotEquals when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeNotEquals when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} <> {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.AttributeGreater when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeGreater when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} > {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.AttributeGreaterOrEqual when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeGreaterOrEqual when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} >= {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.AttributeLess when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeLess when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} < {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.AttributeLessOrEqual when condition is DbValueCondition valueCondition:
+                case DbConditionType.AttributeLessOrEqual when condition is DbValueCondition valueCondition:
                     expr.ExpressionStatement = $"{attrPlaceholder} <= {valPlaceholder}";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, valPlaceholder, valueCondition.Value);
                     break;
-                case DbAttributeConditionType.ArrayElementExists when condition is DbArrayElementCondition arrayCondition:
+                case DbConditionType.ArrayElementExists when condition is DbArrayElementCondition arrayCondition:
                     expr.ExpressionStatement = $"contains({attrPlaceholder}, {condValPlaceholder})";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, condValPlaceholder, arrayCondition.ElementValue);
                     break;
-                case DbAttributeConditionType.ArrayElementNotExists when condition is DbArrayElementCondition arrayCondition:
+                case DbConditionType.ArrayElementNotExists when condition is DbArrayElementCondition arrayCondition:
                     expr.ExpressionStatement = $"NOT contains({attrPlaceholder}, {condValPlaceholder})";
                     expr.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
                     AddValueToExpression(expr, condValPlaceholder, arrayCondition.ElementValue);
@@ -1581,20 +1581,20 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// <summary>
     /// Builds a DynamoDB condition expression string for use in UpdateItem operations
     /// </summary>
-    private static string? BuildDynamoDbConditionExpression(DbAttributeCondition condition, string condVal)
+    private static string? BuildDynamoDbConditionExpression(DbCondition condition, string condVal)
     {
         var expression = condition.ConditionType switch
         {
-            DbAttributeConditionType.AttributeExists => $"attribute_exists({condition.AttributeName})",
-            DbAttributeConditionType.AttributeNotExists => $"attribute_not_exists({condition.AttributeName})",
-            DbAttributeConditionType.AttributeEquals => $"{condition.AttributeName} = {condVal}",
-            DbAttributeConditionType.AttributeNotEquals => $"{condition.AttributeName} <> {condVal}",
-            DbAttributeConditionType.AttributeGreater => $"{condition.AttributeName} > {condVal}",
-            DbAttributeConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= {condVal}",
-            DbAttributeConditionType.AttributeLess => $"{condition.AttributeName} < {condVal}",
-            DbAttributeConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= {condVal}",
-            DbAttributeConditionType.ArrayElementExists => $"contains({condition.AttributeName}, {condVal})",
-            DbAttributeConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, {condVal})",
+            DbConditionType.AttributeExists => $"attribute_exists({condition.AttributeName})",
+            DbConditionType.AttributeNotExists => $"attribute_not_exists({condition.AttributeName})",
+            DbConditionType.AttributeEquals => $"{condition.AttributeName} = {condVal}",
+            DbConditionType.AttributeNotEquals => $"{condition.AttributeName} <> {condVal}",
+            DbConditionType.AttributeGreater => $"{condition.AttributeName} > {condVal}",
+            DbConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= {condVal}",
+            DbConditionType.AttributeLess => $"{condition.AttributeName} < {condVal}",
+            DbConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= {condVal}",
+            DbConditionType.ArrayElementExists => $"contains({condition.AttributeName}, {condVal})",
+            DbConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, {condVal})",
             _ => null
         };
 
@@ -1616,12 +1616,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// <summary>
     /// Evaluates a database condition against a JSON object
     /// </summary>
-    private static bool EvaluateCondition(JObject jsonObject, DbAttributeCondition condition)
+    private static bool EvaluateCondition(JObject jsonObject, DbCondition condition)
     {
         return condition.ConditionType switch
         {
-            DbAttributeConditionType.AttributeExists => jsonObject.ContainsKey(condition.AttributeName),
-            DbAttributeConditionType.AttributeNotExists => !jsonObject.ContainsKey(condition.AttributeName),
+            DbConditionType.AttributeExists => jsonObject.ContainsKey(condition.AttributeName),
+            DbConditionType.AttributeNotExists => !jsonObject.ContainsKey(condition.AttributeName),
             _ when condition is DbValueCondition valueCondition => EvaluateValueCondition(jsonObject, valueCondition),
             _ when condition is DbArrayElementCondition arrayCondition => EvaluateArrayElementCondition(jsonObject, arrayCondition),
             _ => false
@@ -1640,12 +1640,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         {
             return condition.ConditionType switch
             {
-                DbAttributeConditionType.AttributeEquals => CompareValues(token, condition.Value) == 0,
-                DbAttributeConditionType.AttributeNotEquals => CompareValues(token, condition.Value) != 0,
-                DbAttributeConditionType.AttributeGreater => CompareValues(token, condition.Value) > 0,
-                DbAttributeConditionType.AttributeGreaterOrEqual => CompareValues(token, condition.Value) >= 0,
-                DbAttributeConditionType.AttributeLess => CompareValues(token, condition.Value) < 0,
-                DbAttributeConditionType.AttributeLessOrEqual => CompareValues(token, condition.Value) <= 0,
+                DbConditionType.AttributeEquals => CompareValues(token, condition.Value) == 0,
+                DbConditionType.AttributeNotEquals => CompareValues(token, condition.Value) != 0,
+                DbConditionType.AttributeGreater => CompareValues(token, condition.Value) > 0,
+                DbConditionType.AttributeGreaterOrEqual => CompareValues(token, condition.Value) >= 0,
+                DbConditionType.AttributeLess => CompareValues(token, condition.Value) < 0,
+                DbConditionType.AttributeLessOrEqual => CompareValues(token, condition.Value) <= 0,
                 _ => false
             };
         }
@@ -1661,14 +1661,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     private static bool EvaluateArrayElementCondition(JObject jsonObject, DbArrayElementCondition condition)
     {
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
-            return condition.ConditionType == DbAttributeConditionType.ArrayElementNotExists;
+            return condition.ConditionType == DbConditionType.ArrayElementNotExists;
 
         var elementExists = array.Any(item => CompareValues(item, condition.ElementValue) == 0);
 
         return condition.ConditionType switch
         {
-            DbAttributeConditionType.ArrayElementExists => elementExists,
-            DbAttributeConditionType.ArrayElementNotExists => !elementExists,
+            DbConditionType.ArrayElementExists => elementExists,
+            DbConditionType.ArrayElementNotExists => !elementExists,
             _ => false
         };
     }
@@ -1725,44 +1725,44 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
+    public override DbCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
+    public override DbCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
+    public override DbCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override DbCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
+    public override DbCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
+    public override DbCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
+        new DbValueCondition(DbConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
+    public override DbCondition BuildAttributeExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbConditionType.AttributeExists, attributeName);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
+    public override DbCondition BuildAttributeNotExistsCondition(string attributeName) =>
+        new DbExistenceCondition(DbConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
+    public override DbCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override DbCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
+        new DbArrayElementCondition(DbConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
 

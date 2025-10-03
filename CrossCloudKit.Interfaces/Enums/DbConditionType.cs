@@ -3,7 +3,7 @@
 
 namespace CrossCloudKit.Interfaces.Enums;
 
-public enum DbAttributeConditionType
+public enum DbConditionType
 {
     AttributeEquals,
     AttributeNotEquals,

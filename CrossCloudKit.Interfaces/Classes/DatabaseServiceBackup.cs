@@ -65,6 +65,53 @@ public class DatabaseServiceBackup: IAsyncDisposable
         string cronExpression = "0 1 * * *",
         TimeZoneInfo? timeZoneInfo = null,
         string backupRootPath = "",
+        Action<Exception>? errorMessageAction = null) : this(
+            databaseService,
+            fileService,
+            pubsubService,
+            backupBucketName,
+            backupRootPath,
+            errorMessageAction)
+    {
+        _cronExpression = CronExpression.Parse(cronExpression);
+        _timeZone = timeZoneInfo ?? TimeZoneInfo.Utc;
+
+        _backgroundTask = Task.Run(async () => await RunBackgroundTaskAsync());
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the DatabaseServiceBackup class for manual backup and restore operations only.
+    /// This constructor does not set up automatic scheduled backups and is intended for on-demand backup operations.
+    /// </summary>
+    /// <param name="databaseService">The database service to back up. Must derive from DatabaseServiceBase.</param>
+    /// <param name="fileService">The file service used to store backup files.</param>
+    /// <param name="pubsubService">The PubSub service used for publishing backup operation events.</param>
+    /// <param name="backupBucketName">The name of the bucket or container where backup files will be stored.</param>
+    /// <param name="backupRootPath">The root path within the bucket where backups will be stored. Defaults to empty string.</param>
+    /// <param name="errorMessageAction">Optional callback for handling errors that occur during backup operations.</param>
+    /// <exception cref="ArgumentException">Thrown when the database service does not derive from DatabaseServiceBase.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when any of the required services are not properly initialized or registration fails.</exception>
+    /// <remarks>
+    /// This constructor is designed for scenarios where you want full control over backup timing and don't need automatic scheduled backups.
+    /// Unlike the other constructor, this one does not:
+    /// <list type="bullet">
+    /// <item><description>Parse or store cron expressions</description></item>
+    /// <item><description>Create background tasks for automatic scheduling</description></item>
+    /// <item><description>Handle time zone conversions for scheduling</description></item>
+    /// </list>
+    ///
+    /// Use this constructor when you want to trigger backups manually using the <see cref="TakeBackup"/> method,
+    /// typically in response to specific application events, user actions, or custom scheduling logic.
+    ///
+    /// All backup and restore operations still use distributed mutex locking and publish events through the PubSub service.
+    /// </remarks>
+    // ReSharper disable once MemberCanBePrivate.Global
+    public DatabaseServiceBackup(
+        IDatabaseService databaseService,
+        IFileService fileService,
+        IPubSubService pubsubService,
+        string backupBucketName,
+        string backupRootPath = "",
         Action<Exception>? errorMessageAction = null)
     {
         if (databaseService is not DatabaseServiceBase castedDb)
@@ -83,14 +130,9 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
         _errorMessageAction = errorMessageAction;
 
-        _cronExpression = CronExpression.Parse(cronExpression);
-        _timeZone = timeZoneInfo ?? TimeZoneInfo.Utc;
-
         var regResult = _databaseService.RegisterBackupSystem(_pubsubService, _errorMessageAction, _cts.Token).GetAwaiter().GetResult();
         if (!regResult.IsSuccessful)
             throw new InvalidOperationException($"RegisterBackupSystem failed with: {regResult.ErrorMessage} ({regResult.StatusCode})");
-
-        _backgroundTask = Task.Run(async () => await RunBackgroundTaskAsync());
     }
 
     /// <summary>
@@ -144,6 +186,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
     /// <summary>
     /// Manually triggers a database backup operation outside of the scheduled cron-based backups.
     /// </summary>
+    /// <param name="dropTablesAfterBackup"><b>(DANGEROUS!)</b> Whether to drop all tables after backup is done.</param>
     /// <returns>
     /// An OperationResult&lt;DbBackupFileCursor?&gt; containing:
     /// <list type="bullet">
@@ -166,12 +209,12 @@ public class DatabaseServiceBackup: IAsyncDisposable
     /// If the database contains no tables or all tables are empty, no backup file is created and null is returned.
     /// If any service dependencies are not initialized, the operation will fail with a ServiceUnavailable status.
     /// </remarks>
-    public async Task<OperationResult<DbBackupFileCursor?>> TakeBackup()
+    public async Task<OperationResult<DbBackupFileCursor?>> TakeBackup(bool dropTablesAfterBackup = false)
     {
         DbBackupFileCursor? result;
         try
         {
-            result = await BackupOperation();
+            result = await BackupOperation(dropTablesAfterBackup);
         }
         catch (Exception e)
         {
@@ -184,19 +227,24 @@ public class DatabaseServiceBackup: IAsyncDisposable
     /// Restores the database from a specified backup file, replacing all existing data.
     /// </summary>
     /// <param name="backupFileCursor">The backup file cursor identifying which backup to restore.</param>
+    /// <param name="fullCleanUpBeforeRestoration">Whether to drop all existing tables before the restore operation.</param>
     /// <returns>An OperationResult indicating the success or failure of the restoration operation.</returns>
     /// <remarks>
     /// This operation performs a complete database restoration by:
-    /// 1. Downloading and parsing the backup file
-    /// 2. Validating all data integrity
-    /// 3. Acquiring a distributed mutex lock to prevent concurrent operations
-    /// 4. Dropping existing tables and recreating them with backup data
-    /// 5. Publishing restoration events through the PubSub service
+    /// <list type="number">
+    /// <item><description>Downloading and parsing the backup file</description></item>
+    /// <item><description>Validating all data integrity</description></item>
+    /// <item><description>Acquiring a distributed mutex lock to prevent concurrent operations</description></item>
+    /// <item><description>Dropping existing tables and recreating them with backup data</description></item>
+    /// <item><description>Publishing restoration events through the PubSub service</description></item>
+    /// </list>
     ///
-    /// WARNING: This operation is destructive and will completely replace all existing database content.
+    /// <b>WARNING: This operation is destructive and will completely replace all existing database content if table names match.</b>
+    /// <b>(if <see cref="fullCleanUpBeforeRestoration"/> is true, all existing database content will be dropped before the operation)</b>
+    ///
     /// The operation is atomic - either all tables are restored successfully, or the operation fails entirely.
     /// </remarks>
-    public async Task<OperationResult<bool>> RestoreBackupAsync(DbBackupFileCursor backupFileCursor)
+    public async Task<OperationResult<bool>> RestoreBackupAsync(DbBackupFileCursor backupFileCursor, bool fullCleanUpBeforeRestoration = false)
     {
         if (_disposed)
             return OperationResult<bool>.Failure("Database backup service is disposed.", HttpStatusCode.ServiceUnavailable);
@@ -269,9 +317,28 @@ public class DatabaseServiceBackup: IAsyncDisposable
         if (!opStartResult.IsSuccessful) return opStartResult;
         try
         {
+            if (fullCleanUpBeforeRestoration)
+            {
+                var tableNamesResult = await _databaseService.GetTableNamesCoreAsync(_cts.Token);
+                if (!tableNamesResult.IsSuccessful)
+                    throw new InvalidOperationException($"GetTableNamesAsync failed with: {tableNamesResult.ErrorMessage}");
+                var tableNames = tableNamesResult.Data;
+                if (tableNames.Count > 0)
+                {
+                    await Task.WhenAll(tableNames.Select(tableName => Task.Run(async () =>
+                    {
+                        var dropResult = await _databaseService.DropTableCoreAsync(tableName, _cts.Token);
+                        if (!dropResult.IsSuccessful)
+                        {
+                            _errorMessageAction?.Invoke(new InvalidOperationException($"Warning: Drop operation for table {tableName} failed before backup with: {dropResult.ErrorMessage} ({dropResult.StatusCode})"));
+                        }
+                    })));
+                }
+            }
+
             var errors = new ConcurrentBag<string>();
 
-            var tasks = tables.Values.Select(async tableData =>
+            await Task.WhenAll(tables.Values.Select(async tableData =>
             {
                 var dropResult = await _databaseService.DropTableCoreAsync(tableData.TableName, _cts.Token);
                 if (!dropResult.IsSuccessful)
@@ -279,7 +346,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                     errors.Add(dropResult.ErrorMessage);
                 }
 
-                var innerTasks = tableData.Items.Select(async item =>
+                await Task.WhenAll(tableData.Items.Select(async item =>
                 {
                     var putResult = await _databaseService.PutItemCoreAsync(
                         tableData.TableName,
@@ -293,12 +360,8 @@ public class DatabaseServiceBackup: IAsyncDisposable
 
                     if (!putResult.IsSuccessful)
                         errors.Add(putResult.ErrorMessage);
-                });
-
-                await Task.WhenAll(innerTasks);
-            });
-
-            await Task.WhenAll(tasks);
+                }));
+            }));
 
             if (!errors.IsEmpty)
                 return OperationResult<bool>.Failure(
@@ -340,8 +403,8 @@ public class DatabaseServiceBackup: IAsyncDisposable
     private readonly Task? _backgroundTask;
 
     private readonly string _backupRootPath;
-    private readonly CronExpression _cronExpression;
-    private readonly TimeZoneInfo _timeZone;
+    private readonly CronExpression? _cronExpression;
+    private readonly TimeZoneInfo? _timeZone;
     private readonly DatabaseServiceBase _databaseService;
     private readonly IFileService _fileService;
     private readonly IPubSubService _pubsubService;
@@ -359,7 +422,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
         {
             while (!_cts.IsCancellationRequested)
             {
-                var next = _cronExpression.GetNextOccurrence(DateTimeOffset.Now, _timeZone);
+                var next = _cronExpression.NotNull().GetNextOccurrence(DateTimeOffset.Now, _timeZone.NotNull());
                 if (next.HasValue)
                 {
                     var delay = next.Value - DateTimeOffset.Now;
@@ -371,7 +434,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                 if (_cts.Token.IsCancellationRequested) continue;
                 try
                 {
-                    await BackupOperation();
+                    await BackupOperation(false);
                 }
                 catch (Exception ex)
                 {
@@ -401,7 +464,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
     private const string KeyNameJsonKey = "key_name";
     private const string ItemsJsonKey = "items";
 
-    private async Task<DbBackupFileCursor?> BackupOperation()
+    private async Task<DbBackupFileCursor?> BackupOperation(bool cleanUpAfter)
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(DatabaseServiceBackup));
 
@@ -426,13 +489,11 @@ public class DatabaseServiceBackup: IAsyncDisposable
                 if (tableNames.Count == 0)
                     return null;
 
-                foreach (var tableName in tableNames)
+                await Task.WhenAll(tableNames.Select(tableName => Task.Run(async () =>
                 {
                     var scanResult = await _databaseService.ScanTableCoreAsync(tableName, _cts.Token);
-                    if (!scanResult.IsSuccessful)
-                        throw new InvalidOperationException($"ScanTableAsync failed with: {scanResult.ErrorMessage}");
-                    if (scanResult.Data.Items.Count == 0)
-                        continue;
+                    if (!scanResult.IsSuccessful) throw new InvalidOperationException($"ScanTableAsync failed with: {scanResult.ErrorMessage}");
+                    if (scanResult.Data.Items.Count == 0) return;
 
                     string? keyName = null;
                     var itemsJArray = new JArray();
@@ -448,12 +509,22 @@ public class DatabaseServiceBackup: IAsyncDisposable
                         throw new InvalidOperationException($"Key name not found in the table {tableName}");
                     }
 
-                    finalArray.Add(new JObject
+                    lock (finalArray)
                     {
-                        [TableNameJsonKey] = tableName,
-                        [KeyNameJsonKey] = keyName,
-                        [ItemsJsonKey] = itemsJArray
-                    });
+                        finalArray.Add(new JObject { [TableNameJsonKey] = tableName, [KeyNameJsonKey] = keyName, [ItemsJsonKey] = itemsJArray });
+                    }
+                })));
+
+                if (cleanUpAfter)
+                {
+                    await Task.WhenAll(tableNames.Select(tableName => Task.Run(async () =>
+                    {
+                        var dropResult = await _databaseService.DropTableCoreAsync(tableName, _cts.Token);
+                        if (!dropResult.IsSuccessful)
+                        {
+                            _errorMessageAction?.Invoke(new InvalidOperationException($"Warning: Backup was successful, however drop operation for table {tableName} failed after backup with: {dropResult.ErrorMessage} ({dropResult.StatusCode})"));
+                        }
+                    })));
                 }
             }
             finally

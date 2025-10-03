@@ -103,7 +103,7 @@ public abstract class DatabaseServiceTestBase
 
             // Assert
             condition.Should().BeOfType<DbExistenceCondition>();
-            condition.ConditionType.Should().Be(DbAttributeConditionType.AttributeExists);
+            condition.ConditionType.Should().Be(DbConditionType.AttributeExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -127,7 +127,7 @@ public abstract class DatabaseServiceTestBase
 
             // Assert
             condition.Should().BeOfType<DbExistenceCondition>();
-            condition.ConditionType.Should().Be(DbAttributeConditionType.AttributeNotExists);
+            condition.ConditionType.Should().Be(DbConditionType.AttributeNotExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -911,34 +911,34 @@ public abstract class DatabaseServiceTestBase
             // Act & Assert - Equals
             var equalsCondition = service.BuildAttributeEqualsCondition(attributeName, testValue);
             equalsCondition.Should().BeOfType<DbValueCondition>();
-            equalsCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeEquals);
+            equalsCondition.ConditionType.Should().Be(DbConditionType.AttributeEquals);
             equalsCondition.AttributeName.Should().Be(attributeName);
             ((DbValueCondition)equalsCondition).Value.Should().Be(testValue);
 
             // Act & Assert - Not Equals
             var notEqualsCondition = service.BuildAttributeNotEqualsCondition(attributeName, testValue);
             notEqualsCondition.Should().BeOfType<DbValueCondition>();
-            notEqualsCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeNotEquals);
+            notEqualsCondition.ConditionType.Should().Be(DbConditionType.AttributeNotEquals);
 
             // Act & Assert - Greater
             var greaterCondition = service.BuildAttributeGreaterCondition(attributeName, testValue);
             greaterCondition.Should().BeOfType<DbValueCondition>();
-            greaterCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeGreater);
+            greaterCondition.ConditionType.Should().Be(DbConditionType.AttributeGreater);
 
             // Act & Assert - Greater Or Equal
             var greaterOrEqualCondition = service.BuildAttributeGreaterOrEqualCondition(attributeName, testValue);
             greaterOrEqualCondition.Should().BeOfType<DbValueCondition>();
-            greaterOrEqualCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeGreaterOrEqual);
+            greaterOrEqualCondition.ConditionType.Should().Be(DbConditionType.AttributeGreaterOrEqual);
 
             // Act & Assert - Less
             var lessCondition = service.BuildAttributeLessCondition(attributeName, testValue);
             lessCondition.Should().BeOfType<DbValueCondition>();
-            lessCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeLess);
+            lessCondition.ConditionType.Should().Be(DbConditionType.AttributeLess);
 
             // Act & Assert - Less Or Equal
             var lessOrEqualCondition = service.BuildAttributeLessOrEqualCondition(attributeName, testValue);
             lessOrEqualCondition.Should().BeOfType<DbValueCondition>();
-            lessOrEqualCondition.ConditionType.Should().Be(DbAttributeConditionType.AttributeLessOrEqual);
+            lessOrEqualCondition.ConditionType.Should().Be(DbConditionType.AttributeLessOrEqual);
         }
         finally
         {
@@ -960,14 +960,14 @@ public abstract class DatabaseServiceTestBase
             // Act & Assert - Array Element Exists
             var existsCondition = service.BuildArrayElementExistsCondition(attributeName, elementValue);
             existsCondition.Should().BeOfType<DbArrayElementCondition>();
-            existsCondition.ConditionType.Should().Be(DbAttributeConditionType.ArrayElementExists);
+            existsCondition.ConditionType.Should().Be(DbConditionType.ArrayElementExists);
             existsCondition.AttributeName.Should().Be(attributeName);
             ((DbArrayElementCondition)existsCondition).ElementValue.Should().Be(elementValue);
 
             // Act & Assert - Array Element Not Exists
             var notExistsCondition = service.BuildArrayElementNotExistsCondition(attributeName, elementValue);
             notExistsCondition.Should().BeOfType<DbArrayElementCondition>();
-            notExistsCondition.ConditionType.Should().Be(DbAttributeConditionType.ArrayElementNotExists);
+            notExistsCondition.ConditionType.Should().Be(DbConditionType.ArrayElementNotExists);
             notExistsCondition.AttributeName.Should().Be(attributeName);
             ((DbArrayElementCondition)notExistsCondition).ElementValue.Should().Be(elementValue);
         }

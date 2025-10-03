@@ -314,20 +314,19 @@ await pubSubService.SubscribeAsync("user-events", async (topic, message) =>
 
 #### Conditional Operations
 ```csharp
-// Create conditions
-var condition = dbService.AttributeEquals("Status", new PrimitiveType("active"));
-
 // Conditional update
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
 var result = await dbService.UpdateItemAsync(
     "Users", "Id", keyValue, updateData,
-    conditions: [condition]
+    conditions:
+        dbService.AttributeEquals("IsAdmin", new PrimitiveType(true))
+        .Or(dbService.AttributeEquals("Status", new PrimitiveType("active"))
+            .And(dbService.AttributeEquals("IsAdmin", new PrimitiveType(false))))
 );
 
 // Check existence with conditions
-var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, [condition]);
+var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, condition);
 ```
-Multiple conditions can be provided. Each condition is joined with an AND operator.
 
 #### Array Operations
 ```csharp

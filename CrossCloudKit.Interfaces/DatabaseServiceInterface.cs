@@ -36,7 +36,7 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the attribute to check for existence</param>
     /// <returns>A condition that evaluates to true if the specified attribute exists on the item</returns>
     /// <remarks>This condition is useful for ensuring an attribute is present before performing operations that depend on its existence.</remarks>
-    DbCondition BuildAttributeExistsCondition(string attributeName);
+    Condition AttributeExists(string attributeName);
 
     /// <summary>
     /// Creates a condition that checks if an attribute does not exist on an item
@@ -44,7 +44,7 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the attribute to check for non-existence</param>
     /// <returns>A condition that evaluates to true if the specified attribute does not exist on the item</returns>
     /// <remarks>This condition is useful for preventing overwrites or ensuring clean initial states.</remarks>
-    DbCondition BuildAttributeNotExistsCondition(string attributeName);
+    Condition AttributeNotExists(string attributeName);
 
     /// <summary>
     /// Creates a condition that checks if an attribute equals a specific value
@@ -53,7 +53,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute equals the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
-    DbCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value);
+    Condition AttributeEquals(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute does not equal a specific value
@@ -62,7 +62,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute does not equal the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
-    DbCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value);
+    Condition AttributeNotEquals(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is greater than a specific value
@@ -71,7 +71,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    DbCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value);
+    Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is greater than or equal to a specific value
@@ -80,7 +80,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    DbCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value);
+    Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is less than a specific value
@@ -89,7 +89,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    DbCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value);
+    Condition AttributeIsLessThan(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is less than or equal to a specific value
@@ -98,7 +98,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    DbCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value);
+    Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value);
 
     /// <summary>
     /// Creates a condition that checks if an array attribute contains a specific element
@@ -107,7 +107,7 @@ public interface IDatabaseService
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array contains the specified element</returns>
     /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
-    DbCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue);
+    Condition ArrayElementExists(string attributeName, PrimitiveType elementValue);
 
     /// <summary>
     /// Creates a condition that checks if an array attribute does not contain a specific element
@@ -116,7 +116,7 @@ public interface IDatabaseService
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array does not contain the specified element</returns>
     /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
-    DbCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue);
+    Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue);
 
     /// <summary>
     /// Checks if an item exists in the database and optionally verifies that it satisfies specified conditions.
@@ -140,7 +140,7 @@ public interface IDatabaseService
     Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -255,7 +255,7 @@ public interface IDatabaseService
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -284,7 +284,7 @@ public interface IDatabaseService
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -320,7 +320,7 @@ public interface IDatabaseService
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -356,7 +356,7 @@ public interface IDatabaseService
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -388,7 +388,7 @@ public interface IDatabaseService
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -493,7 +493,7 @@ public interface IDatabaseService
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filterConditions"/> is null.</exception>
     Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -528,7 +528,7 @@ public interface IDatabaseService
     /// <exception cref="ArgumentNullException">Thrown when the filterConditions parameter is null.</exception>
     Task<OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default);

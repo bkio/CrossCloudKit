@@ -5,19 +5,78 @@ using CrossCloudKit.Interfaces.Enums;
 
 namespace CrossCloudKit.Interfaces.Classes;
 
-public abstract class DbConditionCouplingBase(DbCondition first, DbCondition? second, DbConditionCouplingType type);
-public class DbConditionNoCoupling(DbCondition condition) : DbConditionCouplingBase(condition, null, DbConditionCouplingType.None);
-public class DbConditionCoupledWithAnd(DbCondition first, DbCondition second) : DbConditionCouplingBase(first, second, DbConditionCouplingType.And);
-public class DbConditionCoupledWithOr(DbCondition first, DbCondition second) : DbConditionCouplingBase(first, second, DbConditionCouplingType.Or);
-
-public static class DbConditionCouplingUtilities
+public class ConditionCoupling
 {
-    public static DbConditionCouplingBase And(this DbCondition first, DbCondition second)
+    public ConditionCoupling()
     {
-        return new DbConditionCoupledWithAnd(first, second);
+        First = null;
+        Second = null;
+        SingleCondition = null;
+        CouplingType = ConditionCouplingType.Empty;
     }
-    public static DbConditionCouplingBase Or(this DbCondition first, DbCondition second)
+
+    internal ConditionCoupling(Condition first)
     {
-        return new DbConditionCoupledWithOr(first, second);
+        First = null;
+        Second = null;
+        SingleCondition = first;
+        CouplingType = ConditionCouplingType.Single;
+    }
+
+    internal ConditionCoupling(ConditionCoupling first, ConditionCoupling? second, ConditionCouplingType type)
+    {
+        First = first;
+        Second = second;
+        SingleCondition = null;
+        CouplingType = type;
+    }
+
+    public readonly ConditionCoupling? First;
+    public readonly ConditionCoupling? Second;
+    public readonly Condition? SingleCondition;
+    public readonly ConditionCouplingType CouplingType;
+}
+
+public class EmptyCondition : ConditionCoupling;
+public class SingleCondition(Condition condition) : ConditionCoupling(condition);
+public class ConditionCoupledWithAnd(ConditionCoupling first, ConditionCoupling second) : ConditionCoupling(first, second, ConditionCouplingType.And);
+public class ConditionCoupledWithOr(ConditionCoupling first, ConditionCoupling second) : ConditionCoupling(first, second, ConditionCouplingType.Or);
+
+public static class ConditionCouplingUtilities
+{
+    public static ConditionCoupling And(this ConditionCoupling first, ConditionCoupling second)
+    {
+        return new ConditionCoupledWithAnd(first, second);
+    }
+    public static ConditionCoupling And(this Condition first, ConditionCoupling second)
+    {
+        return new ConditionCoupledWithAnd(first, second);
+    }
+
+    public static ConditionCoupling Or(this ConditionCoupling first, ConditionCoupling second)
+    {
+        return new ConditionCoupledWithOr(first, second);
+    }
+    public static ConditionCoupling Or(this Condition first, ConditionCoupling second)
+    {
+        return new ConditionCoupledWithOr(first, second);
+    }
+
+    public static ConditionCoupling AggregateAnd(this IEnumerable<Condition> conditions)
+    {
+        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.And(condition));
+    }
+    public static ConditionCoupling AggregateAnd(this IEnumerable<ConditionCoupling> conditions)
+    {
+        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.And(condition));
+    }
+
+    public static ConditionCoupling AggregateOr(this IEnumerable<Condition> conditions)
+    {
+        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.Or(condition));
+    }
+    public static ConditionCoupling AggregateOr(this IEnumerable<ConditionCoupling> conditions)
+    {
+        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.Or(condition));
     }
 }

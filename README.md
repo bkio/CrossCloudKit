@@ -315,7 +315,7 @@ await pubSubService.SubscribeAsync("user-events", async (topic, message) =>
 #### Conditional Operations
 ```csharp
 // Create conditions
-var condition = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+var condition = dbService.AttributeEquals("Status", new PrimitiveType("active"));
 
 // Conditional update
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
@@ -366,7 +366,7 @@ if (newValue.IsSuccessful)
 var allUsers = await dbService.ScanTableAsync("Users", new[] { "Id" });
 
 // Scan with filter
-var activeUsersFilter = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+var activeUsersFilter = dbService.AttributeEquals("Status", new PrimitiveType("active"));
 var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, [activeUsersFilter]);
 
 // Paginated scan

@@ -3,9 +3,10 @@
 
 namespace CrossCloudKit.Interfaces.Enums;
 
-public enum DbConditionCouplingType
+public enum ConditionCouplingType
 {
-    None,
+    Empty,
+    Single,
     And,
     Or
 }

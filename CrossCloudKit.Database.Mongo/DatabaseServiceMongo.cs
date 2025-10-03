@@ -297,7 +297,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -428,7 +428,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, key, updateData,
@@ -440,7 +440,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -494,7 +494,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
@@ -599,24 +599,68 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         }
     }
 
-    private static bool BuildConditionsFilter(
+   private static bool BuildConditionsFilter(
         out FilterDefinition<BsonDocument> finalFilter,
-        IEnumerable<DbCondition> conditions,
+        ConditionCoupling conditions,
         FilterDefinition<BsonDocument>? baseFilter = null)
     {
-        var anyFilterAdded = false;
-        finalFilter = baseFilter ?? Builders<BsonDocument>.Filter.Empty;
-
-        foreach (var condition in conditions)
+        var conditionFilter = BuildConditionCouplingFilter(conditions);
+        if (conditionFilter == null)
         {
-            var conditionFilter = BuildFilterFromCondition(condition);
-            if (conditionFilter == null) continue;
-
-            anyFilterAdded = true;
-            finalFilter = Builders<BsonDocument>.Filter.And(finalFilter, conditionFilter);
+            finalFilter = baseFilter ?? Builders<BsonDocument>.Filter.Empty;
+            return false;
         }
 
-        return anyFilterAdded;
+        finalFilter = baseFilter != null
+            ? Builders<BsonDocument>.Filter.And(baseFilter, conditionFilter)
+            : conditionFilter;
+
+        return true;
+    }
+
+    private static FilterDefinition<BsonDocument>? BuildConditionCouplingFilter(ConditionCoupling conditions)
+    {
+        return conditions.CouplingType switch
+        {
+            ConditionCouplingType.Empty => null,
+            ConditionCouplingType.Single when conditions.SingleCondition != null =>
+                BuildFilterFromCondition(conditions.SingleCondition),
+            ConditionCouplingType.And when conditions is { First: not null, Second: not null } =>
+                BuildAndFilter(conditions.First, conditions.Second),
+            ConditionCouplingType.Or when conditions is { First: not null, Second: not null } =>
+                BuildOrFilter(conditions.First, conditions.Second),
+            _ => null
+        };
+    }
+
+    private static FilterDefinition<BsonDocument>? BuildAndFilter(ConditionCoupling first, ConditionCoupling second)
+    {
+        var firstFilter = BuildConditionCouplingFilter(first);
+        var secondFilter = BuildConditionCouplingFilter(second);
+
+        if (firstFilter == null && secondFilter == null)
+            return null;
+        if (firstFilter == null)
+            return secondFilter;
+        if (secondFilter == null)
+            return firstFilter;
+
+        return Builders<BsonDocument>.Filter.And(firstFilter, secondFilter);
+    }
+
+    private static FilterDefinition<BsonDocument>? BuildOrFilter(ConditionCoupling first, ConditionCoupling second)
+    {
+        var firstFilter = BuildConditionCouplingFilter(first);
+        var secondFilter = BuildConditionCouplingFilter(second);
+
+        if (firstFilter == null && secondFilter == null)
+            return null;
+        if (firstFilter == null)
+            return secondFilter;
+        if (secondFilter == null)
+            return firstFilter;
+
+        return Builders<BsonDocument>.Filter.Or(firstFilter, secondFilter);
     }
 
     /// <inheritdoc />
@@ -626,7 +670,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -712,7 +756,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -871,7 +915,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     /// <inheritdoc />
     protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default)
     {
         try
@@ -914,7 +958,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             string? NextPageToken,
             long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -1061,7 +1105,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -1196,7 +1240,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     private static async Task<OperationResult<bool>> ExistenceAndConditionMatchCheckAsync(
         IMongoCollection<BsonDocument> table,
         FilterDefinition<BsonDocument> filter,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         if (conditions == null || !BuildConditionsFilter(out var finalFilter, conditions, filter))
@@ -1246,21 +1290,21 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildFilterFromCondition(DbCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildFilterFromCondition(Condition condition)
     {
         return condition.ConditionType switch
         {
-            DbConditionType.AttributeExists =>
+            ConditionType.AttributeExists =>
                 Builders<BsonDocument>.Filter.Exists(condition.AttributeName),
-            DbConditionType.AttributeNotExists =>
+            ConditionType.AttributeNotExists =>
                 Builders<BsonDocument>.Filter.Exists(condition.AttributeName, false),
-            _ when condition is DbValueCondition valueCondition => BuildValueFilter(valueCondition),
-            _ when condition is DbArrayElementCondition arrayCondition => BuildArrayElementFilter(arrayCondition),
+            _ when condition is ValueCondition valueCondition => BuildValueFilter(valueCondition),
+            _ when condition is ArrayCondition arrayCondition => BuildArrayElementFilter(arrayCondition),
             _ => null
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildValueFilter(DbValueCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildValueFilter(ValueCondition condition)
     {
         var value = condition.Value.Kind switch
         {
@@ -1274,23 +1318,23 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
         return condition.ConditionType switch
         {
-            DbConditionType.AttributeEquals =>
+            ConditionType.AttributeEquals =>
                 Builders<BsonDocument>.Filter.Eq(condition.AttributeName, value),
-            DbConditionType.AttributeNotEquals =>
+            ConditionType.AttributeNotEquals =>
                 Builders<BsonDocument>.Filter.Ne(condition.AttributeName, value),
-            DbConditionType.AttributeGreater =>
+            ConditionType.AttributeGreater =>
                 Builders<BsonDocument>.Filter.Gt(condition.AttributeName, value),
-            DbConditionType.AttributeGreaterOrEqual =>
+            ConditionType.AttributeGreaterOrEqual =>
                 Builders<BsonDocument>.Filter.Gte(condition.AttributeName, value),
-            DbConditionType.AttributeLess =>
+            ConditionType.AttributeLess =>
                 Builders<BsonDocument>.Filter.Lt(condition.AttributeName, value),
-            DbConditionType.AttributeLessOrEqual =>
+            ConditionType.AttributeLessOrEqual =>
                 Builders<BsonDocument>.Filter.Lte(condition.AttributeName, value),
             _ => null
         };
     }
 
-    private static FilterDefinition<BsonDocument>? BuildArrayElementFilter(DbArrayElementCondition condition)
+    private static FilterDefinition<BsonDocument>? BuildArrayElementFilter(ArrayCondition condition)
     {
         object[] elementValue = condition.ElementValue.Kind switch
         {
@@ -1304,9 +1348,9 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
         return condition.ConditionType switch
         {
-            DbConditionType.ArrayElementExists =>
+            ConditionType.ArrayElementExists =>
                 Builders<BsonDocument>.Filter.AnyIn(condition.AttributeName, elementValue),
-            DbConditionType.ArrayElementNotExists =>
+            ConditionType.ArrayElementNotExists =>
                 Builders<BsonDocument>.Filter.AnyNin(condition.AttributeName, elementValue),
             _ => null
         };
@@ -1353,44 +1397,44 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     #region Condition Builders
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override DbCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
 

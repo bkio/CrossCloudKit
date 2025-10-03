@@ -153,19 +153,33 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         }
     }
 
-    private bool EvaluateCondition(JObject item, DbCondition condition)
+    private bool EvaluateCondition(JObject item, ConditionCoupling condition)
     {
-        return condition.ConditionType switch
+        return condition.CouplingType switch
         {
-            DbConditionType.AttributeExists => item.ContainsKey(condition.AttributeName),
-            DbConditionType.AttributeNotExists => !item.ContainsKey(condition.AttributeName),
-            _ when condition is DbValueCondition valueCondition => EvaluateValueCondition(item, valueCondition),
-            _ when condition is DbArrayElementCondition arrayCondition => EvaluateArrayElementCondition(item, arrayCondition),
+            ConditionCouplingType.Empty => true,
+            ConditionCouplingType.Single => condition.SingleCondition != null && EvaluateSingleCondition(item, condition.SingleCondition),
+            ConditionCouplingType.And => condition is { First: not null, Second: not null } &&
+                                           EvaluateCondition(item, condition.First) && EvaluateCondition(item, condition.Second),
+            ConditionCouplingType.Or => condition is { First: not null, Second: not null } &&
+                                          (EvaluateCondition(item, condition.First) || EvaluateCondition(item, condition.Second)),
             _ => false
         };
     }
 
-    private static bool EvaluateValueCondition(JObject item, DbValueCondition condition)
+    private bool EvaluateSingleCondition(JObject item, Condition condition)
+    {
+        return condition.ConditionType switch
+        {
+            ConditionType.AttributeExists => item.ContainsKey(condition.AttributeName),
+            ConditionType.AttributeNotExists => !item.ContainsKey(condition.AttributeName),
+            _ when condition is ValueCondition valueCondition => EvaluateValueCondition(item, valueCondition),
+            _ when condition is ArrayCondition arrayCondition => EvaluateArrayElementCondition(item, arrayCondition),
+            _ => false
+        };
+    }
+
+    private static bool EvaluateValueCondition(JObject item, ValueCondition condition)
     {
         if (!item.TryGetValue(condition.AttributeName, out var token))
         {
@@ -177,21 +191,21 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
         return condition.ConditionType switch
         {
-            DbConditionType.AttributeEquals => ComparePrimitiveTypes(itemValue, conditionValue) == 0,
-            DbConditionType.AttributeNotEquals => ComparePrimitiveTypes(itemValue, conditionValue) != 0,
-            DbConditionType.AttributeGreater => ComparePrimitiveTypes(itemValue, conditionValue) > 0,
-            DbConditionType.AttributeGreaterOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) >= 0,
-            DbConditionType.AttributeLess => ComparePrimitiveTypes(itemValue, conditionValue) < 0,
-            DbConditionType.AttributeLessOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) <= 0,
+            ConditionType.AttributeEquals => ComparePrimitiveTypes(itemValue, conditionValue) == 0,
+            ConditionType.AttributeNotEquals => ComparePrimitiveTypes(itemValue, conditionValue) != 0,
+            ConditionType.AttributeGreater => ComparePrimitiveTypes(itemValue, conditionValue) > 0,
+            ConditionType.AttributeGreaterOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) >= 0,
+            ConditionType.AttributeLess => ComparePrimitiveTypes(itemValue, conditionValue) < 0,
+            ConditionType.AttributeLessOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) <= 0,
             _ => false
         };
     }
 
-    private bool EvaluateArrayElementCondition(JObject item, DbArrayElementCondition condition)
+    private bool EvaluateArrayElementCondition(JObject item, ArrayCondition condition)
     {
         if (!item.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
         {
-            return condition.ConditionType == DbConditionType.ArrayElementNotExists;
+            return condition.ConditionType == ConditionType.ArrayElementNotExists;
         }
 
         var elementExists = array.Any(element =>
@@ -200,7 +214,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             return ComparePrimitiveTypes(arrayElementValue, condition.ElementValue) == 0;
         });
 
-        return condition.ConditionType == DbConditionType.ArrayElementExists ? elementExists : !elementExists;
+        return condition.ConditionType == ConditionType.ArrayElementExists ? elementExists : !elementExists;
     }
 
     private static PrimitiveType TokenToPrimitiveType(JToken token)
@@ -250,7 +264,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -261,7 +275,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             if (item == null)
                 return OperationResult<bool>.Failure("Item not found", HttpStatusCode.NotFound);
 
-            if (conditions != null && conditions.Any(condition => !EvaluateCondition(item, condition)))
+            if (conditions != null && !EvaluateCondition(item, conditions))
                 return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
 
             return OperationResult<bool>.Success(true);
@@ -363,7 +377,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(
@@ -382,7 +396,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -395,7 +409,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Success(null);
             }
 
-            if (conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
+            if (conditions != null && !EvaluateCondition(existingItem, conditions))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -425,7 +439,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
@@ -454,7 +468,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
-            if (existingItem != null && conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
+            if (existingItem != null && conditions != null && !EvaluateCondition(existingItem, conditions))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -526,7 +540,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -550,7 +564,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Success(null);
             }
 
-            if (conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
+            if (conditions != null && !EvaluateCondition(existingItem, conditions))
             {
                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -603,7 +617,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -617,7 +631,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
             var existingItem = await ReadItemFromFileAsync(filePath, cancellationToken);
 
-            if (existingItem != null && conditions != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
+            if (existingItem != null && conditions != null && !EvaluateCondition(existingItem, conditions))
             {
                 return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
             }
@@ -773,7 +787,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     /// <inheritdoc />
     protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default)
     {
         return await InternalScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
@@ -782,7 +796,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>>
         InternalScanTableWithFilterCoreAsync(
             string tableName,
-            IEnumerable<DbCondition> filterConditions,
+            ConditionCoupling filterConditions,
             CancellationToken cancellationToken = default)
     {
         try
@@ -793,7 +807,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(allItemsResult.ErrorMessage, allItemsResult.StatusCode);
             }
 
-            var filteredItems = allItemsResult.Data.Items.Where(item => filterConditions.All(c => EvaluateCondition(item, c))).ToList();
+            var filteredItems = allItemsResult.Data.Items.Where(item => EvaluateCondition(item, filterConditions)).ToList();
             return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((allItemsResult.Data.Keys, filteredItems.AsReadOnly()));
         }
         catch (Exception e)
@@ -811,7 +825,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             string? NextPageToken,
             long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -953,7 +967,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool shouldOverrideIfExists = false,
         CancellationToken cancellationToken = default)
     {
@@ -980,7 +994,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             }
             else // UpdateItem
             {
-                if (conditions != null && existingItem != null && conditions.Any(c => !EvaluateCondition(existingItem, c)))
+                if (conditions != null && existingItem != null && !EvaluateCondition(existingItem, conditions))
                 {
                     return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                 }
@@ -1112,44 +1126,44 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     #region Condition Builders
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override DbCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion
 

@@ -47,7 +47,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     public async Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -59,7 +59,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     protected abstract Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -129,7 +129,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -143,7 +143,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -151,7 +151,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -164,7 +164,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -174,7 +174,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -189,7 +189,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default);
 
@@ -200,7 +200,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -215,7 +215,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -224,7 +224,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -238,7 +238,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
@@ -278,7 +278,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     /// <inheritdoc />
     public async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
@@ -289,13 +289,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     /// <inheritdoc cref="ScanTableWithFilterAsync"/>
     protected abstract Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
     public async Task<OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -308,7 +308,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     /// <inheritdoc cref="ScanTableWithFilterPaginatedAsync"/>
     protected abstract Task<OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        IEnumerable<DbCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default);
@@ -335,34 +335,34 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     protected internal abstract Task<OperationResult<bool>> DropTableCoreAsync(string tableName, CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeExistsCondition(string attributeName);
+    public abstract Condition AttributeExists(string attributeName);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeNotExistsCondition(string attributeName);
+    public abstract Condition AttributeNotExists(string attributeName);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeEquals(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeNotEquals(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsLessThan(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue);
+    public abstract Condition ArrayElementExists(string attributeName, PrimitiveType elementValue);
 
     /// <inheritdoc />
-    public abstract DbCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue);
+    public abstract Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue);
 
     /// <inheritdoc />
     public async Task<OperationResult<IReadOnlyList<string>>> GetTableKeysAsync(
@@ -409,11 +409,10 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
             SystemTableKeysAttributeName,
             [new PrimitiveType(key.Name)],
             DbReturnItemBehavior.DoNotReturn,
-            [
-                new DbArrayElementCondition(
-                    DbConditionType.ArrayElementNotExists,
-                    SystemTableKeysAttributeName,
-                    key.Name)],
+            new ArrayCondition(
+                ConditionType.ArrayElementNotExists,
+                SystemTableKeysAttributeName,
+                key.Name),
             true,
             cancellationToken);
         if (addElementResult.IsSuccessful || addElementResult.StatusCode == HttpStatusCode.PreconditionFailed)
@@ -455,16 +454,18 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (tableName == SystemTableName)
             return OperationResult<bool>.Success(true);
 
-        var conditions = new List<DbCondition>();
+        var conditions = new ConditionCoupling();
+        var conditionNo = 0;
         foreach (var attr in item)
         {
             if (attr.Key == key.Name) continue;
-            conditions.Add(
-                BuildArrayElementNotExistsCondition(
+            conditions = conditions.And(
+                ArrayElementNotExists(
                     SystemTableKeysAttributeName,
                     new PrimitiveType(attr.Key)));
+            conditionNo++;
         }
-        if (conditions.Count == 0)
+        if (conditionNo == 0)
             return OperationResult<bool>.Success(true);
 
         await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock

@@ -48,7 +48,7 @@ public abstract class DatabaseServiceTestBase
                 {
                     disposable.Dispose();
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     // Ignore cleanup errors in tests - this is common practice for test cleanup
                 }
@@ -90,7 +90,7 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public virtual void BuildAttributeExistsCondition_ShouldReturnExistenceCondition()
+    public virtual void AttributeExists_ShouldReturnExistenceCondition()
     {
         // Arrange
         var service = CreateDatabaseService();
@@ -99,11 +99,11 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Act
-            var condition = service.BuildAttributeExistsCondition(attributeName);
+            var condition = service.AttributeExists(attributeName);
 
             // Assert
-            condition.Should().BeOfType<DbExistenceCondition>();
-            condition.ConditionType.Should().Be(DbConditionType.AttributeExists);
+            condition.Should().BeOfType<ExistenceCondition>();
+            condition.ConditionType.Should().Be(ConditionType.AttributeExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -114,7 +114,7 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public virtual void BuildAttributeNotExistsCondition_ShouldReturnExistenceCondition()
+    public virtual void AttributeNotExists_ShouldReturnExistenceCondition()
     {
         // Arrange
         var service = CreateDatabaseService();
@@ -123,11 +123,11 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Act
-            var condition = service.BuildAttributeNotExistsCondition(attributeName);
+            var condition = service.AttributeNotExists(attributeName);
 
             // Assert
-            condition.Should().BeOfType<DbExistenceCondition>();
-            condition.ConditionType.Should().Be(DbConditionType.AttributeNotExists);
+            condition.Should().BeOfType<ExistenceCondition>();
+            condition.ConditionType.Should().Be(ConditionType.AttributeNotExists);
             condition.AttributeName.Should().Be(attributeName);
         }
         finally
@@ -249,44 +249,44 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test AttributeEquals condition - should return true
-            var equalsCondition = service.BuildAttributeEqualsCondition("Value", new PrimitiveType(42.0));
-            var existsWithEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [equalsCondition]);
+            var equalsCondition = service.AttributeEquals("Value", new PrimitiveType(42.0));
+            var existsWithEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), equalsCondition);
             existsWithEquals.IsSuccessful.Should().BeTrue();
             existsWithEquals.Data.Should().BeTrue("Item exists and Value equals 42");
 
             // Test AttributeEquals condition - should return false
-            var equalsConditionFalse = service.BuildAttributeEqualsCondition("Value", new PrimitiveType(99.0));
-            var existsWithEqualsFalse = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [equalsConditionFalse]);
+            var equalsConditionFalse = service.AttributeEquals("Value", new PrimitiveType(99.0));
+            var existsWithEqualsFalse = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), equalsConditionFalse);
             existsWithEqualsFalse.IsSuccessful.Should().BeFalse();
             existsWithEqualsFalse.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed, "Item exists but Value does not equal 99");
 
             // Test AttributeGreater condition
-            var greaterCondition = service.BuildAttributeGreaterCondition("Value", new PrimitiveType(40.0));
-            var existsWithGreater = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [greaterCondition]);
+            var greaterCondition = service.AttributeIsGreaterThan("Value", new PrimitiveType(40.0));
+            var existsWithGreater = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterCondition);
             existsWithGreater.IsSuccessful.Should().BeTrue();
             existsWithGreater.Data.Should().BeTrue("Item exists and Value > 40");
 
             // Test AttributeLess condition
-            var lessCondition = service.BuildAttributeLessCondition("Value", new PrimitiveType(50.0));
-            var existsWithLess = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [lessCondition]);
+            var lessCondition = service.AttributeIsLessThan("Value", new PrimitiveType(50.0));
+            var existsWithLess = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessCondition);
             existsWithLess.IsSuccessful.Should().BeTrue();
             existsWithLess.Data.Should().BeTrue("Item exists and Value < 50");
 
             // Test AttributeGreaterOrEqual condition
-            var greaterOrEqualCondition = service.BuildAttributeGreaterOrEqualCondition("Value", new PrimitiveType(42.0));
-            var existsWithGreaterOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [greaterOrEqualCondition]);
+            var greaterOrEqualCondition = service.AttributeIsGreaterOrEqual("Value", new PrimitiveType(42.0));
+            var existsWithGreaterOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterOrEqualCondition);
             existsWithGreaterOrEqual.IsSuccessful.Should().BeTrue();
             existsWithGreaterOrEqual.Data.Should().BeTrue("Item exists and Value >= 42");
 
             // Test AttributeLessOrEqual condition
-            var lessOrEqualCondition = service.BuildAttributeLessOrEqualCondition("Value", new PrimitiveType(42.0));
-            var existsWithLessOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [lessOrEqualCondition]);
+            var lessOrEqualCondition = service.AttributeIsLessOrEqual("Value", new PrimitiveType(42.0));
+            var existsWithLessOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessOrEqualCondition);
             existsWithLessOrEqual.IsSuccessful.Should().BeTrue();
             existsWithLessOrEqual.Data.Should().BeTrue("Item exists and Value <= 42");
 
             // Test AttributeNotEquals condition
-            var notEqualsCondition = service.BuildAttributeNotEqualsCondition("Status", new PrimitiveType("inactive"));
-            var existsWithNotEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [notEqualsCondition]);
+            var notEqualsCondition = service.AttributeNotEquals("Status", new PrimitiveType("inactive"));
+            var existsWithNotEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), notEqualsCondition);
             existsWithNotEquals.IsSuccessful.Should().BeTrue();
             existsWithNotEquals.Data.Should().BeTrue("Item exists and Status != 'inactive'");
         }
@@ -315,34 +315,34 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test AttributeExists condition - should succeed
-            var existsCondition = service.BuildAttributeExistsCondition("OptionalField");
+            var existsCondition = service.AttributeExists("OptionalField");
             var updateData1 = CreateUpdateData("UpdatedWithExists", 200);
             var updateResult1 = await service.UpdateItemAsync(tableName, new DbKey(keyName, keyValue), updateData1,
-                DbReturnItemBehavior.DoNotReturn, [existsCondition]);
+                DbReturnItemBehavior.DoNotReturn, existsCondition);
 
             updateResult1.IsSuccessful.Should().BeTrue("Update should succeed when required field exists");
 
             // Test AttributeNotExists condition - should fail
-            var notExistsCondition = service.BuildAttributeNotExistsCondition("OptionalField");
+            var notExistsCondition = service.AttributeNotExists("OptionalField");
             var updateData2 = CreateUpdateData("ShouldNotUpdate", 300);
             var updateResult2 = await service.UpdateItemAsync(tableName, new DbKey(keyName, keyValue), updateData2,
-                DbReturnItemBehavior.DoNotReturn, [notExistsCondition]);
+                DbReturnItemBehavior.DoNotReturn, notExistsCondition);
 
             updateResult2.IsSuccessful.Should().BeFalse("Update should fail when field exists but condition requires it not to exist");
 
             // Test AttributeNotExists condition for non-existent field - should succeed
-            var notExistsCondition2 = service.BuildAttributeNotExistsCondition("NonExistentField");
+            var notExistsCondition2 = service.AttributeNotExists("NonExistentField");
             var updateData3 = CreateUpdateData("UpdatedWithNotExists", 400);
             var updateResult3 = await service.UpdateItemAsync(tableName, new DbKey(keyName, keyValue), updateData3,
-                DbReturnItemBehavior.DoNotReturn, [notExistsCondition2]);
+                DbReturnItemBehavior.DoNotReturn, notExistsCondition2);
 
             updateResult3.IsSuccessful.Should().BeTrue("Update should succeed when non-existent field is checked for non-existence");
 
             // Test AttributeExists condition for non-existent field - should fail
-            var existsCondition2 = service.BuildAttributeExistsCondition("NonExistentField");
+            var existsCondition2 = service.AttributeExists("NonExistentField");
             var updateData4 = CreateUpdateData("ShouldNotUpdate2", 500);
             var updateResult4 = await service.UpdateItemAsync(tableName, new DbKey(keyName, keyValue), updateData4,
-                DbReturnItemBehavior.DoNotReturn, [existsCondition2]);
+                DbReturnItemBehavior.DoNotReturn, existsCondition2);
 
             updateResult4.IsSuccessful.Should().BeFalse("Update should fail when non-existent field is checked for existence");
         }
@@ -375,9 +375,9 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test ArrayElementExists condition - should allow deletion
-            var arrayExistsCondition = service.BuildArrayElementExistsCondition("Tags", new PrimitiveType("production"));
+            var arrayExistsCondition = service.ArrayElementExists("Tags", new PrimitiveType("production"));
             var deleteResult1 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.ReturnOldValues, [arrayExistsCondition]);
+                DbReturnItemBehavior.ReturnOldValues, arrayExistsCondition);
 
             deleteResult1.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'production'");
             deleteResult1.Data.Should().NotBeNull("Should return old values");
@@ -386,16 +386,16 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test ArrayElementNotExists condition - should prevent deletion
-            var arrayNotExistsCondition = service.BuildArrayElementNotExistsCondition("Tags", new PrimitiveType("production"));
+            var arrayNotExistsCondition = service.ArrayElementNotExists("Tags", new PrimitiveType("production"));
             var deleteResult2 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.DoNotReturn, [arrayNotExistsCondition]);
+                DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition);
 
             deleteResult2.IsSuccessful.Should().BeFalse("Delete should fail when array contains 'production' but condition requires it not to");
 
             // Test ArrayElementNotExists with element that doesn't exist - should allow deletion
-            var arrayNotExistsCondition2 = service.BuildArrayElementNotExistsCondition("Tags", new PrimitiveType("nonexistent"));
+            var arrayNotExistsCondition2 = service.ArrayElementNotExists("Tags", new PrimitiveType("nonexistent"));
             var deleteResult3 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.DoNotReturn, [arrayNotExistsCondition2]);
+                DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition2);
 
             deleteResult3.IsSuccessful.Should().BeTrue("Delete should succeed when array doesn't contain 'nonexistent'");
         }
@@ -428,7 +428,7 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test condition that should allow adding elements
-            var allowCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+            var allowCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
             var elementsToAdd1 = new[]
             {
                 new PrimitiveType("allowed1"),
@@ -437,7 +437,7 @@ public abstract class DatabaseServiceTestBase
 
             var addResult1 = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", elementsToAdd1,
-                DbReturnItemBehavior.ReturnNewValues, [allowCondition]);
+                DbReturnItemBehavior.ReturnNewValues, allowCondition);
 
             addResult1.IsSuccessful.Should().BeTrue("Should add elements when Status equals 'active'");
             var tags1 = addResult1.Data!["Tags"] as JArray;
@@ -446,7 +446,7 @@ public abstract class DatabaseServiceTestBase
             tags1.Should().Contain(t => t.ToString() == "allowed2");
 
             // Test condition that should prevent adding elements
-            var preventCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("inactive"));
+            var preventCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
             var elementsToAdd2 = new[]
             {
                 new PrimitiveType("blocked1"),
@@ -455,7 +455,7 @@ public abstract class DatabaseServiceTestBase
 
             var addResult2 = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", elementsToAdd2,
-                DbReturnItemBehavior.DoNotReturn, [preventCondition]);
+                DbReturnItemBehavior.DoNotReturn, preventCondition);
 
             addResult2.IsSuccessful.Should().BeFalse("Should not add elements when Status doesn't equal 'inactive'");
 
@@ -497,11 +497,11 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, userId), userItem);
 
             // Business rule: Only deduct money if account is active
-            var activeCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+            var activeCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
 
             // Test deducting money - should work
             var deductResult = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, userId), "AccountBalance", -30.0, [activeCondition]);
+                tableName, new DbKey(keyName, userId), "AccountBalance", -30.0, activeCondition);
             deductResult.IsSuccessful.Should().BeTrue("Should deduct money from active account");
             deductResult.Data.Should().Be(70.0);
 
@@ -509,25 +509,25 @@ public abstract class DatabaseServiceTestBase
             await service.UpdateItemAsync(tableName, new DbKey(keyName, userId),
                 new JObject { ["LoginAttempts"] = 5 });
 
-            var tooManyAttemptsCondition = service.BuildAttributeGreaterOrEqualCondition("LoginAttempts", new PrimitiveType(5.0));
+            var tooManyAttemptsCondition = service.AttributeIsGreaterOrEqual("LoginAttempts", new PrimitiveType(5.0));
             var blockResult = await service.UpdateItemAsync(tableName, new DbKey(keyName, userId),
                 new JObject { ["Status"] = "blocked" },
-                DbReturnItemBehavior.DoNotReturn, [tooManyAttemptsCondition]);
+                DbReturnItemBehavior.DoNotReturn, tooManyAttemptsCondition);
 
             blockResult.IsSuccessful.Should().BeTrue("Should block account with too many login attempts");
 
             // Business rule: Cannot deduct from blocked account
             var deductFromBlockedResult = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, userId), "AccountBalance", -10.0, [activeCondition]); // Using active condition, should fail
+                tableName, new DbKey(keyName, userId), "AccountBalance", -10.0, activeCondition); // Using active condition, should fail
 
             deductFromBlockedResult.IsSuccessful.Should().BeFalse("Should not deduct money from blocked account");
 
             // Business rule: Add permission only if user has basic permissions
-            var hasReadPermissionCondition = service.BuildArrayElementExistsCondition("Permissions", new PrimitiveType("read"));
+            var hasReadPermissionCondition = service.ArrayElementExists("Permissions", new PrimitiveType("read"));
             var addPermissionResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, userId), "Permissions",
                 [new PrimitiveType("admin")],
-                DbReturnItemBehavior.ReturnNewValues, [hasReadPermissionCondition]);
+                DbReturnItemBehavior.ReturnNewValues, hasReadPermissionCondition);
 
             addPermissionResult.IsSuccessful.Should().BeTrue("Should add admin permission when user has read permission");
             var permissions = addPermissionResult.Data!["Permissions"] as JArray;
@@ -750,7 +750,7 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test with attribute not exists condition
-            var condition = service.BuildAttributeNotExistsCondition("NewAttribute");
+            var condition = service.AttributeNotExists("NewAttribute");
             var updateData = new JObject
             {
                 ["NewAttribute"] = "NewValue"
@@ -758,7 +758,7 @@ public abstract class DatabaseServiceTestBase
 
             // Act
             var result = await service.UpdateItemAsync(tableName, new DbKey(keyName, keyValue), updateData,
-                conditions: [condition]);
+                conditions: condition);
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -909,36 +909,36 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Act & Assert - Equals
-            var equalsCondition = service.BuildAttributeEqualsCondition(attributeName, testValue);
-            equalsCondition.Should().BeOfType<DbValueCondition>();
-            equalsCondition.ConditionType.Should().Be(DbConditionType.AttributeEquals);
+            var equalsCondition = service.AttributeEquals(attributeName, testValue);
+            equalsCondition.Should().BeOfType<ValueCondition>();
+            equalsCondition.ConditionType.Should().Be(ConditionType.AttributeEquals);
             equalsCondition.AttributeName.Should().Be(attributeName);
-            ((DbValueCondition)equalsCondition).Value.Should().Be(testValue);
+            ((ValueCondition)equalsCondition).Value.Should().Be(testValue);
 
             // Act & Assert - Not Equals
-            var notEqualsCondition = service.BuildAttributeNotEqualsCondition(attributeName, testValue);
-            notEqualsCondition.Should().BeOfType<DbValueCondition>();
-            notEqualsCondition.ConditionType.Should().Be(DbConditionType.AttributeNotEquals);
+            var notEqualsCondition = service.AttributeNotEquals(attributeName, testValue);
+            notEqualsCondition.Should().BeOfType<ValueCondition>();
+            notEqualsCondition.ConditionType.Should().Be(ConditionType.AttributeNotEquals);
 
             // Act & Assert - Greater
-            var greaterCondition = service.BuildAttributeGreaterCondition(attributeName, testValue);
-            greaterCondition.Should().BeOfType<DbValueCondition>();
-            greaterCondition.ConditionType.Should().Be(DbConditionType.AttributeGreater);
+            var greaterCondition = service.AttributeIsGreaterThan(attributeName, testValue);
+            greaterCondition.Should().BeOfType<ValueCondition>();
+            greaterCondition.ConditionType.Should().Be(ConditionType.AttributeGreater);
 
             // Act & Assert - Greater Or Equal
-            var greaterOrEqualCondition = service.BuildAttributeGreaterOrEqualCondition(attributeName, testValue);
-            greaterOrEqualCondition.Should().BeOfType<DbValueCondition>();
-            greaterOrEqualCondition.ConditionType.Should().Be(DbConditionType.AttributeGreaterOrEqual);
+            var greaterOrEqualCondition = service.AttributeIsGreaterOrEqual(attributeName, testValue);
+            greaterOrEqualCondition.Should().BeOfType<ValueCondition>();
+            greaterOrEqualCondition.ConditionType.Should().Be(ConditionType.AttributeGreaterOrEqual);
 
             // Act & Assert - Less
-            var lessCondition = service.BuildAttributeLessCondition(attributeName, testValue);
-            lessCondition.Should().BeOfType<DbValueCondition>();
-            lessCondition.ConditionType.Should().Be(DbConditionType.AttributeLess);
+            var lessCondition = service.AttributeIsLessThan(attributeName, testValue);
+            lessCondition.Should().BeOfType<ValueCondition>();
+            lessCondition.ConditionType.Should().Be(ConditionType.AttributeLess);
 
             // Act & Assert - Less Or Equal
-            var lessOrEqualCondition = service.BuildAttributeLessOrEqualCondition(attributeName, testValue);
-            lessOrEqualCondition.Should().BeOfType<DbValueCondition>();
-            lessOrEqualCondition.ConditionType.Should().Be(DbConditionType.AttributeLessOrEqual);
+            var lessOrEqualCondition = service.AttributeIsLessOrEqual(attributeName, testValue);
+            lessOrEqualCondition.Should().BeOfType<ValueCondition>();
+            lessOrEqualCondition.ConditionType.Should().Be(ConditionType.AttributeLessOrEqual);
         }
         finally
         {
@@ -958,18 +958,18 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Act & Assert - Array Element Exists
-            var existsCondition = service.BuildArrayElementExistsCondition(attributeName, elementValue);
-            existsCondition.Should().BeOfType<DbArrayElementCondition>();
-            existsCondition.ConditionType.Should().Be(DbConditionType.ArrayElementExists);
+            var existsCondition = service.ArrayElementExists(attributeName, elementValue);
+            existsCondition.Should().BeOfType<ArrayCondition>();
+            existsCondition.ConditionType.Should().Be(ConditionType.ArrayElementExists);
             existsCondition.AttributeName.Should().Be(attributeName);
-            ((DbArrayElementCondition)existsCondition).ElementValue.Should().Be(elementValue);
+            ((ArrayCondition)existsCondition).ElementValue.Should().Be(elementValue);
 
             // Act & Assert - Array Element Not Exists
-            var notExistsCondition = service.BuildArrayElementNotExistsCondition(attributeName, elementValue);
-            notExistsCondition.Should().BeOfType<DbArrayElementCondition>();
-            notExistsCondition.ConditionType.Should().Be(DbConditionType.ArrayElementNotExists);
+            var notExistsCondition = service.ArrayElementNotExists(attributeName, elementValue);
+            notExistsCondition.Should().BeOfType<ArrayCondition>();
+            notExistsCondition.ConditionType.Should().Be(ConditionType.ArrayElementNotExists);
             notExistsCondition.AttributeName.Should().Be(attributeName);
-            ((DbArrayElementCondition)notExistsCondition).ElementValue.Should().Be(elementValue);
+            ((ArrayCondition)notExistsCondition).ElementValue.Should().Be(elementValue);
         }
         finally
         {
@@ -1006,8 +1006,8 @@ public abstract class DatabaseServiceTestBase
             existsResult.Data.Should().BeTrue();
 
             // Test conditions with integer comparisons
-            var greaterCondition = service.BuildAttributeGreaterCondition("Value", new PrimitiveType(90L));
-            var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [greaterCondition]);
+            var greaterCondition = service.AttributeIsGreaterThan("Value", new PrimitiveType(90L));
+            var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterCondition);
             conditionalExists.IsSuccessful.Should().BeTrue();
             conditionalExists.Data.Should().BeTrue("Value (100) should be greater than 90");
         }
@@ -1042,8 +1042,8 @@ public abstract class DatabaseServiceTestBase
             getResult.Data!["Name"]?.ToString().Should().Be("DoubleKeyTest");
 
             // Test conditions with double comparisons
-            var lessCondition = service.BuildAttributeLessCondition("Value", new PrimitiveType(250.0));
-            var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [lessCondition]);
+            var lessCondition = service.AttributeIsLessThan("Value", new PrimitiveType(250.0));
+            var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessCondition);
             conditionalExists.IsSuccessful.Should().BeTrue();
             conditionalExists.Data.Should().BeTrue("Value (200) should be less than 250");
         }
@@ -1112,19 +1112,19 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test integer vs double comparison (should work for compatible values)
-            var integerCondition = service.BuildAttributeEqualsCondition("IntegerValue", new PrimitiveType(42L));
-            var integerResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [integerCondition]);
+            var integerCondition = service.AttributeEquals("IntegerValue", new PrimitiveType(42L));
+            var integerResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), integerCondition);
             integerResult.IsSuccessful.Should().BeTrue();
             integerResult.Data.Should().BeTrue("Integer value should match");
 
-            var doubleCondition = service.BuildAttributeEqualsCondition("DoubleValue", new PrimitiveType(42.0));
-            var doubleResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [doubleCondition]);
+            var doubleCondition = service.AttributeEquals("DoubleValue", new PrimitiveType(42.0));
+            var doubleResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), doubleCondition);
             doubleResult.IsSuccessful.Should().BeTrue();
             doubleResult.Data.Should().BeTrue("Double value should match");
 
             // Test string comparison
-            var stringCondition = service.BuildAttributeEqualsCondition("StringValue", new PrimitiveType("42"));
-            var stringResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [stringCondition]);
+            var stringCondition = service.AttributeEquals("StringValue", new PrimitiveType("42"));
+            var stringResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringCondition);
             stringResult.IsSuccessful.Should().BeTrue();
             stringResult.Data.Should().BeTrue("String value should match");
         }
@@ -1320,12 +1320,12 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test remove with condition that should succeed
-            var allowCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+            var allowCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
             var elementsToRemove = new[] { new PrimitiveType("tag2"), new PrimitiveType("tag3") };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", elementsToRemove,
-                DbReturnItemBehavior.ReturnNewValues, [allowCondition]);
+                DbReturnItemBehavior.ReturnNewValues, allowCondition);
 
             removeResult.IsSuccessful.Should().BeTrue("Should remove elements when condition is satisfied");
             var tags = removeResult.Data!["Tags"] as JArray;
@@ -1336,12 +1336,12 @@ public abstract class DatabaseServiceTestBase
             tags.Should().NotContain(t => t.ToString() == "tag3");
 
             // Test remove with condition that should fail
-            var preventCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("inactive"));
+            var preventCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
             var moreElementsToRemove = new[] { new PrimitiveType("tag1") };
 
             var removeResult2 = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", moreElementsToRemove,
-                DbReturnItemBehavior.DoNotReturn, [preventCondition]);
+                DbReturnItemBehavior.DoNotReturn, preventCondition);
 
             removeResult2.IsSuccessful.Should().BeFalse("Should not remove elements when condition fails");
 
@@ -1564,16 +1564,16 @@ public abstract class DatabaseServiceTestBase
             incrementResult3.Data.Should().Be(12.0);
 
             // Test increment with condition that should succeed
-            var allowCondition = service.BuildAttributeGreaterOrEqualCondition("Counter", new PrimitiveType(10.0));
+            var allowCondition = service.AttributeIsGreaterOrEqual("Counter", new PrimitiveType(10.0));
             var incrementResult4 = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Counter", 8.0, [allowCondition]);
+                tableName, new DbKey(keyName, keyValue), "Counter", 8.0, allowCondition);
             incrementResult4.IsSuccessful.Should().BeTrue("Should increment when condition is met");
             incrementResult4.Data.Should().Be(20.0);
 
             // Test increment with condition that should fail
-            var preventCondition = service.BuildAttributeLessCondition("Counter", new PrimitiveType(10.0));
+            var preventCondition = service.AttributeIsLessThan("Counter", new PrimitiveType(10.0));
             var incrementResult5 = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Counter", 1.0, [preventCondition]);
+                tableName, new DbKey(keyName, keyValue), "Counter", 1.0, preventCondition);
             incrementResult5.IsSuccessful.Should().BeFalse("Should not increment when condition fails");
 
             // Verify counter value unchanged
@@ -1620,14 +1620,14 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Test scan with filter for active users
-            var activeFilter = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
-            var activeResult = await service.ScanTableWithFilterAsync(tableName, [activeFilter]);
+            var activeFilter = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var activeResult = await service.ScanTableWithFilterAsync(tableName, activeFilter);
             activeResult.IsSuccessful.Should().BeTrue();
             activeResult.Data.Items.Count.Should().Be(3, "Should find 3 active users");
 
             // Test scan with filter for high scores
-            var highScoreFilter = service.BuildAttributeGreaterCondition("Score", new PrimitiveType(80.0));
-            var highScoreResult = await service.ScanTableWithFilterAsync(tableName, [highScoreFilter]);
+            var highScoreFilter = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var highScoreResult = await service.ScanTableWithFilterAsync(tableName, highScoreFilter);
             highScoreResult.IsSuccessful.Should().BeTrue();
             highScoreResult.Data.Items.Count.Should().Be(3, "Should find 3 users with score > 80");
             foreach (var item in highScoreResult.Data.Items)
@@ -1673,8 +1673,8 @@ public abstract class DatabaseServiceTestBase
             addResult.IsSuccessful.Should().BeTrue();
 
             // Test conditions with empty string
-            var emptyStringCondition = service.BuildAttributeEqualsCondition("EmptyString", new PrimitiveType(""));
-            var emptyStringExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [emptyStringCondition]);
+            var emptyStringCondition = service.AttributeEquals("EmptyString", new PrimitiveType(""));
+            var emptyStringExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), emptyStringCondition);
             emptyStringExists.IsSuccessful.Should().BeTrue();
 
             // Note: DynamoDB has specific behavior with empty strings - they may be stored as null or not stored at all
@@ -1683,8 +1683,8 @@ public abstract class DatabaseServiceTestBase
             // emptyStringExists.Data.Should().BeTrue("Should match empty string");
 
             // Test conditions with zero value
-            var zeroCondition = service.BuildAttributeEqualsCondition("ZeroValue", new PrimitiveType(0.0));
-            var zeroExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [zeroCondition]);
+            var zeroCondition = service.AttributeEquals("ZeroValue", new PrimitiveType(0.0));
+            var zeroExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), zeroCondition);
             zeroExists.IsSuccessful.Should().BeTrue();
             zeroExists.Data.Should().BeTrue("Should match zero value");
 
@@ -1723,32 +1723,32 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test string array element conditions
-            var stringExistsCondition = service.BuildArrayElementExistsCondition("StringTags", new PrimitiveType("banana"));
-            var stringExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [stringExistsCondition]);
+            var stringExistsCondition = service.ArrayElementExists("StringTags", new PrimitiveType("banana"));
+            var stringExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringExistsCondition);
             stringExistsResult.IsSuccessful.Should().BeTrue();
             stringExistsResult.Data.Should().BeTrue("Should find 'banana' in string array");
 
-            var stringNotExistsCondition = service.BuildArrayElementNotExistsCondition("StringTags", new PrimitiveType("grape"));
-            var stringNotExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [stringNotExistsCondition]);
+            var stringNotExistsCondition = service.ArrayElementNotExists("StringTags", new PrimitiveType("grape"));
+            var stringNotExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringNotExistsCondition);
             stringNotExistsResult.IsSuccessful.Should().BeTrue();
             stringNotExistsResult.Data.Should().BeTrue("Should not find 'grape' in string array");
 
             // Test integer array element conditions
-            var integerExistsCondition = service.BuildArrayElementExistsCondition("NumberTags", new PrimitiveType(20L));
-            var integerExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [integerExistsCondition]);
+            var integerExistsCondition = service.ArrayElementExists("NumberTags", new PrimitiveType(20L));
+            var integerExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), integerExistsCondition);
             integerExistsResult.IsSuccessful.Should().BeTrue();
             integerExistsResult.Data.Should().BeTrue("Should find 20 in number array");
 
             // Test double array element conditions
-            var doubleExistsCondition = service.BuildArrayElementExistsCondition("DoubleTags", new PrimitiveType(2.5));
-            var doubleExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), [doubleExistsCondition]);
+            var doubleExistsCondition = service.ArrayElementExists("DoubleTags", new PrimitiveType(2.5));
+            var doubleExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), doubleExistsCondition);
             doubleExistsResult.IsSuccessful.Should().BeTrue();
             doubleExistsResult.Data.Should().BeTrue("Should find 2.5 in double array");
 
             // Test array element conditions in operations
-            var hasAppleCondition = service.BuildArrayElementExistsCondition("StringTags", new PrimitiveType("apple"));
+            var hasAppleCondition = service.ArrayElementExists("StringTags", new PrimitiveType("apple"));
             var deleteResult = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.ReturnOldValues, [hasAppleCondition]);
+                DbReturnItemBehavior.ReturnOldValues, hasAppleCondition);
             deleteResult.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'apple'");
             deleteResult.Data.Should().NotBeNull("Should return old values");
         }
@@ -1785,38 +1785,38 @@ public abstract class DatabaseServiceTestBase
             // Test multiple conditions that should all pass (AND logic)
             var conditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active")),
-                service.BuildAttributeGreaterCondition("Score", new PrimitiveType(80.0)),
-                service.BuildAttributeEqualsCondition("Level", new PrimitiveType("premium")),
-                service.BuildArrayElementExistsCondition("Tags", new PrimitiveType("vip"))
+                service.AttributeEquals("Status", new PrimitiveType("active")),
+                service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0)),
+                service.AttributeEquals("Level", new PrimitiveType("premium")),
+                service.ArrayElementExists("Tags", new PrimitiveType("vip"))
             };
 
-            var result = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), conditions);
+            var result = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), conditions.AggregateAnd());
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().BeTrue("All conditions should be satisfied");
 
             // Test multiple conditions where one fails (should fail overall)
             var failingConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active")), // passes
-                service.BuildAttributeGreaterCondition("Score", new PrimitiveType(90.0)), // fails (85 < 90)
-                service.BuildAttributeEqualsCondition("Level", new PrimitiveType("premium")) // passes
+                service.AttributeEquals("Status", new PrimitiveType("active")), // passes
+                service.AttributeIsGreaterThan("Score", new PrimitiveType(90.0)), // fails (85 < 90)
+                service.AttributeEquals("Level", new PrimitiveType("premium")) // passes
             };
 
-            var failResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingConditions);
+            var failResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingConditions.AggregateAnd());
             failResult.IsSuccessful.Should().BeFalse("Should fail when any condition fails");
             failResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
 
             // Test mixed condition types
             var mixedConditions = new[]
             {
-                service.BuildAttributeExistsCondition("Name"),
-                service.BuildAttributeNotExistsCondition("NonExistentField"),
-                service.BuildAttributeLessOrEqualCondition("Score", new PrimitiveType(90.0)),
-                service.BuildArrayElementNotExistsCondition("Tags", new PrimitiveType("banned"))
+                service.AttributeExists("Name"),
+                service.AttributeNotExists("NonExistentField"),
+                service.AttributeIsLessOrEqual("Score", new PrimitiveType(90.0)),
+                service.ArrayElementNotExists("Tags", new PrimitiveType("banned"))
             };
 
-            var mixedResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), mixedConditions);
+            var mixedResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), mixedConditions.AggregateAnd());
             mixedResult.IsSuccessful.Should().BeTrue();
             mixedResult.Data.Should().BeTrue("All mixed conditions should be satisfied");
         }
@@ -1853,9 +1853,9 @@ public abstract class DatabaseServiceTestBase
             // Test update with multiple conditions that should pass
             var successConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active")),
-                service.BuildAttributeGreaterOrEqualCondition("Balance", new PrimitiveType(500.0)),
-                service.BuildAttributeEqualsCondition("Tier", new PrimitiveType("gold"))
+                service.AttributeEquals("Status", new PrimitiveType("active")),
+                service.AttributeIsGreaterOrEqual("Balance", new PrimitiveType(500.0)),
+                service.AttributeEquals("Tier", new PrimitiveType("gold"))
             };
 
             var updateData1 = new JObject
@@ -1866,7 +1866,7 @@ public abstract class DatabaseServiceTestBase
 
             var updateResult1 = await service.UpdateItemAsync(
                 tableName, new DbKey(keyName, keyValue), updateData1,
-                DbReturnItemBehavior.ReturnNewValues, successConditions);
+                DbReturnItemBehavior.ReturnNewValues, successConditions.AggregateAnd());
 
             updateResult1.IsSuccessful.Should().BeTrue("Update should succeed when all conditions are met");
             updateResult1.Data!["Balance"]?.ToObject<double>().Should().Be(800.0);
@@ -1874,16 +1874,16 @@ public abstract class DatabaseServiceTestBase
             // Test update with conditions where one fails
             var failConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active")), // passes
-                service.BuildAttributeGreaterCondition("Balance", new PrimitiveType(900.0)), // fails (800 < 900)
-                service.BuildAttributeEqualsCondition("Tier", new PrimitiveType("gold")) // passes
+                service.AttributeEquals("Status", new PrimitiveType("active")), // passes
+                service.AttributeIsGreaterThan("Balance", new PrimitiveType(900.0)), // fails (800 < 900)
+                service.AttributeEquals("Tier", new PrimitiveType("gold")) // passes
             };
 
             var updateData2 = new JObject { ["Balance"] = 700.0 };
 
             var updateResult2 = await service.UpdateItemAsync(
                 tableName, new DbKey(keyName, keyValue), updateData2,
-                DbReturnItemBehavior.DoNotReturn, failConditions);
+                DbReturnItemBehavior.DoNotReturn, failConditions.AggregateAnd());
 
             updateResult2.IsSuccessful.Should().BeFalse("Update should fail when any condition fails");
             updateResult2.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
@@ -1925,14 +1925,14 @@ public abstract class DatabaseServiceTestBase
             // Test delete with conditions that should prevent deletion
             var preventConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("inactive")), // passes
-                service.BuildAttributeEqualsCondition("DataRetentionDays", new PrimitiveType(0.0)), // passes
-                service.BuildAttributeEqualsCondition("HasBackup", new PrimitiveType(false)) // fails
+                service.AttributeEquals("Status", new PrimitiveType("inactive")), // passes
+                service.AttributeEquals("DataRetentionDays", new PrimitiveType(0.0)), // passes
+                service.AttributeEquals("HasBackup", new PrimitiveType(false)) // fails
             };
 
             var deleteResult1 = await service.DeleteItemAsync(
                 tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.DoNotReturn, preventConditions);
+                DbReturnItemBehavior.DoNotReturn, preventConditions.AggregateAnd());
 
             deleteResult1.IsSuccessful.Should().BeFalse("Delete should fail when HasBackup condition fails");
             deleteResult1.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
@@ -1945,15 +1945,15 @@ public abstract class DatabaseServiceTestBase
             // Test delete with all conditions passing
             var allowConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("inactive")),
-                service.BuildAttributeEqualsCondition("DataRetentionDays", new PrimitiveType(0.0)),
-                service.BuildAttributeExistsCondition("HasBackup"),
-                service.BuildArrayElementNotExistsCondition("Permissions", new PrimitiveType("active"))
+                service.AttributeEquals("Status", new PrimitiveType("inactive")),
+                service.AttributeEquals("DataRetentionDays", new PrimitiveType(0.0)),
+                service.AttributeExists("HasBackup"),
+                service.ArrayElementNotExists("Permissions", new PrimitiveType("active"))
             };
 
             var deleteResult2 = await service.DeleteItemAsync(
                 tableName, new DbKey(keyName, keyValue),
-                DbReturnItemBehavior.ReturnOldValues, allowConditions);
+                DbReturnItemBehavior.ReturnOldValues, allowConditions.AggregateAnd());
 
             deleteResult2.IsSuccessful.Should().BeTrue("Delete should succeed when all conditions pass");
             deleteResult2.Data.Should().NotBeNull("Should return old values");
@@ -1997,9 +1997,9 @@ public abstract class DatabaseServiceTestBase
             // Test adding elements with multiple conditions that should pass
             var addConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("UserType", new PrimitiveType("admin")),
-                service.BuildAttributeEqualsCondition("IsActive", new PrimitiveType(true)),
-                service.BuildAttributeGreaterOrEqualCondition("SecurityLevel", new PrimitiveType(3.0))
+                service.AttributeEquals("UserType", new PrimitiveType("admin")),
+                service.AttributeEquals("IsActive", new PrimitiveType(true)),
+                service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(3.0))
             };
 
             var elementsToAdd = new[]
@@ -2010,7 +2010,7 @@ public abstract class DatabaseServiceTestBase
 
             var addResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Permissions", elementsToAdd,
-                DbReturnItemBehavior.ReturnNewValues, addConditions);
+                DbReturnItemBehavior.ReturnNewValues, addConditions.AggregateAnd());
 
             addResult.IsSuccessful.Should().BeTrue("Should add elements when all conditions pass");
             var permissions = addResult.Data!["Permissions"] as JArray;
@@ -2021,16 +2021,16 @@ public abstract class DatabaseServiceTestBase
             // Test removing elements with conditions where one fails
             var removeConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("UserType", new PrimitiveType("admin")), // passes
-                service.BuildAttributeEqualsCondition("IsActive", new PrimitiveType(true)), // passes
-                service.BuildAttributeGreaterCondition("SecurityLevel", new PrimitiveType(7.0)) // fails (5 < 7)
+                service.AttributeEquals("UserType", new PrimitiveType("admin")), // passes
+                service.AttributeEquals("IsActive", new PrimitiveType(true)), // passes
+                service.AttributeIsGreaterThan("SecurityLevel", new PrimitiveType(7.0)) // fails (5 < 7)
             };
 
             var elementsToRemove = new[] { new PrimitiveType("admin") };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Permissions", elementsToRemove,
-                DbReturnItemBehavior.DoNotReturn, removeConditions);
+                DbReturnItemBehavior.DoNotReturn, removeConditions.AggregateAnd());
 
             removeResult.IsSuccessful.Should().BeFalse("Should fail to remove when security level condition fails");
             removeResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
@@ -2074,14 +2074,14 @@ public abstract class DatabaseServiceTestBase
             // Test increment with conditions that should allow transaction
             var allowConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("AccountType", new PrimitiveType("savings")),
-                service.BuildAttributeEqualsCondition("IsVerified", new PrimitiveType(true)),
-                service.BuildAttributeGreaterCondition("Balance", new PrimitiveType(200.0)),
-                service.BuildAttributeLessCondition("TransactionCount", new PrimitiveType(10L))
+                service.AttributeEquals("AccountType", new PrimitiveType("savings")),
+                service.AttributeEquals("IsVerified", new PrimitiveType(true)),
+                service.AttributeIsGreaterThan("Balance", new PrimitiveType(200.0)),
+                service.AttributeIsLessThan("TransactionCount", new PrimitiveType(10L))
             };
 
             var incrementResult1 = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Balance", -150.0, allowConditions);
+                tableName, new DbKey(keyName, keyValue), "Balance", -150.0, allowConditions.AggregateAnd());
 
             incrementResult1.IsSuccessful.Should().BeTrue("Should allow withdrawal when all conditions pass");
             incrementResult1.Data.Should().Be(850.0);
@@ -2089,14 +2089,14 @@ public abstract class DatabaseServiceTestBase
             // Test increment with conditions where one fails
             var rejectConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("AccountType", new PrimitiveType("savings")), // passes
-                service.BuildAttributeEqualsCondition("IsVerified", new PrimitiveType(true)), // passes
-                service.BuildAttributeGreaterCondition("Balance", new PrimitiveType(1000.0)), // fails (850 < 1000)
-                service.BuildAttributeLessCondition("TransactionCount", new PrimitiveType(10L)) // passes
+                service.AttributeEquals("AccountType", new PrimitiveType("savings")), // passes
+                service.AttributeEquals("IsVerified", new PrimitiveType(true)), // passes
+                service.AttributeIsGreaterThan("Balance", new PrimitiveType(1000.0)), // fails (850 < 1000)
+                service.AttributeIsLessThan("TransactionCount", new PrimitiveType(10L)) // passes
             };
 
             var incrementResult2 = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Balance", -100.0, rejectConditions);
+                tableName, new DbKey(keyName, keyValue), "Balance", -100.0, rejectConditions.AggregateAnd());
 
             incrementResult2.IsSuccessful.Should().BeFalse("Should reject withdrawal when balance condition fails");
             incrementResult2.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
@@ -2108,12 +2108,12 @@ public abstract class DatabaseServiceTestBase
             // Test positive increment (deposit) with relaxed conditions
             var depositConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("AccountType", new PrimitiveType("savings")),
-                service.BuildAttributeEqualsCondition("IsVerified", new PrimitiveType(true))
+                service.AttributeEquals("AccountType", new PrimitiveType("savings")),
+                service.AttributeEquals("IsVerified", new PrimitiveType(true))
             };
 
             var depositResult = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Balance", 200.0, depositConditions);
+                tableName, new DbKey(keyName, keyValue), "Balance", 200.0, depositConditions.AggregateAnd());
 
             depositResult.IsSuccessful.Should().BeTrue("Should allow deposit with minimal conditions");
             depositResult.Data.Should().Be(1050.0);
@@ -2160,11 +2160,11 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Can fulfill order if all conditions met
             var fulfillmentConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("pending")),
-                service.BuildAttributeEqualsCondition("PaymentStatus", new PrimitiveType("paid")),
-                service.BuildAttributeGreaterCondition("WarehouseStock", new PrimitiveType(50L)),
-                service.BuildArrayElementExistsCondition("Items", new PrimitiveType("laptop")),
-                service.BuildAttributeLessOrEqualCondition("Priority", new PrimitiveType(2L))
+                service.AttributeEquals("Status", new PrimitiveType("pending")),
+                service.AttributeEquals("PaymentStatus", new PrimitiveType("paid")),
+                service.AttributeIsGreaterThan("WarehouseStock", new PrimitiveType(50L)),
+                service.ArrayElementExists("Items", new PrimitiveType("laptop")),
+                service.AttributeIsLessOrEqual("Priority", new PrimitiveType(2L))
             };
 
             // Test successful order fulfillment
@@ -2177,7 +2177,7 @@ public abstract class DatabaseServiceTestBase
 
             var fulfillResult = await service.UpdateItemAsync(
                 tableName, new DbKey(keyName, keyValue), fulfillmentUpdate,
-                DbReturnItemBehavior.ReturnNewValues, fulfillmentConditions);
+                DbReturnItemBehavior.ReturnNewValues, fulfillmentConditions.AggregateAnd());
 
             fulfillResult.IsSuccessful.Should().BeTrue("Order fulfillment should succeed when all business rules pass");
             fulfillResult.Data!["Status"]?.ToString().Should().Be("processing");
@@ -2185,10 +2185,10 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Can ship order with additional conditions
             var shippingConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("processing")),
-                service.BuildAttributeEqualsCondition("PaymentStatus", new PrimitiveType("paid")),
-                service.BuildAttributeExistsCondition("FulfillmentDate"),
-                service.BuildAttributeNotExistsCondition("ShippingDate") // shouldn't be shipped yet
+                service.AttributeEquals("Status", new PrimitiveType("processing")),
+                service.AttributeEquals("PaymentStatus", new PrimitiveType("paid")),
+                service.AttributeExists("FulfillmentDate"),
+                service.AttributeNotExists("ShippingDate") // shouldn't be shipped yet
             };
 
             var shippingUpdate = new JObject
@@ -2200,21 +2200,21 @@ public abstract class DatabaseServiceTestBase
 
             var shipResult = await service.UpdateItemAsync(
                 tableName, new DbKey(keyName, keyValue), shippingUpdate,
-                DbReturnItemBehavior.DoNotReturn, shippingConditions);
+                DbReturnItemBehavior.DoNotReturn, shippingConditions.AggregateAnd());
 
             shipResult.IsSuccessful.Should().BeTrue("Shipping should succeed when processing conditions are met");
 
             // Business Rule: Premium customer gets loyalty points after shipping
             var loyaltyConditions = new[]
             {
-                service.BuildAttributeEqualsCondition("CustomerTier", new PrimitiveType("premium")),
-                service.BuildAttributeEqualsCondition("Status", new PrimitiveType("shipped")),
-                service.BuildAttributeGreaterOrEqualCondition("TotalAmount", new PrimitiveType(200.0))
+                service.AttributeEquals("CustomerTier", new PrimitiveType("premium")),
+                service.AttributeEquals("Status", new PrimitiveType("shipped")),
+                service.AttributeIsGreaterOrEqual("TotalAmount", new PrimitiveType(200.0))
             };
 
             // Calculate loyalty points (10% of total amount)
             var loyaltyPoints = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "LoyaltyPoints", 25.0, loyaltyConditions);
+                tableName, new DbKey(keyName, keyValue), "LoyaltyPoints", 25.0, loyaltyConditions.AggregateAnd());
 
             loyaltyPoints.IsSuccessful.Should().BeTrue("Loyalty points should be awarded to premium customers");
             loyaltyPoints.Data.Should().Be(25.0);
@@ -2222,14 +2222,14 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Cannot cancel order once shipped
             var cancelConditions = new[]
             {
-                service.BuildAttributeNotEqualsCondition("Status", new PrimitiveType("shipped")),
-                service.BuildAttributeNotEqualsCondition("Status", new PrimitiveType("delivered"))
+                service.AttributeNotEquals("Status", new PrimitiveType("shipped")),
+                service.AttributeNotEquals("Status", new PrimitiveType("delivered"))
             };
 
             var cancelResult = await service.UpdateItemAsync(
                 tableName, new DbKey(keyName, keyValue),
                 new JObject { ["Status"] = "cancelled" },
-                DbReturnItemBehavior.DoNotReturn, cancelConditions);
+                DbReturnItemBehavior.DoNotReturn, cancelConditions.AggregateAnd());
 
             cancelResult.IsSuccessful.Should().BeFalse("Should not allow cancellation of shipped orders");
             cancelResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
@@ -2333,7 +2333,7 @@ public abstract class DatabaseServiceTestBase
             // Assert first page
             firstPageResult.IsSuccessful.Should().BeTrue(firstPageResult.ErrorMessage);
             firstPageResult.Data.Keys.Should().NotBeNull("First page should return keys");
-            firstPageResult.Data.Keys.Count.Should().Be(1, "First page should return have 1 key (Id)");
+            firstPageResult.Data.Keys!.Count.Should().Be(1, "First page should return have 1 key (Id)");
             firstPageResult.Data.Items.Should().NotBeNull("First page should return items");
             firstPageResult.Data.Items.Count.Should().BeLessOrEqualTo(3, "First page should respect page size");
             totalFound += firstPageResult.Data.Items.Count;
@@ -2393,8 +2393,8 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Act - Filter for electronics category
-            var filterCondition = service.BuildAttributeEqualsCondition("Category", new PrimitiveType("electronics"));
-            var filterResult = await service.ScanTableWithFilterAsync(tableName, [filterCondition]);
+            var filterCondition = service.AttributeEquals("Category", new PrimitiveType("electronics"));
+            var filterResult = await service.ScanTableWithFilterAsync(tableName, filterCondition);
 
             // Assert
             filterResult.IsSuccessful.Should().BeTrue(filterResult.ErrorMessage);
@@ -2454,8 +2454,8 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Act - Filter for active status with pagination
-            var filterCondition = service.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
-            var firstPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, [filterCondition], 3, null);
+            var filterCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var firstPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, filterCondition, 3, null);
 
             // Assert first page
             firstPageResult.IsSuccessful.Should().BeTrue(firstPageResult.ErrorMessage);
@@ -2465,7 +2465,7 @@ public abstract class DatabaseServiceTestBase
             // Should return keys for all active items (even if items are paginated)
             var expectedActiveCount = testData.Count(td => td.status == "active");
             var activeCount = 0;
-            firstPageResult.Data.Keys.Count.Should().Be(1, "Should have 1 key (Id) for active items");
+            firstPageResult.Data.Keys!.Count.Should().Be(1, "Should have 1 key (Id) for active items");
             firstPageResult.Data.Items.Count.Should().BeLessOrEqualTo(3, "Should respect page size for items");
 
             // Verify all returned items are active
@@ -2480,7 +2480,7 @@ public abstract class DatabaseServiceTestBase
             while (npt != null)
             {
                 var pageResult = await service.ScanTableWithFilterPaginatedAsync(
-                    tableName, [filterCondition], 3, npt);
+                    tableName, filterCondition, 3, npt);
 
                 pageResult.IsSuccessful.Should().BeTrue(pageResult.ErrorMessage);
                 pageResult.Data.Items.Should().NotBeNull("Subsequent pages should return items");
@@ -2653,13 +2653,13 @@ public abstract class DatabaseServiceTestBase
             updateProductResult.Data!["Price"]?.ToObject<double>().Should().Be(1199.99);
 
             // Test conditional operations across different key field types
-            var premiumUserCondition = service.BuildAttributeEqualsCondition("AccountType", new PrimitiveType("gold"));
-            var conditionalUserExists = await service.ItemExistsAsync(tableName, userKey1, [premiumUserCondition]);
+            var premiumUserCondition = service.AttributeEquals("AccountType", new PrimitiveType("gold"));
+            var conditionalUserExists = await service.ItemExistsAsync(tableName, userKey1, premiumUserCondition);
             conditionalUserExists.IsSuccessful.Should().BeTrue("Updated user should be gold tier");
             conditionalUserExists.Data.Should().BeTrue();
 
-            var onSaleCondition = service.BuildAttributeEqualsCondition("OnSale", new PrimitiveType(true));
-            var conditionalProductExists = await service.ItemExistsAsync(tableName, productKey1, [onSaleCondition]);
+            var onSaleCondition = service.AttributeEquals("OnSale", new PrimitiveType(true));
+            var conditionalProductExists = await service.ItemExistsAsync(tableName, productKey1, onSaleCondition);
             conditionalProductExists.IsSuccessful.Should().BeTrue("Updated product should be on sale");
             conditionalProductExists.Data.Should().BeTrue();
 
@@ -2814,8 +2814,8 @@ public abstract class DatabaseServiceTestBase
             // Test filtering across different key field types
 
             // Filter 1: Find all premium users
-            var premiumFilter = service.BuildAttributeEqualsCondition("AccountType", new PrimitiveType("premium"));
-            var premiumResult = await service.ScanTableWithFilterAsync(tableName, [premiumFilter]);
+            var premiumFilter = service.AttributeEquals("AccountType", new PrimitiveType("premium"));
+            var premiumResult = await service.ScanTableWithFilterAsync(tableName, premiumFilter);
             premiumResult.IsSuccessful.Should().BeTrue("Should filter for premium users");
             premiumResult.Data.Items.Count.Should().Be(2, "Should find 2 premium users");
 
@@ -2826,8 +2826,8 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Filter 2: Find all electronics products
-            var electronicsFilter = service.BuildAttributeEqualsCondition("Category", new PrimitiveType("electronics"));
-            var electronicsResult = await service.ScanTableWithFilterAsync(tableName, [electronicsFilter]);
+            var electronicsFilter = service.AttributeEquals("Category", new PrimitiveType("electronics"));
+            var electronicsResult = await service.ScanTableWithFilterAsync(tableName, electronicsFilter);
             electronicsResult.IsSuccessful.Should().BeTrue("Should filter for electronics");
             electronicsResult.Data.Items.Count.Should().Be(2, "Should find 2 electronics products");
 
@@ -2838,8 +2838,8 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Filter 3: Find all users (by entity type)
-            var userEntityFilter = service.BuildAttributeEqualsCondition("EntityType", new PrimitiveType("user"));
-            var userEntityResult = await service.ScanTableWithFilterAsync(tableName, [userEntityFilter]);
+            var userEntityFilter = service.AttributeEquals("EntityType", new PrimitiveType("user"));
+            var userEntityResult = await service.ScanTableWithFilterAsync(tableName, userEntityFilter);
             userEntityResult.IsSuccessful.Should().BeTrue("Should filter for user entities");
             userEntityResult.Data.Items.Count.Should().Be(3, "Should find 3 user entities");
 
@@ -2855,13 +2855,13 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Test paginated filtering with multiple key types
-            var paginatedResult = await service.ScanTableWithFilterPaginatedAsync(tableName, [userEntityFilter], 2, null);
+            var paginatedResult = await service.ScanTableWithFilterPaginatedAsync(tableName, userEntityFilter, 2, null);
             paginatedResult.IsSuccessful.Should().BeTrue("Paginated filtering should work");
             paginatedResult.Data.Keys.Should().NotBeNull("First page should return keys");
             paginatedResult.Data.Items.Count.Should().Be(2, "Should respect page size");
             paginatedResult.Data.NextPageToken.Should().NotBeNull("Next page token should be returned");
 
-            var secondPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, [userEntityFilter], 2, paginatedResult.Data.NextPageToken);
+            var secondPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, userEntityFilter, 2, paginatedResult.Data.NextPageToken);
             secondPageResult.IsSuccessful.Should().BeTrue("Paginated filtering should work");
             secondPageResult.Data.Items.Count.Should().Be(1, "Expected 1 item on second page");
         }
@@ -2974,10 +2974,10 @@ public abstract class DatabaseServiceTestBase
             // Test conditional array operations with different key types
 
             // Remove permission from user only if they have admin permission
-            var hasAdminCondition = service.BuildArrayElementExistsCondition("Permissions", new PrimitiveType("admin"));
+            var hasAdminCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
             var removePermissionResult = await service.RemoveElementsFromArrayAsync(
                 tableName, userKey, "Permissions", [new PrimitiveType("write")],
-                DbReturnItemBehavior.ReturnNewValues, [hasAdminCondition]);
+                DbReturnItemBehavior.ReturnNewValues, hasAdminCondition);
             removePermissionResult.IsSuccessful.Should().BeTrue("Should remove write permission when admin exists");
 
             var finalPermissions = removePermissionResult.Data!["Permissions"] as JArray;
@@ -2986,9 +2986,9 @@ public abstract class DatabaseServiceTestBase
             finalPermissions.Should().NotContain(p => p.ToString() == "write");
 
             // Test conditional increment with different key type
-            var isPopularCondition = service.BuildArrayElementExistsCondition("Tags", new PrimitiveType("popular"));
+            var isPopularCondition = service.ArrayElementExists("Tags", new PrimitiveType("popular"));
             var conditionalViewIncrement = await service.IncrementAttributeAsync(
-                tableName, productKey, "ViewCount", 5.0, [isPopularCondition]);
+                tableName, productKey, "ViewCount", 5.0, isPopularCondition);
             conditionalViewIncrement.IsSuccessful.Should().BeTrue("Should increment views for popular product");
             conditionalViewIncrement.Data.Should().Be(13.0); // 8.0 + 5.0
 
@@ -3084,28 +3084,28 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, auditKey, auditItem);
 
             // Business Rule 1: Only admins can access sensitive resources (simulate access tracking)
-            var isAdminCondition = service.BuildAttributeEqualsCondition("Role", new PrimitiveType("admin"));
-            var hasAdminPermCondition = service.BuildArrayElementExistsCondition("Permissions", new PrimitiveType("admin"));
+            var isAdminCondition = service.AttributeEquals("Role", new PrimitiveType("admin"));
+            var hasAdminPermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
 
             // Admin accessing sensitive resource should succeed
             var adminAccessResult = await service.IncrementAttributeAsync(
-                tableName, adminKey, "AccessAttempts", 1.0, [isAdminCondition, hasAdminPermCondition]);
+                tableName, adminKey, "AccessAttempts", 1.0, isAdminCondition.And(hasAdminPermCondition));
             adminAccessResult.IsSuccessful.Should().BeTrue("Admin should be able to attempt access");
 
             // Business Rule 2: Update resource access count only if user has required permissions
-            var adminHasRequiredPerm = service.BuildArrayElementExistsCondition("Permissions", new PrimitiveType("admin"));
-            var resourceNotLocked = service.BuildAttributeEqualsCondition("Locked", new PrimitiveType(false));
+            var adminHasRequiredPerm = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
+            var resourceNotLocked = service.AttributeEquals("Locked", new PrimitiveType(false));
 
             var sensitiveAccessResult = await service.IncrementAttributeAsync(
-                tableName, sensitiveResourceKey, "AccessCount", 1.0, [resourceNotLocked]);
+                tableName, sensitiveResourceKey, "AccessCount", 1.0, resourceNotLocked);
             // Note: This simulates the access after permission check passed
             sensitiveAccessResult.IsSuccessful.Should().BeTrue("Should increment access count for unlocked resource");
 
             // Business Rule 3: Standard users cannot modify admin permissions
-            var isNotAdmin = service.BuildAttributeNotEqualsCondition("Role", new PrimitiveType("admin"));
+            var isNotAdmin = service.AttributeNotEquals("Role", new PrimitiveType("admin"));
             var standardUserTryAddAdmin = await service.AddElementsToArrayAsync(
                 tableName, standardUserKey, "Permissions", [new PrimitiveType("admin")],
-                DbReturnItemBehavior.DoNotReturn, [isNotAdmin]);
+                DbReturnItemBehavior.DoNotReturn, isNotAdmin);
             standardUserTryAddAdmin.IsSuccessful.Should().BeTrue("Standard user exists and role != admin");
 
             // But verify they still don't have admin permission in a separate check
@@ -3115,27 +3115,27 @@ public abstract class DatabaseServiceTestBase
             // but this demonstrates how conditions control access
 
             // Business Rule 4: Lock resource if access attempts are too high
-            var highAccessCondition = service.BuildAttributeGreaterOrEqualCondition("AccessCount", new PrimitiveType(1.0));
+            var highAccessCondition = service.AttributeIsGreaterOrEqual("AccessCount", new PrimitiveType(1.0));
             var lockResourceResult = await service.UpdateItemAsync(
                 tableName, sensitiveResourceKey, new JObject { ["Locked"] = true, ["LockReason"] = "High access" },
-                DbReturnItemBehavior.ReturnNewValues, [highAccessCondition]);
+                DbReturnItemBehavior.ReturnNewValues, highAccessCondition);
             lockResourceResult.IsSuccessful.Should().BeTrue("Should lock resource with high access count");
             lockResourceResult.Data!["Locked"]?.Value<bool>().Should().Be(true);
 
             // Business Rule 5: Create audit entry only for significant actions
-            var significantSeverity = service.BuildAttributeGreaterOrEqualCondition("Severity", new PrimitiveType(2.0));
+            var significantSeverity = service.AttributeIsGreaterOrEqual("Severity", new PrimitiveType(2.0));
             var updateAuditResult = await service.UpdateItemAsync(
                 tableName, auditKey, new JObject { ["Severity"] = 3, ["Reviewed"] = false },
                 DbReturnItemBehavior.ReturnNewValues);
             updateAuditResult.IsSuccessful.Should().BeTrue("Should update audit entry");
 
             // Business Rule 6: Multi-entity workflow - deactivate inactive users
-            var inactiveCondition = service.BuildAttributeGreaterCondition("LastLoginDays", new PrimitiveType(7L));
-            var activeCondition = service.BuildAttributeEqualsCondition("Active", new PrimitiveType(true));
+            var inactiveCondition = service.AttributeIsGreaterThan("LastLoginDays", new PrimitiveType(7L));
+            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
 
             var deactivateInactiveResult = await service.UpdateItemAsync(
                 tableName, standardUserKey, new JObject { ["Active"] = false, ["DeactivatedReason"] = "Inactive" },
-                DbReturnItemBehavior.ReturnNewValues, [inactiveCondition, activeCondition]);
+                DbReturnItemBehavior.ReturnNewValues, inactiveCondition.And(activeCondition));
             deactivateInactiveResult.IsSuccessful.Should().BeTrue("Should deactivate inactive standard user");
             deactivateInactiveResult.Data!["Active"]?.Value<bool>().Should().Be(false);
 
@@ -3175,5 +3175,749 @@ public abstract class DatabaseServiceTestBase
         }
     }
 
+    #endregion
+
+    #region Condition Coupling Tests
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_SimpleAndOperation_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"simple-and-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "SimpleAndTest",
+                ["Status"] = "active",
+                ["Score"] = 85,
+                ["Level"] = "premium"
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test: condition1.And(condition2)
+            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var andCondition = condition1.And(condition2);
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), andCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Both conditions should be satisfied");
+            existsResult.Data.Should().BeTrue();
+
+            // Test case where one condition fails
+            var condition3 = service.AttributeEquals("Level", new PrimitiveType("basic"));
+            var failingAndCondition = condition1.And(condition3);
+
+            var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingAndCondition);
+            failingResult.IsSuccessful.Should().BeFalse("Should fail when any AND condition fails");
+            failingResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_SimpleOrOperation_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"simple-or-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "SimpleOrTest",
+                ["Status"] = "inactive",
+                ["Score"] = 90,
+                ["Level"] = "basic"
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test: condition1.Or(condition2) - first condition fails, second passes
+            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var orCondition = condition1.Or(condition2);
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), orCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Should pass when any OR condition passes");
+            existsResult.Data.Should().BeTrue();
+
+            // Test case where both conditions fail
+            var condition3 = service.AttributeEquals("Level", new PrimitiveType("premium"));
+            var failingOrCondition = condition1.Or(condition3);
+
+            var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingOrCondition);
+            failingResult.IsSuccessful.Should().BeFalse("Should fail when all OR conditions fail");
+            failingResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_ComplexNestedConditions_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"complex-nested-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "ComplexNestedTest",
+                ["Status"] = "active",
+                ["Score"] = 85,
+                ["Level"] = "premium",
+                ["Category"] = "VIP",
+                ["Tags"] = new JArray { "verified", "priority" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test: condition1.And(condition2).Or(condition3)
+            // This should create: ((condition1 AND condition2) OR condition3)
+            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var condition3 = service.AttributeEquals("Category", new PrimitiveType("SUPER_VIP"));
+
+            var complexCondition = condition1.And(condition2).Or(condition3);
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), complexCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Should pass because (active AND score>80) is true, even though category!=SUPER_VIP");
+            existsResult.Data.Should().BeTrue();
+
+            // Test: condition1.And(condition2.Or(condition3))
+            // This should create: (condition1 AND (condition2 OR condition3))
+            var condition4 = service.AttributeEquals("Level", new PrimitiveType("basic"));
+            var condition5 = service.ArrayElementExists("Tags", new PrimitiveType("verified"));
+
+            var nestedCondition = condition1.And(condition4.Or(condition5));
+
+            var nestedResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), nestedCondition);
+            nestedResult.IsSuccessful.Should().BeTrue("Should pass because active=true AND (level=basic OR has 'verified' tag), and has 'verified' tag");
+            nestedResult.Data.Should().BeTrue();
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_DeepNesting_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"deep-nesting-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "DeepNestingTest",
+                ["A"] = "valueA",
+                ["B"] = "valueB",
+                ["C"] = "valueC",
+                ["D"] = "valueD",
+                ["E"] = "valueE",
+                ["Numbers"] = new JArray { 1, 2, 3 }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Create deeply nested condition: ((A AND B) OR (C AND D)) AND E
+            var condA = service.AttributeEquals("A", new PrimitiveType("valueA"));
+            var condB = service.AttributeEquals("B", new PrimitiveType("valueB"));
+            var condC = service.AttributeEquals("C", new PrimitiveType("wrongC"));
+            var condD = service.AttributeEquals("D", new PrimitiveType("valueD"));
+            var condE = service.ArrayElementExists("Numbers", new PrimitiveType(2L));
+
+            var deepCondition = condA.And(condB).Or(condC.And(condD)).And(condE);
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), deepCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Should pass: ((A=valueA AND B=valueB) OR (C=wrongC AND D=valueD)) AND has number 2");
+            existsResult.Data.Should().BeTrue("Left side of final AND is true because (A AND B) is true, and E is true");
+
+            // Test case where final condition fails
+            var condF = service.ArrayElementExists("Numbers", new PrimitiveType(5L));
+            var failingDeepCondition = condA.And(condB).Or(condC.And(condD)).And(condF);
+
+            var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingDeepCondition);
+            failingResult.IsSuccessful.Should().BeFalse("Should fail because final condition (has number 5) is false");
+            failingResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_WithUpdateOperation_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"update-coupling-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "UpdateCouplingTest",
+                ["Status"] = "pending",
+                ["Priority"] = 5,
+                ["Owner"] = "system",
+                ["Tags"] = new JArray { "automated", "review" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test update with complex condition: (Status=pending AND Priority>=3) OR HasTag(urgent)
+            var statusCondition = service.AttributeEquals("Status", new PrimitiveType("pending"));
+            var priorityCondition = service.AttributeIsGreaterOrEqual("Priority", new PrimitiveType(3.0));
+            var urgentTagCondition = service.ArrayElementExists("Tags", new PrimitiveType("urgent"));
+
+            var complexUpdateCondition = statusCondition.And(priorityCondition).Or(urgentTagCondition);
+
+            var updateData = new JObject
+            {
+                ["Status"] = "processing",
+                ["ProcessedBy"] = "worker-1",
+                ["ProcessedAt"] = DateTime.UtcNow.ToString("O")
+            };
+
+            var updateResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), updateData,
+                DbReturnItemBehavior.ReturnNewValues, complexUpdateCondition);
+
+            updateResult.IsSuccessful.Should().BeTrue("Should update because (pending=true AND priority>=3) is satisfied");
+            updateResult.Data!["Status"]?.ToString().Should().Be("processing");
+            updateResult.Data["ProcessedBy"]?.ToString().Should().Be("worker-1");
+
+            // Test update that should fail due to condition
+            var restrictiveCondition = service.AttributeEquals("Owner", new PrimitiveType("admin"))
+                .And(service.ArrayElementExists("Tags", new PrimitiveType("critical")));
+
+            var secondUpdateData = new JObject { ["Status"] = "completed" };
+
+            var failingUpdateResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), secondUpdateData,
+                DbReturnItemBehavior.DoNotReturn, restrictiveCondition);
+
+            failingUpdateResult.IsSuccessful.Should().BeFalse("Should fail because Owner!=admin AND no 'critical' tag");
+            failingUpdateResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Verify status wasn't changed
+            var finalState = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            finalState.Data!["Status"]?.ToString().Should().Be("processing", "Status should remain 'processing' after failed update");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_WithDeleteOperation_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"delete-coupling-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "DeleteCouplingTest",
+                ["Status"] = "inactive",
+                ["LastAccessed"] = 45,
+                ["DataRetention"] = 0,
+                ["Archived"] = true,
+                ["Classifications"] = new JArray { "temporary", "non-critical" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test delete with complex condition: (Status=inactive AND LastAccessed>30) OR (Archived=true AND DataRetention=0)
+            var inactiveCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
+            var oldAccessCondition = service.AttributeIsGreaterThan("LastAccessed", new PrimitiveType(30.0));
+            var archivedCondition = service.AttributeEquals("Archived", new PrimitiveType(true));
+            var noRetentionCondition = service.AttributeEquals("DataRetention", new PrimitiveType(0.0));
+
+            var deleteCondition = inactiveCondition.And(oldAccessCondition).Or(archivedCondition.And(noRetentionCondition));
+
+            var deleteResult = await service.DeleteItemAsync(
+                tableName, new DbKey(keyName, keyValue),
+                DbReturnItemBehavior.ReturnOldValues, deleteCondition);
+
+            deleteResult.IsSuccessful.Should().BeTrue("Should delete because both sides of OR are true");
+            deleteResult.Data.Should().NotBeNull("Should return old values");
+            deleteResult.Data!["Name"]?.ToString().Should().Be("DeleteCouplingTest");
+
+            // Verify item is deleted
+            var existsAfterDelete = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue));
+            existsAfterDelete.IsSuccessful.Should().BeFalse("Item should not exist after successful delete");
+            existsAfterDelete.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_WithArrayOperations_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"array-coupling-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "ArrayCouplingTest",
+                ["UserType"] = "moderator",
+                ["SecurityLevel"] = 7,
+                ["Active"] = true,
+                ["Permissions"] = new JArray { "read", "write", "moderate" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test add elements with complex condition: (UserType=moderator AND SecurityLevel>=5) OR (Active=true AND HasModeratePermission)
+            var moderatorCondition = service.AttributeEquals("UserType", new PrimitiveType("moderator"));
+            var securityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(5.0));
+            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
+            var moderatePermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("moderate"));
+
+            var addPermissionsCondition = moderatorCondition.And(securityCondition).Or(activeCondition.And(moderatePermCondition));
+
+            var newPermissions = new[]
+            {
+                new PrimitiveType("admin"),
+                new PrimitiveType("delete")
+            };
+
+            var addResult = await service.AddElementsToArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Permissions", newPermissions,
+                DbReturnItemBehavior.ReturnNewValues, addPermissionsCondition);
+
+            addResult.IsSuccessful.Should().BeTrue("Should add permissions because both sides of OR condition are satisfied");
+            var permissions = addResult.Data!["Permissions"] as JArray;
+            permissions!.Count.Should().Be(5);
+            permissions.Should().Contain(p => p.ToString() == "admin");
+            permissions.Should().Contain(p => p.ToString() == "delete");
+
+            // Test remove elements with restrictive condition: SecurityLevel>=8 AND UserType=admin
+            var restrictiveSecurityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(8.0));
+            var adminTypeCondition = service.AttributeEquals("UserType", new PrimitiveType("admin"));
+
+            var removeCondition = restrictiveSecurityCondition.And(adminTypeCondition);
+            var elementsToRemove = new[] { new PrimitiveType("admin") };
+
+            var removeResult = await service.RemoveElementsFromArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Permissions", elementsToRemove,
+                DbReturnItemBehavior.DoNotReturn, removeCondition);
+
+            removeResult.IsSuccessful.Should().BeFalse("Should fail to remove admin permission due to restrictive condition");
+            removeResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Verify admin permission still exists
+            var finalState = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            var finalPermissions = finalState.Data!["Permissions"] as JArray;
+            finalPermissions.Should().Contain(p => p.ToString() == "admin", "Admin permission should still exist");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_WithIncrementOperation_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"increment-coupling-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "IncrementCouplingTest",
+                ["AccountType"] = "premium",
+                ["Balance"] = 1000.0,
+                ["DailyLimit"] = 500.0,
+                ["TransactionCount"] = 3,
+                ["Verified"] = true,
+                ["Flags"] = new JArray { "trusted", "verified" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test increment with complex condition: (AccountType=premium AND Balance>500) OR (Verified=true AND HasTrustedFlag)
+            var premiumCondition = service.AttributeEquals("AccountType", new PrimitiveType("premium"));
+            var balanceCondition = service.AttributeIsGreaterThan("Balance", new PrimitiveType(500.0));
+            var verifiedCondition = service.AttributeEquals("Verified", new PrimitiveType(true));
+            var trustedFlagCondition = service.ArrayElementExists("Flags", new PrimitiveType("trusted"));
+
+            var incrementCondition = premiumCondition.And(balanceCondition).Or(verifiedCondition.And(trustedFlagCondition));
+
+            // Test successful increment (withdrawal)
+            var incrementResult = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Balance", -200.0, incrementCondition);
+
+            incrementResult.IsSuccessful.Should().BeTrue("Should allow withdrawal because both sides of OR are satisfied");
+            incrementResult.Data.Should().Be(800.0);
+
+            // Test increment with more restrictive condition that should fail
+            var restrictiveCondition = service.AttributeIsGreaterThan("Balance", new PrimitiveType(1000.0))
+                .And(service.AttributeIsLessThan("TransactionCount", new PrimitiveType(2L)));
+
+            var failingIncrementResult = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Balance", -100.0, restrictiveCondition);
+
+            failingIncrementResult.IsSuccessful.Should().BeFalse("Should fail because Balance is not >1000 AND TransactionCount is not <2");
+            failingIncrementResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Verify balance remains unchanged after failed increment
+            var finalState = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            finalState.Data!["Balance"]?.ToObject<double>().Should().Be(800.0, "Balance should remain unchanged after failed increment");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_EmptyCondition_ShouldAlwaysPass()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"empty-condition-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["Name"] = "EmptyConditionTest",
+                ["Value"] = 42
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test with empty condition
+            var emptyCondition = new ConditionCoupling();
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), emptyCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Empty condition should always pass");
+            existsResult.Data.Should().BeTrue();
+
+            // Test update with empty condition
+            var updateData = new JObject { ["Value"] = 84 };
+            var updateResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), updateData,
+                DbReturnItemBehavior.ReturnNewValues, emptyCondition);
+
+            updateResult.IsSuccessful.Should().BeTrue("Update with empty condition should succeed");
+            updateResult.Data!["Value"]?.ToObject<int>().Should().Be(84);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_MixedConditionTypes_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"mixed-conditions-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item with various attribute types
+            var item = new JObject
+            {
+                ["Name"] = "MixedConditionsTest",
+                ["StringValue"] = "test",
+                ["IntegerValue"] = 42,
+                ["DoubleValue"] = 99.5,
+                ["BooleanValue"] = true,
+                ["ExistingField"] = "present",
+                ["ArrayField"] = new JArray { "item1", "item2", "item3" },
+                ["NumericArray"] = new JArray { 1, 2, 3 }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Create complex condition mixing all condition types:
+            // (StringValue="test" AND IntegerValue>40) AND
+            // (ExistingField EXISTS OR NonExistentField NOT EXISTS) AND
+            // (ArrayField contains "item2" AND DoubleValue<=100.0)
+
+            var stringCondition = service.AttributeEquals("StringValue", new PrimitiveType("test"));
+            var integerCondition = service.AttributeIsGreaterThan("IntegerValue", new PrimitiveType(40L));
+            var existsCondition = service.AttributeExists("ExistingField");
+            var notExistsCondition = service.AttributeNotExists("NonExistentField");
+            var arrayCondition = service.ArrayElementExists("ArrayField", new PrimitiveType("item2"));
+            var doubleCondition = service.AttributeIsLessOrEqual("DoubleValue", new PrimitiveType(100.0));
+
+            var mixedCondition = stringCondition.And(integerCondition)
+                .And(existsCondition.Or(notExistsCondition))
+                .And(arrayCondition.And(doubleCondition));
+
+            var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), mixedCondition);
+            existsResult.IsSuccessful.Should().BeTrue("Mixed condition should be satisfied");
+            existsResult.Data.Should().BeTrue();
+
+            // Test a condition that should fail
+            var failingMixedCondition = stringCondition.And(integerCondition)
+                .And(service.AttributeNotExists("ExistingField")) // This will fail
+                .And(arrayCondition);
+
+            var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingMixedCondition);
+            failingResult.IsSuccessful.Should().BeFalse("Should fail because ExistingField does exist");
+            failingResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_ComplexBusinessScenario_ShouldEnforceRules()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"business-scenario-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Scenario: Complex user permission management system
+            var userItem = new JObject
+            {
+                ["Username"] = "john.doe",
+                ["Role"] = "manager",
+                ["Department"] = "engineering",
+                ["SecurityClearance"] = 7,
+                ["Active"] = true,
+                ["LastLogin"] = 2,
+                ["ProjectCount"] = 5,
+                ["Certifications"] = new JArray { "AWS", "Security", "Leadership" },
+                ["Permissions"] = new JArray { "read", "write", "approve" }
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), userItem);
+
+            // Business Rule 1: Can access admin functions if:
+            // (Role=manager AND Department=engineering AND SecurityClearance>=5) OR
+            // (HasSecurityCertification AND SecurityClearance>=8)
+
+            var roleCondition = service.AttributeEquals("Role", new PrimitiveType("manager"));
+            var deptCondition = service.AttributeEquals("Department", new PrimitiveType("engineering"));
+            var clearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(5.0));
+            var securityCertCondition = service.ArrayElementExists("Certifications", new PrimitiveType("Security"));
+            var highClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(8.0));
+
+            var adminAccessCondition = roleCondition.And(deptCondition).And(clearanceCondition)
+                .Or(securityCertCondition.And(highClearanceCondition));
+
+            // Test granting admin permission
+            var adminPermissions = new[] { new PrimitiveType("admin") };
+            var grantAdminResult = await service.AddElementsToArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Permissions", adminPermissions,
+                DbReturnItemBehavior.ReturnNewValues, adminAccessCondition);
+
+            grantAdminResult.IsSuccessful.Should().BeTrue("Should grant admin access based on manager role and clearance");
+            var permissions = grantAdminResult.Data!["Permissions"] as JArray;
+            permissions.Should().Contain(p => p.ToString() == "admin");
+
+            // Business Rule 2: Can delete projects if:
+            // (Active=true AND LastLogin<=7 AND ProjectCount>0) AND
+            // (HasApprovePermission OR HasAdminPermission)
+
+            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
+            var recentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new PrimitiveType(7.0));
+            var hasProjectsCondition = service.AttributeIsGreaterThan("ProjectCount", new PrimitiveType(0.0));
+            var approvePermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("approve"));
+            var adminPermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
+
+            var deleteProjectCondition = activeCondition.And(recentLoginCondition).And(hasProjectsCondition)
+                .And(approvePermCondition.Or(adminPermCondition));
+
+            // Test project deletion (simulated by decrementing project count)
+            var decrementResult = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "ProjectCount", -1.0, deleteProjectCondition);
+
+            decrementResult.IsSuccessful.Should().BeTrue("Should allow project deletion based on permissions");
+            decrementResult.Data.Should().Be(4.0);
+
+            // Business Rule 3: Cannot remove critical permissions if:
+            // User is the only manager with high clearance
+            // (For this test, we'll simulate this by requiring both admin AND approve permissions to exist)
+
+            var hasBothPermissions = approvePermCondition.And(adminPermCondition);
+
+            // Try to remove approve permission - should fail if both admin and approve exist
+            var removeApproveResult = await service.RemoveElementsFromArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Permissions", [new PrimitiveType("approve")],
+                DbReturnItemBehavior.DoNotReturn, hasBothPermissions);
+
+            // This will succeed because the condition is satisfied (both permissions exist)
+            // but in real business logic, this might be inverted to prevent removal
+            removeApproveResult.IsSuccessful.Should().BeTrue("Condition is satisfied, but in real scenario this might prevent removal");
+
+            // Business Rule 4: Complex update scenario - promote user if:
+            // ((CurrentRole=manager AND ProjectCount>=3) OR (HasLeadershipCert AND SecurityClearance>=6)) AND
+            // (Active=true AND LastLogin<=5)
+
+            var managerRoleCondition = service.AttributeEquals("Role", new PrimitiveType("manager"));
+            var minProjectsCondition = service.AttributeIsGreaterOrEqual("ProjectCount", new PrimitiveType(3.0));
+            var leadershipCertCondition = service.ArrayElementExists("Certifications", new PrimitiveType("Leadership"));
+            var goodClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(6.0));
+            var veryRecentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new PrimitiveType(5.0));
+
+            var promotionCondition = managerRoleCondition.And(minProjectsCondition)
+                .Or(leadershipCertCondition.And(goodClearanceCondition))
+                .And(activeCondition.And(veryRecentLoginCondition));
+
+            var promotionUpdate = new JObject
+            {
+                ["Role"] = "senior_manager",
+                ["PromotedAt"] = DateTime.UtcNow.ToString("O"),
+                ["SalaryGrade"] = "L7"
+            };
+
+            var promotionResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), promotionUpdate,
+                DbReturnItemBehavior.ReturnNewValues, promotionCondition);
+
+            promotionResult.IsSuccessful.Should().BeTrue("Should promote user based on complex business rules");
+            promotionResult.Data!["Role"]?.ToString().Should().Be("senior_manager");
+            promotionResult.Data["SalaryGrade"]?.ToString().Should().Be("L7");
+
+            // Verify final state meets all business requirements
+            var finalState = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            var finalPermissions = finalState.Data!["Permissions"] as JArray;
+            var finalCerts = finalState.Data["Certifications"] as JArray;
+
+            finalPermissions.Should().Contain(p => p.ToString() == "admin", "Should have admin permission");
+            finalCerts.Should().Contain(c => c.ToString() == "Leadership", "Should have leadership certification");
+            finalState.Data["ProjectCount"]?.ToObject<double>().Should().Be(4.0, "Project count should be decremented");
+            finalState.Data["Role"]?.ToString().Should().Be("senior_manager", "Should be promoted");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ConditionCoupling_OperatorPrecedence_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new PrimitiveType($"precedence-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item
+            var item = new JObject
+            {
+                ["A"] = true,
+                ["B"] = false,
+                ["C"] = true,
+                ["D"] = false,
+                ["E"] = true
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            var condA = service.AttributeEquals("A", new PrimitiveType(true));
+            var condB = service.AttributeEquals("B", new PrimitiveType(true)); // This will be false
+            var condC = service.AttributeEquals("C", new PrimitiveType(true));
+            var condD = service.AttributeEquals("D", new PrimitiveType(true)); // This will be false
+            var condE = service.AttributeEquals("E", new PrimitiveType(true));
+
+            // Test: A AND B OR C
+            // Should be: (A AND B) OR C = (true AND false) OR true = false OR true = true
+            var test1 = condA.And(condB).Or(condC);
+            var result1 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), test1);
+            result1.IsSuccessful.Should().BeTrue("(A AND B) OR C should be true because C is true");
+            result1.Data.Should().BeTrue();
+
+            // Test: A OR B AND C
+            // Should be: A OR (B AND C) = true OR (false AND true) = true OR false = true
+            var test2 = condA.Or(condB.And(condC));
+            var result2 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), test2);
+            result2.IsSuccessful.Should().BeTrue("A OR (B AND C) should be true because A is true");
+            result2.Data.Should().BeTrue();
+
+            // Test more complex: A AND B OR C AND D OR E
+            // Should be: ((A AND B) OR (C AND D)) OR E = ((true AND false) OR (true AND false)) OR true = (false OR false) OR true = false OR true = true
+            var test3 = condA.And(condB).Or(condC.And(condD)).Or(condE);
+            var result3 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), test3);
+            result3.IsSuccessful.Should().BeTrue("Complex expression should be true because E is true");
+            result3.Data.Should().BeTrue();
+
+            // Test case where entire expression is false
+            // A AND B AND C AND D (true AND false AND true AND false = false)
+            var test4 = condA.And(condB).And(condC).And(condD);
+            var result4 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), test4);
+            result4.IsSuccessful.Should().BeFalse("All AND expression with false elements should be false");
+            result4.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
     #endregion
 }

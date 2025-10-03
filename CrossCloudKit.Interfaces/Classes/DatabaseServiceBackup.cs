@@ -240,7 +240,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
     /// </list>
     ///
     /// <b>WARNING: This operation is destructive and will completely replace all existing database content if table names match.</b>
-    /// <b>(if <see cref="fullCleanUpBeforeRestoration"/> is true, all existing database content will be dropped before the operation)</b>
+    /// <b>(if fullCleanUpBeforeRestoration is true, all existing database content will be dropped before the operation)</b>
     ///
     /// The operation is atomic - either all tables are restored successfully, or the operation fails entirely.
     /// </remarks>

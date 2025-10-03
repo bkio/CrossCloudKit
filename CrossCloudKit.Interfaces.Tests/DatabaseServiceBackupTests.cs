@@ -906,7 +906,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var cursors = new List<DbBackupFileCursor>();
         await foreach (var cursor in backupService.GetBackupFileCursorsAsync())
         {
-            if (cursor.FileName == backupResult.Data.FileName)
+            if (cursor.FileName == backupResult.Data!.FileName)
             {
                 cursors.Add(cursor);
                 break;

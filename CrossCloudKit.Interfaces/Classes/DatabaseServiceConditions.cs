@@ -6,43 +6,47 @@ using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.Interfaces.Classes;
 
-public abstract class DbAttributeCondition(DbAttributeConditionType conditionType, string attributeName)
+public abstract class Condition(ConditionType conditionType, string attributeName)
 {
-    public DbAttributeConditionType ConditionType { get; } = conditionType;
+    public ConditionType ConditionType { get; } = conditionType;
     public string AttributeName { get; } = attributeName ?? throw new ArgumentNullException(nameof(attributeName));
+
+    public static implicit operator SingleCondition(Condition c)
+    {
+        return new SingleCondition(c);
+    }
 }
 
-public class DbExistenceCondition : DbAttributeCondition
+public class ExistenceCondition : Condition
 {
-    public DbExistenceCondition(DbAttributeConditionType conditionType, string attributeName)
+    public ExistenceCondition(ConditionType conditionType, string attributeName)
         : base(conditionType, attributeName)
     {
-        if (conditionType != DbAttributeConditionType.AttributeExists &&
-            conditionType != DbAttributeConditionType.AttributeNotExists)
+        if (conditionType != ConditionType.AttributeExists &&
+            conditionType != ConditionType.AttributeNotExists)
         {
             throw new ArgumentException("Invalid condition type for existence condition", nameof(conditionType));
         }
     }
 }
 
-public class DbValueCondition(DbAttributeConditionType conditionType, string attributeName, PrimitiveType value) : DbAttributeCondition(conditionType, attributeName)
+public class ValueCondition(ConditionType conditionType, string attributeName, PrimitiveType value) : Condition(conditionType, attributeName)
 {
     public PrimitiveType Value { get; } = value ?? throw new ArgumentNullException(nameof(value));
 }
 
-public class DbArrayElementCondition : DbAttributeCondition
+public class ArrayCondition : Condition
 {
     public PrimitiveType ElementValue { get; }
 
-    public DbArrayElementCondition(DbAttributeConditionType conditionType, string attributeName, PrimitiveType elementValue)
+    public ArrayCondition(ConditionType conditionType, string attributeName, PrimitiveType elementValue)
         : base(conditionType, attributeName)
     {
-        if (conditionType != DbAttributeConditionType.ArrayElementExists &&
-            conditionType != DbAttributeConditionType.ArrayElementNotExists)
+        if (conditionType != ConditionType.ArrayElementExists &&
+            conditionType != ConditionType.ArrayElementNotExists)
         {
             throw new ArgumentException("Invalid condition type for array element condition", nameof(conditionType));
         }
         ElementValue = elementValue ?? throw new ArgumentNullException(nameof(elementValue));
     }
 }
-

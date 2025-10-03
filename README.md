@@ -25,6 +25,8 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 - **Type-Safe Operations**: Strongly-typed primitive operations with `PrimitiveType` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
+  - Automatic backup and restore with scheduled backups and manual backups, all atomically
+  - Atomic database migration between different providers
   - File operations with signed URLs, metadata, notifications, and streaming
   - Message queuing with topic management, subscriptions, and error handling
   - Distributed memory operations with mutex locking and data structures
@@ -313,7 +315,7 @@ await pubSubService.SubscribeAsync("user-events", async (topic, message) =>
 #### Conditional Operations
 ```csharp
 // Create conditions
-var condition = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+var condition = dbService.AttributeEquals("Status", new PrimitiveType("active"));
 
 // Conditional update
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
@@ -364,7 +366,7 @@ if (newValue.IsSuccessful)
 var allUsers = await dbService.ScanTableAsync("Users", new[] { "Id" });
 
 // Scan with filter
-var activeUsersFilter = dbService.BuildAttributeEqualsCondition("Status", new PrimitiveType("active"));
+var activeUsersFilter = dbService.AttributeEquals("Status", new PrimitiveType("active"));
 var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, [activeUsersFilter]);
 
 // Paginated scan
@@ -372,6 +374,133 @@ var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(
     "Users", new[] { "Id" }, pageSize: 10
 );
 ```
+
+### Automatic Database Backup and Restore
+- **Automated Scheduled Backups**: Configure backups using cron expressions
+- **Manual Backups**: Create backups manually at any time
+- **Database migrations**: Backups can be used to migrate databases between providers
+- **Cross-Provider Support**: Works with all CrossCloudKit database services
+- **Point-in-Time Restoration**: Restore from any backup file
+- **Cloud Storage Integration**: Stores backups in any supported file service
+- **Distributed Operations**: Uses mutex locking to prevent concurrent backup/restore operations
+- **Event-Driven Notifications**: Publishes backup events via PubSub services
+- **Error Handling**: Comprehensive error reporting and retry mechanism
+
+#### Automatic Database Backup and Restore Example:
+```csharp
+    using CrossCloudKit.Interfaces.Classes;
+
+    // Initialize your services
+    var databaseService = new DatabaseServiceAWS(/* parameters */);
+    var fileService = new FileServiceAWS(/* parameters */);
+    var pubSubService = new PubSubServiceAWS(/* parameters */);
+
+    // Create backup service with daily backups at 1:00 AM UTC
+    var backupService = new DatabaseServiceBackup(
+        databaseService: databaseService,
+        fileService: fileService,
+        backupBucketName: "my-backup-bucket",
+        pubsubService: pubSubService,
+        cronExpression: "0 1 * * *", // Daily at 1:00 AM
+        timeZoneInfo: TimeZoneInfo.Utc,
+        backupRootPath: "database-backups/",
+        errorMessageAction: ex => Console.WriteLine($"Backup error: {ex.Message}")
+    );
+    // Every hour: "0 * * * *"
+    // Daily at 2:30 AM: "30 2 * * *"
+    // Weekly on Sundays at midnight: "0 0 * * 0"
+    // Monthly on the 1st at midnight: "0 0 1 * *"
+    // Every 6 hours: "0 */6 * * *"
+
+    // Get backup cursors
+    var backupCursors = backupService.GetBackupFileCursorsAsync().ToListAsync();
+
+    // Restore from a specific backup (e.g., most recent)
+    var latestBackup = backupCursors.Last();
+    var restoreResult = await backupService.RestoreBackupAsync(latestBackup);
+    if (restoreResult.IsSuccessful)
+    {
+        Console.WriteLine("Database restored successfully!");
+    }
+    else
+    {
+        Console.WriteLine($"Restore failed: {restoreResult.ErrorMessage}");
+    }
+```
+#### Manual Database Backup and Restore Example:
+```csharp
+    using CrossCloudKit.Interfaces.Classes;
+
+    // Initialize your services
+    var databaseService = new DatabaseServiceAWS(/* parameters */);
+    var fileService = new FileServiceAWS(/* parameters */);
+    var pubSubService = new PubSubServiceAWS(/* parameters */);
+
+    // Create backup service without automatic backups, for manual backups only
+    var backupService = new DatabaseServiceBackup(
+        databaseService: databaseService,
+        fileService: fileService,
+        backupBucketName: "my-backup-bucket",
+        pubsubService: pubSubService,
+        backupRootPath: "database-backups/",
+        errorMessageAction: ex => Console.WriteLine($"Backup error: {ex.Message}")
+    );
+
+    //Take backup
+    var result = await backupService.TakeBackupAsync();
+    if (result.IsSuccessful)
+    {
+        Console.WriteLine("Database backup was successful!");
+    }
+    else
+    {
+        Console.WriteLine($"Backup failed: {result.ErrorMessage}");
+        return;
+    };
+
+    //How to restore:
+    var restoreResult = await backupService.RestoreBackupAsync(result.Data);
+    if (restoreResult.IsSuccessful)
+    {
+        Console.WriteLine("Database restored successfully!");
+    }
+    else
+    {
+        Console.WriteLine($"Restore failed: {restoreResult.ErrorMessage}");
+        return;
+    }
+```
+#### Migrate from one database provider to another example:
+```csharp
+    using CrossCloudKit.Interfaces.Classes;
+
+    // Initialize your services
+    var fileService = new FileServiceAWS(/* parameters */);
+    var pubSubService = new PubSubServiceAWS(/* parameters */); //Needed for ensuring atomicity
+
+    var sourceDatabaseService = new DatabaseServiceAWS(/* parameters */);
+    var destinationDatabaseService = new DatabaseServiceGC(/* parameters */);
+
+    var result = await DatabaseServiceMigration.MigrateAsync(
+        sourceDatabaseService,
+        destinationDatabaseService,
+        fileService,
+        pubSubService, //Needed for ensuring atomicity of this operation
+        backupWorkBucketName: "my-tmp-bucket",
+        cleanUpSourceDatabaseAfterMigrate: false,
+        cleanUpDestinationDatabaseBeforeMigrate: false,
+        errorMessageAction: ex => Console.WriteLine($"Migration error: {ex.Message}"));
+
+    if (result.IsSuccessful)
+    {
+        Console.WriteLine("Database migration was successful!");
+    }
+    else
+    {
+        Console.WriteLine($"Migration failed: {result.ErrorMessage}");
+    }
+```
+
 ### File Storage Operations
 
 #### IFileProvider Integration
@@ -608,55 +737,6 @@ REDIS_PASSWORD=your-redis-password
 - Automatic project and namespace handling
 - Support for service account authentication and Application Default Credentials
 - Efficient batch operations
-
-#### Automatic Backup and Restore
-- **Automated Scheduled Backups**: Configure backups using cron expressions
-- **Cross-Provider Support**: Works with all CrossCloudKit database services
-- **Point-in-Time Restoration**: Restore from any backup file
-- **Cloud Storage Integration**: Stores backups in any supported file service
-- **Distributed Operations**: Uses mutex locking to prevent concurrent backup/restore operations
-- **Event-Driven Notifications**: Publishes backup events via PubSub services
-- **Error Handling**: Comprehensive error reporting and retry mechanism
-```csharp
-    using CrossCloudKit.Interfaces.Classes;
-
-    // Initialize your services
-    var databaseService = new DatabaseServiceAWS(/* parameters */);
-    var fileService = new FileServiceAWS(/* parameters */);
-    var pubSubService = new PubSubServiceAWS(/* parameters */);
-
-    // Create backup service with daily backups at 1:00 AM UTC
-    var backupService = new DatabaseServiceBackup(
-        databaseService: databaseService,
-        fileService: fileService,
-        backupBucketName: "my-backup-bucket",
-        pubsubService: pubSubService,
-        cronExpression: "0 1 * * *", // Daily at 1:00 AM
-        timeZoneInfo: TimeZoneInfo.Utc,
-        backupRootPath: "database-backups/",
-        errorMessageAction: ex => Console.WriteLine($"Backup error: {ex.Message}")
-    );
-    // Every hour: "0 * * * *"
-    // Daily at 2:30 AM: "30 2 * * *"
-    // Weekly on Sundays at midnight: "0 0 * * 0"
-    // Monthly on the 1st at midnight: "0 0 1 * *"
-    // Every 6 hours: "0 */6 * * *"
-
-    // Get backup cursors
-    var backupCursors = backupService.GetBackupFileCursorsAsync().ToListAsync();
-
-    // Restore from a specific backup (e.g., most recent)
-    var latestBackup = backupCursors.Last();
-    var restoreResult = await backupService.RestoreBackupAsync(latestBackup);
-    if (restoreResult.IsSuccessful)
-    {
-        Console.WriteLine("Database restored successfully!");
-    }
-    else
-    {
-        Console.WriteLine($"Restore failed: {restoreResult.ErrorMessage}");
-    }
-```
 
 ### File Storage Services
 

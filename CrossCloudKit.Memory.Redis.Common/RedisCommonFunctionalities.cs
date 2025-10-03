@@ -9,6 +9,7 @@ using CrossCloudKit.Interfaces.Classes;
 using Newtonsoft.Json;
 using StackExchange.Redis;
 using CrossCloudKit.Utilities.Common;
+using Condition = StackExchange.Redis.Condition;
 
 // ReSharper disable MemberCanBePrivate.Global
 

@@ -1,6 +1,7 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Net;
 using CrossCloudKit.Database.Basic;
 using CrossCloudKit.File.Basic;
 using CrossCloudKit.Interfaces.Classes;
@@ -10,6 +11,7 @@ using CrossCloudKit.Utilities.Common;
 using FluentAssertions;
 using Newtonsoft.Json.Linq;
 using xRetry;
+using Xunit;
 using Xunit.Abstractions;
 
 namespace CrossCloudKit.Interfaces.Tests;
@@ -864,6 +866,508 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             cronExpression: cronExpression,
             backupRootPath: "backups"
         );
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_WithDropTablesAfterBackup_ShouldDropTablesAfterSuccessfulBackup()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        var tableName = "TestTable";
+        var key = new DbKey("Id", new PrimitiveType("test1"));
+        var data = new JObject
+        {
+            ["Id"] = "test1",
+            ["Name"] = "Test Data",
+            ["Value"] = 42
+        };
+
+        await _databaseService.PutItemAsync(tableName, key, data);
+
+        // Verify data exists before backup
+        var beforeBackup = await _databaseService.GetItemAsync(tableName, key);
+        beforeBackup.IsSuccessful.Should().BeTrue();
+        beforeBackup.Data.Should().NotBeNull();
+
+        // Act - Take backup with cleanup
+        var backupResult = await backupService.TakeBackup(dropTablesAfterBackup: true);
+
+        // Assert
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().NotBeNull();
+
+        // Verify table was dropped after backup
+        var afterBackup = await _databaseService.GetItemAsync(tableName, key);
+        afterBackup.IsSuccessful.Should().BeTrue();
+        afterBackup.Data.Should().BeNull();
+
+        // Verify backup file was created and contains data
+        var cursors = new List<DbBackupFileCursor>();
+        await foreach (var cursor in backupService.GetBackupFileCursorsAsync())
+        {
+            if (cursor.FileName == backupResult.Data!.FileName)
+            {
+                cursors.Add(cursor);
+                break;
+            }
+        }
+        cursors.Should().HaveCount(1);
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task RestoreBackupAsync_WithFullCleanUpBeforeRestoration_ShouldDropAllExistingTables()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Create existing data in multiple tables
+        var existingTable1 = "ExistingTable1";
+        var existingTable2 = "ExistingTable2";
+
+        await _databaseService.PutItemAsync(existingTable1, new DbKey("Id", new PrimitiveType("existing1")), new JObject { ["Id"] = "existing1", ["Data"] = "old" });
+        await _databaseService.PutItemAsync(existingTable2, new DbKey("Id", new PrimitiveType("existing2")), new JObject { ["Id"] = "existing2", ["Data"] = "old" });
+
+        // Create backup data with different table
+        var backupData = new JArray
+        {
+            new JObject
+            {
+                ["table_name"] = "NewTable",
+                ["key_name"] = "Id",
+                ["items"] = new JArray
+                {
+                    new JObject { ["Id"] = "new1", ["Data"] = "new" }
+                }
+            }
+        };
+
+        var backupFileName = "cleanup-test-backup.json";
+        using var backupStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(backupData.ToString()));
+        await _fileService.UploadFileAsync(
+            new StringOrStream(backupStream, backupStream.Length),
+            _backupBucketName,
+            $"backups/{backupFileName}"
+        );
+
+        var cursors = new List<DbBackupFileCursor>();
+        await foreach (var cursor in backupService.GetBackupFileCursorsAsync())
+        {
+            if (cursor.FileName == backupFileName)
+            {
+                cursors.Add(cursor);
+                break;
+            }
+        }
+        cursors.Should().HaveCount(1);
+        var testCursor = cursors[0];
+
+        // Act - Restore with full cleanup
+        var result = await backupService.RestoreBackupAsync(testCursor, fullCleanUpBeforeRestoration: true);
+
+        // Assert
+        result.IsSuccessful.Should().BeTrue();
+
+        // Verify existing tables were dropped
+        var existing1After = await _databaseService.GetItemAsync(existingTable1, new DbKey("Id", new PrimitiveType("existing1")));
+        var existing2After = await _databaseService.GetItemAsync(existingTable2, new DbKey("Id", new PrimitiveType("existing2")));
+
+        existing1After.IsSuccessful.Should().BeTrue();
+        existing2After.IsSuccessful.Should().BeTrue();
+        existing1After.Data.Should().BeNull();
+        existing2After.Data.Should().BeNull();
+
+        // Verify new table was created
+        var newItemAfter = await _databaseService.GetItemAsync("NewTable", new DbKey("Id", new PrimitiveType("new1")));
+        newItemAfter.IsSuccessful.Should().BeTrue();
+        newItemAfter.Data.Should().NotBeNull();
+        newItemAfter.Data!["Data"]!.Value<string>().Should().Be("new");
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DatabaseServiceMigration_Migrate_ShouldTransferDataBetweenDatabases()
+    {
+        // Arrange - Create destination database
+        var destinationBasePath = Path.Combine(Path.GetTempPath(), $"DatabaseServiceBackupTests_Dest_{Guid.NewGuid():N}");
+        var destMemoryService = new MemoryServiceBasic(null, destinationBasePath);
+        var destPubSubService = new PubSubServiceBasic(destinationBasePath);
+        var destFileService = new FileServiceBasic(destMemoryService, destPubSubService, destinationBasePath);
+        var destDatabaseService = new DatabaseServiceBasic("dest-db", destMemoryService, destinationBasePath);
+
+        try
+        {
+            // Verify destination services are initialized
+            destDatabaseService.IsInitialized.Should().BeTrue();
+            destFileService.IsInitialized.Should().BeTrue();
+            destMemoryService.IsInitialized.Should().BeTrue();
+            destPubSubService.IsInitialized.Should().BeTrue();
+
+            // Create test data in source database
+            var tableName = "MigrationTest";
+            var key1 = new DbKey("Id", new PrimitiveType("migrate1"));
+            var key2 = new DbKey("Id", new PrimitiveType("migrate2"));
+            var data1 = new JObject { ["Id"] = "migrate1", ["Name"] = "Source Item 1", ["Value"] = 100 };
+            var data2 = new JObject { ["Id"] = "migrate2", ["Name"] = "Source Item 2", ["Value"] = 200 };
+
+            await _databaseService.PutItemAsync(tableName, key1, data1);
+            await _databaseService.PutItemAsync(tableName, key2, data2);
+
+            var migrationBucketName = "migration-work-bucket";
+
+            // Act - Perform migration
+            var migrationResult = await DatabaseServiceMigration.MigrateAsync(
+                _databaseService,
+                destDatabaseService,
+                _fileService,
+                _pubSubService,
+                migrationBucketName
+            );
+
+            // Assert
+            migrationResult.IsSuccessful.Should().BeTrue();
+
+            // Verify data exists in destination database
+            var destItem1 = await destDatabaseService.GetItemAsync(tableName, key1);
+            var destItem2 = await destDatabaseService.GetItemAsync(tableName, key2);
+
+            destItem1.IsSuccessful.Should().BeTrue();
+            destItem2.IsSuccessful.Should().BeTrue();
+
+            destItem1.Data!["Name"]!.Value<string>().Should().Be("Source Item 1");
+            destItem1.Data!["Value"]!.Value<int>().Should().Be(100);
+            destItem2.Data!["Name"]!.Value<string>().Should().Be("Source Item 2");
+            destItem2.Data!["Value"]!.Value<int>().Should().Be(200);
+
+            // Verify data still exists in source database (since cleanUpSourceDatabaseAfterMigrate = false)
+            var sourceItem1 = await _databaseService.GetItemAsync(tableName, key1);
+            var sourceItem2 = await _databaseService.GetItemAsync(tableName, key2);
+
+            sourceItem1.IsSuccessful.Should().BeTrue();
+            sourceItem2.IsSuccessful.Should().BeTrue();
+            sourceItem1.Data.Should().NotBeNull();
+            sourceItem2.Data.Should().NotBeNull();
+        }
+        finally
+        {
+            // Cleanup destination services
+            await destFileService.DisposeAsync();
+            await destMemoryService.DisposeAsync();
+            await destPubSubService.DisposeAsync();
+            destDatabaseService.Dispose();
+
+            if (Directory.Exists(destinationBasePath))
+            {
+                await Task.Delay(100);
+                Directory.Delete(destinationBasePath, recursive: true);
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DatabaseServiceMigration_Migrate_WithCleanUpSource_ShouldDeleteSourceAfterMigration()
+    {
+        // Arrange - Create destination database
+        var destinationBasePath = Path.Combine(Path.GetTempPath(), $"DatabaseServiceBackupTests_Dest_{Guid.NewGuid():N}");
+        var destMemoryService = new MemoryServiceBasic(null, destinationBasePath);
+        var destPubSubService = new PubSubServiceBasic(destinationBasePath);
+        var destFileService = new FileServiceBasic(destMemoryService, destPubSubService, destinationBasePath);
+        var destDatabaseService = new DatabaseServiceBasic("dest-db", destMemoryService, destinationBasePath);
+
+        try
+        {
+            // Create test data in source database
+            var tableName = "MigrationCleanupTest";
+            var key = new DbKey("Id", new PrimitiveType("cleanup1"));
+            var data = new JObject { ["Id"] = "cleanup1", ["Name"] = "Test Item", ["Value"] = 42 };
+
+            await _databaseService.PutItemAsync(tableName, key, data);
+
+            var migrationBucketName = "migration-cleanup-bucket";
+
+            // Act - Perform migration with source cleanup
+            var migrationResult = await DatabaseServiceMigration.MigrateAsync(
+                _databaseService,
+                destDatabaseService,
+                _fileService,
+                _pubSubService,
+                migrationBucketName,
+                cleanUpSourceDatabaseAfterMigrate: true
+            );
+
+            // Assert
+            migrationResult.IsSuccessful.Should().BeTrue();
+
+            // Verify data exists in destination database
+            var destItem = await destDatabaseService.GetItemAsync(tableName, key);
+            destItem.IsSuccessful.Should().BeTrue();
+            destItem.Data!["Name"]!.Value<string>().Should().Be("Test Item");
+
+            // Verify data was deleted from source database
+            var sourceItem = await _databaseService.GetItemAsync(tableName, key);
+            sourceItem.IsSuccessful.Should().BeTrue();
+            sourceItem.Data.Should().BeNull();
+        }
+        finally
+        {
+            // Cleanup destination services
+            await destFileService.DisposeAsync();
+            await destMemoryService.DisposeAsync();
+            await destPubSubService.DisposeAsync();
+            destDatabaseService.Dispose();
+
+            if (Directory.Exists(destinationBasePath))
+            {
+                await Task.Delay(100);
+                Directory.Delete(destinationBasePath, recursive: true);
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DatabaseServiceMigration_Migrate_WithEmptySource_ShouldReturnNotFound()
+    {
+        // Arrange - Create destination database
+        var destinationBasePath = Path.Combine(Path.GetTempPath(), $"DatabaseServiceBackupTests_Dest_{Guid.NewGuid():N}");
+        var destMemoryService = new MemoryServiceBasic(null, destinationBasePath);
+        var destPubSubService = new PubSubServiceBasic(destinationBasePath);
+        var destFileService = new FileServiceBasic(destMemoryService, destPubSubService, destinationBasePath);
+        var destDatabaseService = new DatabaseServiceBasic("dest-db", destMemoryService, destinationBasePath);
+
+        try
+        {
+            // Ensure source database is empty
+            var existingTables = await _databaseService.GetTableNamesAsync();
+            if (existingTables.IsSuccessful && existingTables.Data.Count > 0)
+            {
+                foreach (var tableName in existingTables.Data)
+                {
+                    await _databaseService.DropTableAsync(tableName);
+                }
+            }
+
+            var migrationBucketName = "migration-empty-bucket";
+
+            // Act - Attempt migration with empty source
+            var migrationResult = await DatabaseServiceMigration.MigrateAsync(
+                _databaseService,
+                destDatabaseService,
+                _fileService,
+                _pubSubService,
+                migrationBucketName
+            );
+
+            // Assert
+            migrationResult.IsSuccessful.Should().BeFalse();
+            migrationResult.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            migrationResult.ErrorMessage.Should().Contain("No data found to migrate");
+        }
+        finally
+        {
+            // Cleanup destination services
+            await destFileService.DisposeAsync();
+            await destMemoryService.DisposeAsync();
+            await destPubSubService.DisposeAsync();
+            destDatabaseService.Dispose();
+
+            if (Directory.Exists(destinationBasePath))
+            {
+                await Task.Delay(100);
+                Directory.Delete(destinationBasePath, recursive: true);
+            }
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task ManualBackupConstructor_ShouldNotStartBackgroundTask()
+    {
+        // Arrange & Act - Create backup service without cron expression (manual mode)
+        await using var backupService = new DatabaseServiceBackup(
+            _databaseService,
+            _fileService,
+            _pubSubService,
+            _backupBucketName,
+            "manual-backups"
+        );
+
+        // Assert - Service should be created without background tasks
+        backupService.Should().NotBeNull();
+
+        // Verify manual backup works
+        var tableName = "ManualTest";
+        var key = new DbKey("Id", new PrimitiveType("manual1"));
+        var data = new JObject { ["Id"] = "manual1", ["Data"] = "Manual backup test" };
+
+        await _databaseService.PutItemAsync(tableName, key, data);
+
+        var backupResult = await backupService.TakeBackup();
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().NotBeNull();
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_ConcurrentCalls_ShouldBeSafeWithMutex()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Create test data
+        var tableName = "ConcurrentTest";
+        for (int i = 1; i <= 5; i++)
+        {
+            var key = new DbKey("Id", new PrimitiveType($"item{i}"));
+            var data = new JObject { ["Id"] = $"item{i}", ["Data"] = $"Item {i}" };
+            await _databaseService.PutItemAsync(tableName, key, data);
+        }
+
+        // Act - Make concurrent backup calls
+        var tasks = new List<Task<OperationResult<DbBackupFileCursor?>>>();
+        for (int i = 0; i < 3; i++)
+        {
+            tasks.Add(backupService.TakeBackup());
+        }
+
+        var results = await Task.WhenAll(tasks);
+
+        // Assert - All operations should complete, but due to mutex, some might fail or succeed
+        results.Should().HaveCount(3);
+
+        // At least one should succeed
+        var successfulResults = results.Where(r => r.IsSuccessful).ToList();
+        successfulResults.Should().NotBeEmpty();
+
+        // Successful results should have backup cursors
+        foreach (var result in successfulResults)
+        {
+            result.Data.Should().NotBeNull();
+            result.Data!.FileName.Should().NotBeEmpty();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task RestoreBackupAsync_WithMalformedJson_ShouldReturnFailure()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        var backupFileName = "malformed-backup.json";
+        var malformedJson = "{ invalid json structure without proper closing";
+
+        using var backupStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(malformedJson));
+        await _fileService.UploadFileAsync(
+            new StringOrStream(backupStream, backupStream.Length),
+            _backupBucketName,
+            $"backups/{backupFileName}"
+        );
+
+        var cursors = new List<DbBackupFileCursor>();
+        await foreach (var cursor in backupService.GetBackupFileCursorsAsync())
+        {
+            if (cursor.FileName == backupFileName)
+            {
+                cursors.Add(cursor);
+                break;
+            }
+        }
+        cursors.Should().HaveCount(1);
+        var testCursor = cursors[0];
+
+        // Act
+        var result = await backupService.RestoreBackupAsync(testCursor);
+
+        // Assert
+        result.IsSuccessful.Should().BeFalse();
+        result.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_WithLargeDataset_ShouldHandleEfficiently()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        var tableName = "LargeDataTest";
+        var itemCount = 100; // Reasonable size for test
+
+        // Create large dataset
+        var insertTasks = new List<Task>();
+        for (int i = 1; i <= itemCount; i++)
+        {
+            var key = new DbKey("Id", new PrimitiveType($"item{i:D3}"));
+            var data = new JObject
+            {
+                ["Id"] = $"item{i:D3}",
+                ["Name"] = $"Item Number {i}",
+                ["Description"] = $"This is a detailed description for item {i} which contains enough text to make the backup file reasonably sized.",
+                ["Value"] = i * 10,
+                ["Category"] = $"Category {i % 5}",
+                ["IsActive"] = i % 2 == 0,
+                ["Timestamp"] = DateTimeOffset.Now.ToString()
+            };
+            insertTasks.Add(_databaseService.PutItemAsync(tableName, key, data));
+        }
+
+        await Task.WhenAll(insertTasks);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        // Act
+        var backupResult = await backupService.TakeBackup();
+
+        stopwatch.Stop();
+
+        // Assert
+        backupResult.IsSuccessful.Should().BeTrue();
+        backupResult.Data.Should().NotBeNull();
+
+        _testOutputHelper.WriteLine($"Backup of {itemCount} items took {stopwatch.ElapsedMilliseconds}ms");
+
+        // Verify all data can be restored
+        await _databaseService.DropTableAsync(tableName);
+
+        var restoreResult = await backupService.RestoreBackupAsync(backupResult.Data!);
+        restoreResult.IsSuccessful.Should().BeTrue();
+
+        // Verify count of restored items
+        var scanResult = await _databaseService.ScanTableAsync(tableName);
+        scanResult.IsSuccessful.Should().BeTrue();
+        scanResult.Data.Items.Should().HaveCount(itemCount);
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task GetBackupFileCursorsAsync_WithCancellation_ShouldRespectCancellationToken()
+    {
+        // Arrange
+        await using var backupService = CreateBackupService();
+
+        // Create some backup files
+        for (int i = 1; i <= 10; i++)
+        {
+            using var backupStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes($"backup {i}"));
+            await _fileService.UploadFileAsync(
+                new StringOrStream(backupStream, backupStream.Length),
+                _backupBucketName,
+                $"backups/backup-{i:D2}.json"
+            );
+        }
+
+        using var cts = new CancellationTokenSource();
+        var cursors = new List<DbBackupFileCursor>();
+
+        // Act - Cancel after a short delay
+        var enumerationTask = Task.Run(async () =>
+        {
+            await foreach (var cursor in backupService.GetBackupFileCursorsAsync(pageSize: 2, cancellationToken: cts.Token))
+            {
+                cursors.Add(cursor);
+                await Task.Delay(10, cts.Token); // Small delay to allow cancellation
+            }
+        });
+
+        await Task.Delay(50); // Let it start
+        await cts.CancelAsync();
+
+        // Assert - Should handle cancellation gracefully
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enumerationTask);
     }
 
     public async ValueTask DisposeAsync()

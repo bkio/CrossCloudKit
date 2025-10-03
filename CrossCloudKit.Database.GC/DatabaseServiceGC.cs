@@ -395,7 +395,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     protected override async Task<OperationResult<bool>> ItemExistsCoreAsync(
         string tableName,
         DbKey key,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -425,7 +425,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                     AddKeyToJson(entityJson, key.Name, key.Value);
                     ApplyOptions(entityJson);
 
-                    if (conditions.Any(condition => !ConditionCheck(entityJson, condition)))
+                    if (!ConditionCheck(entityJson, conditions))
                         return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
                 }
             }
@@ -548,7 +548,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         DbKey key,
         JObject updateData,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         return await PutOrUpdateItemAsync(PutOrUpdateItemType.UpdateItem, tableName, key, updateData,
@@ -560,7 +560,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         DbKey key,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         const int maxRetryNumber = 5;
@@ -597,7 +597,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                             ApplyOptions(entityJson);
 
                             // ReSharper disable once PossibleMultipleEnumeration
-                            if (conditions != null && conditions.Any(condition => !ConditionCheck(entityJson, condition)))
+                            if (conditions != null && !ConditionCheck(entityJson, conditions))
                             {
                                 return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                             }
@@ -655,7 +655,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// <inheritdoc />
     protected override async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterCoreAsync(
         string tableName,
-        IEnumerable<DbAttributeCondition> filterConditions,
+        ConditionCoupling filterConditions,
         CancellationToken cancellationToken = default)
     {
         return await InternalScanTableAsync(tableName, filterConditions, cancellationToken);
@@ -669,7 +669,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
             string? NextPageToken,
             long? TotalCount)>> ScanTableWithFilterPaginatedCoreAsync(
         string tableName,
-        IEnumerable<DbAttributeCondition> filterConditions,
+        ConditionCoupling filterConditions,
         int pageSize,
         string? pageToken = null,
         CancellationToken cancellationToken = default)
@@ -686,7 +686,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         int pageSize,
         string? pageToken = null,
-        IEnumerable<DbAttributeCondition>? filterConditions = null,
+        ConditionCoupling? filterConditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -760,7 +760,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
     private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableAsync(
         string tableName,
-        IEnumerable<DbAttributeCondition>? filterConditions = null,
+        ConditionCoupling? filterConditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -798,7 +798,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
         CancellationToken cancellationToken = default)
     {
@@ -848,7 +848,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         ApplyOptions(entityJson);
 
                         // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && conditions.Any(c => !ConditionCheck(entityJson, c)))
+                        if (conditions != null && !ConditionCheck(entityJson, conditions))
                         {
                             return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
@@ -971,7 +971,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string arrayAttributeName,
         PrimitiveType[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -1011,7 +1011,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         ApplyOptions(entityJson);
 
                         // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && conditions.Any(c => !ConditionCheck(entityJson, c)))
+                        if (conditions != null && !ConditionCheck(entityJson, conditions))
                         {
                             return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
@@ -1090,7 +1090,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         DbKey key,
         string numericAttributeName,
         double incrementValue,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
         if (_dsdb == null)
@@ -1131,7 +1131,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         ApplyOptions(entityJson);
 
                         // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && conditions.Any(c => !ConditionCheck(entityJson, c)))
+                        if (conditions != null && !ConditionCheck(entityJson, conditions))
                         {
                             return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
@@ -1412,7 +1412,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         DbKey key,
         JObject newItem,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
-        IEnumerable<DbAttributeCondition>? conditions = null,
+        ConditionCoupling? conditions = null,
         bool shouldOverrideIfExist = false,
         CancellationToken cancellationToken = default)
     {
@@ -1463,7 +1463,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                     if (conditions != null && returnedPreOperationObject != null)
                     {
                         // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions.Any(c => !ConditionCheck(returnedPreOperationObject, c)))
+                        if (!ConditionCheck(returnedPreOperationObject, conditions))
                         {
                             return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                         }
@@ -1594,39 +1594,54 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         return false;
     }
 
-    private static bool ConditionCheck(JObject? jsonObjectToCheck, DbAttributeCondition? conditionExpression)
+    private static bool ConditionCheck(JObject? jsonObjectToCheck, ConditionCoupling? conditionExpression)
     {
         if (jsonObjectToCheck == null || conditionExpression == null)
             return true;
 
-        return conditionExpression.ConditionType switch
+        return conditionExpression.CouplingType switch
         {
-            DbAttributeConditionType.AttributeExists => jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
-            DbAttributeConditionType.AttributeNotExists => !jsonObjectToCheck.ContainsKey(conditionExpression.AttributeName),
-            _ when conditionExpression is DbValueCondition valueCondition => CheckValueCondition(jsonObjectToCheck, valueCondition),
-            _ when conditionExpression is DbArrayElementCondition arrayCondition => CheckArrayElementCondition(jsonObjectToCheck, arrayCondition),
+            ConditionCouplingType.Empty => true,
+            ConditionCouplingType.Single when conditionExpression.SingleCondition != null =>
+                CheckSingleCondition(jsonObjectToCheck, conditionExpression.SingleCondition),
+            ConditionCouplingType.And when conditionExpression is { First: not null, Second: not null } =>
+                ConditionCheck(jsonObjectToCheck, conditionExpression.First) && ConditionCheck(jsonObjectToCheck, conditionExpression.Second),
+            ConditionCouplingType.Or when conditionExpression is { First: not null, Second: not null } =>
+                ConditionCheck(jsonObjectToCheck, conditionExpression.First) || ConditionCheck(jsonObjectToCheck, conditionExpression.Second),
             _ => true
         };
     }
 
-    private static bool CheckValueCondition(JObject jsonObject, DbValueCondition condition)
+    private static bool CheckSingleCondition(JObject jsonObjectToCheck, Condition condition)
+    {
+        return condition.ConditionType switch
+        {
+            ConditionType.AttributeExists => jsonObjectToCheck.ContainsKey(condition.AttributeName),
+            ConditionType.AttributeNotExists => !jsonObjectToCheck.ContainsKey(condition.AttributeName),
+            _ when condition is ValueCondition valueCondition => CheckValueCondition(jsonObjectToCheck, valueCondition),
+            _ when condition is ArrayCondition arrayCondition => CheckArrayElementCondition(jsonObjectToCheck, arrayCondition),
+            _ => true
+        };
+    }
+
+    private static bool CheckValueCondition(JObject jsonObject, ValueCondition condition)
     {
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token))
             return false;
 
         return condition.ConditionType switch
         {
-            DbAttributeConditionType.AttributeEquals => CompareJTokenWithPrimitive(token, condition.Value),
-            DbAttributeConditionType.AttributeNotEquals => !CompareJTokenWithPrimitive(token, condition.Value),
-            DbAttributeConditionType.AttributeGreater => CompareJTokenValues(token, condition.Value) > 0,
-            DbAttributeConditionType.AttributeGreaterOrEqual => CompareJTokenValues(token, condition.Value) >= 0,
-            DbAttributeConditionType.AttributeLess => CompareJTokenValues(token, condition.Value) < 0,
-            DbAttributeConditionType.AttributeLessOrEqual => CompareJTokenValues(token, condition.Value) <= 0,
+            ConditionType.AttributeEquals => CompareJTokenWithPrimitive(token, condition.Value),
+            ConditionType.AttributeNotEquals => !CompareJTokenWithPrimitive(token, condition.Value),
+            ConditionType.AttributeGreater => CompareJTokenValues(token, condition.Value) > 0,
+            ConditionType.AttributeGreaterOrEqual => CompareJTokenValues(token, condition.Value) >= 0,
+            ConditionType.AttributeLess => CompareJTokenValues(token, condition.Value) < 0,
+            ConditionType.AttributeLessOrEqual => CompareJTokenValues(token, condition.Value) <= 0,
             _ => false
         };
     }
 
-    private static bool CheckArrayElementCondition(JObject jsonObject, DbArrayElementCondition condition)
+    private static bool CheckArrayElementCondition(JObject jsonObject, ArrayCondition condition)
     {
         if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
             return false;
@@ -1635,8 +1650,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
         return condition.ConditionType switch
         {
-            DbAttributeConditionType.ArrayElementExists => elementExists,
-            DbAttributeConditionType.ArrayElementNotExists => !elementExists,
+            ConditionType.ArrayElementExists => elementExists,
+            ConditionType.ArrayElementNotExists => !elementExists,
             _ => false
         };
     }
@@ -1664,7 +1679,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
     private List<JObject> ConvertEntitiesToJson(
         DatastoreQueryResults queryResults,
-       IEnumerable<DbAttributeCondition>? filterConditions = null,
+       ConditionCoupling? filterConditions = null,
         int pageSize = -1)
     {
         var results = new List<JObject>();
@@ -1686,7 +1701,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
             // Apply client-side filtering
             // ReSharper disable once PossibleMultipleEnumeration
-            if (filterConditions != null && filterConditions.Any(c => !ConditionCheck(asJson, c)))
+            if (filterConditions != null && !ConditionCheck(asJson, filterConditions))
             {
                 continue;
             }
@@ -1699,44 +1714,44 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbAttributeConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeNotExistsCondition(string attributeName) =>
-        new DbExistenceCondition(DbAttributeConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName) =>
+        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeNotEqualsCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeGreaterCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeGreaterOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeLessCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildAttributeLessOrEqualCondition(string attributeName, PrimitiveType value) =>
-        new DbValueCondition(DbAttributeConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildArrayElementExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override DbAttributeCondition BuildArrayElementNotExistsCondition(string attributeName, PrimitiveType elementValue) =>
-        new DbArrayElementCondition(DbAttributeConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     public async ValueTask DisposeAsync()
     {

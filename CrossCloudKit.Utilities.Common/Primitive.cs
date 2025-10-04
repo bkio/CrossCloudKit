@@ -4,14 +4,12 @@
 using System.Globalization;
 using Newtonsoft.Json;
 
-// ReSharper disable MemberCanBePrivate.Global
-
 namespace CrossCloudKit.Utilities.Common;
 
 /// <summary>
-/// Represents the different primitive types supported by the PrimitiveType class.
+/// Represents the different primitive types supported by the Primitive class.
 /// </summary>
-public enum PrimitiveTypeKind
+public enum PrimitiveKind
 {
     String,
     Integer,
@@ -24,94 +22,114 @@ public enum PrimitiveTypeKind
 /// Represents a discriminated union of primitive types (string, long, double, byte array).
 /// This type is immutable and provides type-safe access to the underlying value.
 /// </summary>
-[JsonConverter(typeof(PrimitiveTypeJsonConverter))]
-public sealed class PrimitiveType : IEquatable<PrimitiveType>
+[JsonConverter(typeof(PrimitiveJsonConverter))]
+public sealed class Primitive : IEquatable<Primitive>
 {
-    public PrimitiveTypeKind Kind { get; }
+    public PrimitiveKind Kind { get; }
 
     private readonly object _value;
 
     /// <summary>
-    /// Copy constructor that creates a new instance from another PrimitiveType.
+    /// Copy constructor that creates a new instance from another Primitive.
     /// </summary>
-    /// <param name="other">The PrimitiveType instance to copy from</param>
+    /// <param name="other">The Primitive instance to copy from</param>
     /// <exception cref="ArgumentNullException">Thrown when other is null</exception>
-    public PrimitiveType(PrimitiveType other)
+    public Primitive(Primitive other)
     {
         ArgumentNullException.ThrowIfNull(other);
 
         Kind = other.Kind;
         _value = other.Kind switch
         {
-            PrimitiveTypeKind.ByteArray => ((byte[])other._value).ToArray(), // Create a copy of the byte array
+            PrimitiveKind.ByteArray => ((byte[])other._value).ToArray(), // Create a copy of the byte array
             _ => other._value
         };
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a string value.
+    /// Creates a Primitive containing a string value.
     /// </summary>
     /// <param name="value">The string value</param>
     /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
-    public PrimitiveType(string value)
+    public Primitive(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        Kind = PrimitiveTypeKind.String;
+        Kind = PrimitiveKind.String;
         _value = value;
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a boolean value.
+    /// Creates a Primitive containing a boolean value.
     /// </summary>
     /// <param name="value">The boolean value</param>
     /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
-    public PrimitiveType(bool value)
+    public Primitive(bool value)
     {
-        Kind = PrimitiveTypeKind.Boolean;
+        Kind = PrimitiveKind.Boolean;
         _value = value;
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a long integer value.
+    /// Creates a Primitive containing a long integer value.
     /// </summary>
     /// <param name="value">The long integer value</param>
-    public PrimitiveType(long value)
+    public Primitive(long value)
     {
-        Kind = PrimitiveTypeKind.Integer;
+        Kind = PrimitiveKind.Integer;
         _value = value;
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a double value.
+    /// Creates a Primitive containing a long integer value.
+    /// </summary>
+    /// <param name="value">The long integer value</param>
+    public Primitive(int value)
+    {
+        Kind = PrimitiveKind.Integer;
+        _value = value;
+    }
+
+    /// <summary>
+    /// Creates a Primitive containing a double value.
     /// </summary>
     /// <param name="value">The double value</param>
-    public PrimitiveType(double value)
+    public Primitive(double value)
     {
-        Kind = PrimitiveTypeKind.Double;
+        Kind = PrimitiveKind.Double;
         _value = value;
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a byte array.
+    /// Creates a Primitive containing a double value.
+    /// </summary>
+    /// <param name="value">The double value</param>
+    public Primitive(float value)
+    {
+        Kind = PrimitiveKind.Double;
+        _value = value;
+    }
+
+    /// <summary>
+    /// Creates a Primitive containing a byte array.
     /// </summary>
     /// <param name="value">The byte array value</param>
     /// <exception cref="ArgumentNullException">Thrown when value is null</exception>
-    public PrimitiveType(byte[] value)
+    public Primitive(byte[] value)
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        Kind = PrimitiveTypeKind.ByteArray;
+        Kind = PrimitiveKind.ByteArray;
         _value = value.ToArray(); // Create a copy to ensure immutability
     }
 
     /// <summary>
-    /// Creates a PrimitiveType containing a byte array from a ReadOnlySpan.
+    /// Creates a Primitive containing a byte array from a ReadOnlySpan.
     /// </summary>
     /// <param name="value">The byte span value</param>
-    public PrimitiveType(ReadOnlySpan<byte> value)
+    public Primitive(ReadOnlySpan<byte> value)
     {
-        Kind = PrimitiveTypeKind.ByteArray;
+        Kind = PrimitiveKind.ByteArray;
         _value = value.ToArray();
     }
 
@@ -119,7 +137,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets the string value. Only valid when Kind is String.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not String</exception>
-    public string AsString => Kind == PrimitiveTypeKind.String
+    public string AsString => Kind == PrimitiveKind.String
         ? (string)_value
         : throw new InvalidOperationException($"Cannot access string value when Kind is {Kind}");
 
@@ -127,7 +145,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets the long integer value. Only valid when Kind is Integer.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Integer</exception>
-    public long AsInteger => Kind == PrimitiveTypeKind.Integer
+    public long AsInteger => Kind == PrimitiveKind.Integer
         ? (long)_value
         : throw new InvalidOperationException($"Cannot access integer value when Kind is {Kind}");
 
@@ -135,7 +153,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets the long integer value. Only valid when Kind is Integer.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Integer</exception>
-    public bool AsBoolean => Kind == PrimitiveTypeKind.Boolean
+    public bool AsBoolean => Kind == PrimitiveKind.Boolean
         ? (bool)_value
         : throw new InvalidOperationException($"Cannot access boolean value when Kind is {Kind}");
 
@@ -143,7 +161,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets the double value. Only valid when Kind is Double.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Double</exception>
-    public double AsDouble => Kind == PrimitiveTypeKind.Double
+    public double AsDouble => Kind == PrimitiveKind.Double
         ? (double)_value
         : throw new InvalidOperationException($"Cannot access double value when Kind is {Kind}");
 
@@ -151,7 +169,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets a copy of the byte array value. Only valid when Kind is ByteArray.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not ByteArray</exception>
-    public byte[] AsByteArray => Kind == PrimitiveTypeKind.ByteArray
+    public byte[] AsByteArray => Kind == PrimitiveKind.ByteArray
         ? ((byte[])_value).ToArray()
         : throw new InvalidOperationException($"Cannot access byte array value when Kind is {Kind}");
 
@@ -159,7 +177,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// Gets a read-only span of the byte array value. Only valid when Kind is ByteArray.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not ByteArray</exception>
-    public ReadOnlySpan<byte> AsByteSpan => Kind == PrimitiveTypeKind.ByteArray
+    public ReadOnlySpan<byte> AsByteSpan => Kind == PrimitiveKind.ByteArray
         ? ((byte[])_value).AsSpan()
         : throw new InvalidOperationException($"Cannot access byte span value when Kind is {Kind}");
 
@@ -170,7 +188,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <returns>True if Kind is String, false otherwise</returns>
     public bool TryGetString(out string? value)
     {
-        if (Kind == PrimitiveTypeKind.String)
+        if (Kind == PrimitiveKind.String)
         {
             value = (string)_value;
             return true;
@@ -186,7 +204,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <returns>True if Kind is Boolean, false otherwise</returns>
     public bool TryGetBoolean(out bool value)
     {
-        if (Kind == PrimitiveTypeKind.Boolean)
+        if (Kind == PrimitiveKind.Boolean)
         {
             value = (bool)_value;
             return true;
@@ -202,7 +220,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <returns>True if Kind is Integer, false otherwise</returns>
     public bool TryGetInteger(out long value)
     {
-        if (Kind == PrimitiveTypeKind.Integer)
+        if (Kind == PrimitiveKind.Integer)
         {
             value = (long)_value;
             return true;
@@ -218,7 +236,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <returns>True if Kind is Double, false otherwise</returns>
     public bool TryGetDouble(out double value)
     {
-        if (Kind == PrimitiveTypeKind.Double)
+        if (Kind == PrimitiveKind.Double)
         {
             value = (double)_value;
             return true;
@@ -234,7 +252,7 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     /// <returns>True if Kind is ByteArray, false otherwise</returns>
     public bool TryGetByteArray(out byte[]? value)
     {
-        if (Kind == PrimitiveTypeKind.ByteArray)
+        if (Kind == PrimitiveKind.ByteArray)
         {
             value = ((byte[])_value).ToArray();
             return true;
@@ -247,29 +265,29 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     {
         return Kind switch
         {
-            PrimitiveTypeKind.String => (string)_value,
-            PrimitiveTypeKind.Boolean => ((bool)_value).ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.Integer => ((long)_value).ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.Double => ((double)_value).ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String((byte[])_value),
+            PrimitiveKind.String => (string)_value,
+            PrimitiveKind.Boolean => ((bool)_value).ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.Integer => ((long)_value).ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.Double => ((double)_value).ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.ByteArray => Convert.ToBase64String((byte[])_value),
             _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
         };
     }
 
-    public override bool Equals(object? obj) => obj is PrimitiveType other && Equals(other);
+    public override bool Equals(object? obj) => obj is Primitive other && Equals(other);
 
-    public bool Equals(PrimitiveType? other)
+    public bool Equals(Primitive? other)
     {
         if (other is null || Kind != other.Kind)
             return false;
 
         return Kind switch
         {
-            PrimitiveTypeKind.String => string.Equals((string)_value, (string)other._value, StringComparison.Ordinal),
-            PrimitiveTypeKind.Boolean => (bool)_value == (bool)other._value,
-            PrimitiveTypeKind.Integer => (long)_value == (long)other._value,
-            PrimitiveTypeKind.Double => Math.Abs((double)_value - (double)other._value) < 0.0000001,
-            PrimitiveTypeKind.ByteArray => ((byte[])_value).AsSpan().SequenceEqual(((byte[])other._value).AsSpan()),
+            PrimitiveKind.String => string.Equals((string)_value, (string)other._value, StringComparison.Ordinal),
+            PrimitiveKind.Boolean => (bool)_value == (bool)other._value,
+            PrimitiveKind.Integer => (long)_value == (long)other._value,
+            PrimitiveKind.Double => Math.Abs((double)_value - (double)other._value) < 0.0000001,
+            PrimitiveKind.ByteArray => ((byte[])_value).AsSpan().SequenceEqual(((byte[])other._value).AsSpan()),
             _ => false
         };
     }
@@ -278,29 +296,37 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     {
         return Kind switch
         {
-            PrimitiveTypeKind.String => HashCode.Combine(Kind, _value),
-            PrimitiveTypeKind.Boolean => HashCode.Combine(Kind, _value),
-            PrimitiveTypeKind.Integer => HashCode.Combine(Kind, _value),
-            PrimitiveTypeKind.Double => HashCode.Combine(Kind, _value),
-            PrimitiveTypeKind.ByteArray => HashCode.Combine(Kind, Convert.ToBase64String((byte[])_value)),
+            PrimitiveKind.String => HashCode.Combine(Kind, _value),
+            PrimitiveKind.Boolean => HashCode.Combine(Kind, _value),
+            PrimitiveKind.Integer => HashCode.Combine(Kind, _value),
+            PrimitiveKind.Double => HashCode.Combine(Kind, _value),
+            PrimitiveKind.ByteArray => HashCode.Combine(Kind, Convert.ToBase64String((byte[])_value)),
             _ => HashCode.Combine(Kind)
         };
     }
 
-    public static bool operator ==(PrimitiveType? left, PrimitiveType? right) =>
+    public static bool operator ==(Primitive? left, Primitive? right) =>
         ReferenceEquals(left, right) || (left?.Equals(right) == true);
 
-    public static bool operator !=(PrimitiveType? left, PrimitiveType? right) => !(left == right);
+    public static bool operator !=(Primitive? left, Primitive? right) => !(left == right);
 
     // Implicit conversion operators for convenience
-    public static implicit operator PrimitiveType(string value) => new(value);
-    public static implicit operator PrimitiveType(bool value) => new(value);
-    public static implicit operator PrimitiveType(long value) => new(value);
-    public static implicit operator PrimitiveType(double value) => new(value);
-    public static implicit operator PrimitiveType(byte[] value) => new(value);
+    public static implicit operator Primitive(string value) => new(value);
+    public static implicit operator Primitive(bool value) => new(value);
+    public static implicit operator Primitive(long value) => new(value);
+    public static implicit operator Primitive(int value) => new(value);
+    public static implicit operator Primitive(double value) => new(value);
+    public static implicit operator Primitive(float value) => new(value);
+    public static implicit operator Primitive(byte[] value) => new(value);
+
+    public static implicit operator string(Primitive value) => value.AsString;
+    public static implicit operator bool(Primitive value) => value.AsBoolean;
+    public static implicit operator long(Primitive value) => value.AsInteger;
+    public static implicit operator double(Primitive value) => value.AsDouble;
+    public static implicit operator byte[](Primitive value) => value.AsByteArray;
 
     /// <summary>
-    /// Executes the appropriate action based on the Kind of the PrimitiveType.
+    /// Executes the appropriate action based on the Kind of the Primitive.
     /// </summary>
     /// <param name="onString">Action to execute if Kind is String</param>
     /// <param name="onBoolean">Action to execute if Kind is Boolean</param>
@@ -316,26 +342,26 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     {
         switch (Kind)
         {
-            case PrimitiveTypeKind.String:
+            case PrimitiveKind.String:
                 onString?.Invoke((string)_value);
                 break;
-            case PrimitiveTypeKind.Boolean:
+            case PrimitiveKind.Boolean:
                 onBoolean?.Invoke((bool)_value);
                 break;
-            case PrimitiveTypeKind.Integer:
+            case PrimitiveKind.Integer:
                 onInteger?.Invoke((long)_value);
                 break;
-            case PrimitiveTypeKind.Double:
+            case PrimitiveKind.Double:
                 onDouble?.Invoke((double)_value);
                 break;
-            case PrimitiveTypeKind.ByteArray:
+            case PrimitiveKind.ByteArray:
                 onByteArray?.Invoke(((byte[])_value).AsSpan());
                 break;
         }
     }
 
     /// <summary>
-    /// Returns a result by executing the appropriate function based on the Kind of the PrimitiveType.
+    /// Returns a result by executing the appropriate function based on the Kind of the Primitive.
     /// </summary>
     /// <typeparam name="T">The return type</typeparam>
     /// <param name="onString">Function to execute if Kind is String</param>
@@ -353,26 +379,26 @@ public sealed class PrimitiveType : IEquatable<PrimitiveType>
     {
         return Kind switch
         {
-            PrimitiveTypeKind.String => onString((string)_value),
-            PrimitiveTypeKind.Boolean => onBoolean((bool)_value),
-            PrimitiveTypeKind.Integer => onInteger((long)_value),
-            PrimitiveTypeKind.Double => onDouble((double)_value),
-            PrimitiveTypeKind.ByteArray => onByteArray(((byte[])_value).AsSpan()),
+            PrimitiveKind.String => onString((string)_value),
+            PrimitiveKind.Boolean => onBoolean((bool)_value),
+            PrimitiveKind.Integer => onInteger((long)_value),
+            PrimitiveKind.Double => onDouble((double)_value),
+            PrimitiveKind.ByteArray => onByteArray(((byte[])_value).AsSpan()),
             _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
         };
     }
 }
 
 /// <summary>
-/// Custom JSON converter for PrimitiveType.
+/// Custom JSON converter for Primitive.
 /// Serializes as { "kind": "String|Integer|Double|ByteArray", "value": ... } for unambiguous deserialization.
 /// </summary>
-public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
+public class PrimitiveJsonConverter : JsonConverter<Primitive>
 {
     /// <summary>
-    /// Writes the PrimitiveType value to JSON using kind + value format.
+    /// Writes the Primitive value to JSON using kind + value format.
     /// </summary>
-    public override void WriteJson(JsonWriter writer, PrimitiveType? value, JsonSerializer serializer)
+    public override void WriteJson(JsonWriter writer, Primitive? value, JsonSerializer serializer)
     {
         if (value == null)
         {
@@ -382,23 +408,23 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
 
         switch (value.Kind)
         {
-            case PrimitiveTypeKind.String:
+            case PrimitiveKind.String:
                 writer.WriteValue($"s-{value.AsString}");
                 break;
 
-            case PrimitiveTypeKind.Integer:
+            case PrimitiveKind.Integer:
                 writer.WriteValue(value.AsInteger);
                 break;
 
-            case PrimitiveTypeKind.Boolean:
+            case PrimitiveKind.Boolean:
                 writer.WriteValue(value.AsBoolean);
                 break;
 
-            case PrimitiveTypeKind.Double:
+            case PrimitiveKind.Double:
                 writer.WriteValue($"d-{value.AsDouble.ToString(CultureInfo.InvariantCulture)}");
                 break;
 
-            case PrimitiveTypeKind.ByteArray:
+            case PrimitiveKind.ByteArray:
                 writer.WriteValue($"b-{Convert.ToBase64String(value.AsByteArray)}");
                 break;
 
@@ -408,10 +434,10 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
     }
 
     /// <summary>
-    /// Reads JSON back into a PrimitiveType.
-    /// Detects the JSON token type and reconstructs the appropriate PrimitiveType.
+    /// Reads JSON back into a Primitive.
+    /// Detects the JSON token type and reconstructs the appropriate Primitive.
     /// </summary>
-    public override PrimitiveType? ReadJson(JsonReader reader, Type objectType, PrimitiveType? existingValue, bool hasExistingValue, JsonSerializer serializer)
+    public override Primitive? ReadJson(JsonReader reader, Type objectType, Primitive? existingValue, bool hasExistingValue, JsonSerializer serializer)
     {
         if (reader.TokenType == JsonToken.Null)
             return null;
@@ -421,23 +447,23 @@ public class PrimitiveTypeJsonConverter : JsonConverter<PrimitiveType>
             var str = (string)reader.Value.NotNull();
             if (str.StartsWith("b-"))
             {
-                return new PrimitiveType(Convert.FromBase64String(str[2..]));
+                return new Primitive(Convert.FromBase64String(str[2..]));
             }
             if (str.StartsWith("d-"))
             {
-                return new PrimitiveType(double.Parse(str[2..], CultureInfo.InvariantCulture));
+                return new Primitive(double.Parse(str[2..], CultureInfo.InvariantCulture));
             }
 
-            return str.StartsWith("s-") ? new PrimitiveType(str[2..]) : new PrimitiveType(str);
+            return str.StartsWith("s-") ? new Primitive(str[2..]) : new Primitive(str);
         }
 
-        if (reader.TokenType == JsonToken.Boolean) return new PrimitiveType(Convert.ToBoolean(reader.Value));
+        if (reader.TokenType == JsonToken.Boolean) return new Primitive(Convert.ToBoolean(reader.Value));
 
-        if (reader.TokenType == JsonToken.Integer) return new PrimitiveType(Convert.ToInt64(reader.Value));
+        if (reader.TokenType == JsonToken.Integer) return new Primitive(Convert.ToInt64(reader.Value));
 
-        if (reader.TokenType == JsonToken.Float) return new PrimitiveType(Convert.ToDouble(reader.Value));
+        if (reader.TokenType == JsonToken.Float) return new Primitive(Convert.ToDouble(reader.Value));
 
         throw new JsonSerializationException(
-            $"Unexpected token {reader.TokenType} when parsing PrimitiveType");
+            $"Unexpected token {reader.TokenType} when parsing Primitive");
     }
 }

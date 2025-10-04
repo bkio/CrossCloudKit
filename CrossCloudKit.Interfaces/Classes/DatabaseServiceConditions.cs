@@ -30,16 +30,16 @@ public class ExistenceCondition : Condition
     }
 }
 
-public class ValueCondition(ConditionType conditionType, string attributeName, PrimitiveType value) : Condition(conditionType, attributeName)
+public class ValueCondition(ConditionType conditionType, string attributeName, Primitive value) : Condition(conditionType, attributeName)
 {
-    public PrimitiveType Value { get; } = value ?? throw new ArgumentNullException(nameof(value));
+    public Primitive Value { get; } = value ?? throw new ArgumentNullException(nameof(value));
 }
 
 public class ArrayCondition : Condition
 {
-    public PrimitiveType ElementValue { get; }
+    public Primitive ElementValue { get; }
 
-    public ArrayCondition(ConditionType conditionType, string attributeName, PrimitiveType elementValue)
+    public ArrayCondition(ConditionType conditionType, string attributeName, Primitive elementValue)
         : base(conditionType, attributeName)
     {
         if (conditionType != ConditionType.ArrayElementExists &&

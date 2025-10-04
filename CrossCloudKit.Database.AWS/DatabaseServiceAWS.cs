@@ -154,7 +154,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 ],
                 AttributeDefinitions =
                 [
-                    new AttributeDefinition(key.Name, PrimitiveTypeToScalarAttributeType(key.Value))
+                    new AttributeDefinition(key.Name, PrimitiveToScalarAttributeType(key.Value))
                 ],
                 BillingMode = BillingMode.PAY_PER_REQUEST // On-demand billing
             };
@@ -180,7 +180,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     private async Task<OperationResult<Table>> TryToGetAndLoadExistingTableAsync(
         string tableName,
         string keyName,
-        PrimitiveType? keyValue = null,
+        Utilities.Common.Primitive? keyValue = null,
         int retryCount = 0,
         CancellationToken cancellationToken = default)
     {
@@ -248,7 +248,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     {
         var keyValType = key.Value.Kind switch
         {
-            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => DynamoDBEntryType.Numeric,
+            PrimitiveKind.Integer or PrimitiveKind.Double => DynamoDBEntryType.Numeric,
             _ => DynamoDBEntryType.String // Default fallback
         };
 
@@ -325,35 +325,35 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Converts PrimitiveType to Primitive for keys
+    /// Converts Primitive to Primitive for keys
     /// </summary>
-    private static Primitive ConvertPrimitiveTypeToDynamoDbPrimitive(PrimitiveType primitiveType)
+    private static Amazon.DynamoDBv2.DocumentModel.Primitive ConvertPrimitiveToDynamoDbPrimitive(Utilities.Common.Primitive primitiveType)
     {
-        return new Primitive(primitiveType.ToString(), primitiveType.Kind is PrimitiveTypeKind.Double or PrimitiveTypeKind.Integer);
+        return new Amazon.DynamoDBv2.DocumentModel.Primitive(primitiveType.ToString(), primitiveType.Kind is PrimitiveKind.Double or PrimitiveKind.Integer);
     }
 
     /// <summary>
     /// Converts DynamoDBEntryType to ScalarAttributeType for TableBuilder
     /// </summary>
-    private static ScalarAttributeType PrimitiveTypeToScalarAttributeType(PrimitiveType primitiveType)
+    private static ScalarAttributeType PrimitiveToScalarAttributeType(Utilities.Common.Primitive primitiveType)
     {
         return primitiveType.Kind switch
         {
-            PrimitiveTypeKind.String => ScalarAttributeType.S,
-            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => ScalarAttributeType.N,
-            PrimitiveTypeKind.ByteArray => ScalarAttributeType.S, //Base64
+            PrimitiveKind.String => ScalarAttributeType.S,
+            PrimitiveKind.Integer or PrimitiveKind.Double => ScalarAttributeType.N,
+            PrimitiveKind.ByteArray => ScalarAttributeType.S, //Base64
             _ => throw new ArgumentOutOfRangeException()
         };
     }
 
-    private static AttributeValue ConvertPrimitiveToConditionAttributeValue(PrimitiveType value)
+    private static AttributeValue ConvertPrimitiveToConditionAttributeValue(Utilities.Common.Primitive value)
     {
         // For condition values, we should use proper DynamoDB types
         // to ensure correct comparisons work
         return value.Kind switch
         {
-            PrimitiveTypeKind.Integer or PrimitiveTypeKind.Double => new AttributeValue { N = value.ToString() },
-            PrimitiveTypeKind.Boolean => new AttributeValue { BOOL = value.AsBoolean },
+            PrimitiveKind.Integer or PrimitiveKind.Double => new AttributeValue { N = value.ToString() },
+            PrimitiveKind.Boolean => new AttributeValue { BOOL = value.AsBoolean },
             _ => new AttributeValue { S = value.ToString() }
         };
     }
@@ -449,7 +449,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     attributesToRetrieve[kIx] = key.Name;
                 config.AttributesToGet = [..attributesToRetrieve];
             }
-            var document = await table.GetItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config, cancellationToken);
+            var document = await table.GetItemAsync(ConvertPrimitiveToDynamoDbPrimitive(key.Value), config, cancellationToken);
             if (document == null)
             {
                 return OperationResult<JObject?>.Success(null);
@@ -561,7 +561,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 config.ConditionalExpression = BuildConditionalExpression(conditions);
             }
 
-            var document = await table.DeleteItemAsync(ConvertPrimitiveTypeToDynamoDbPrimitive(key.Value), config,
+            var document = await table.DeleteItemAsync(ConvertPrimitiveToDynamoDbPrimitive(key.Value), config,
                 cancellationToken);
 
             if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
@@ -593,7 +593,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Utilities.Common.Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
@@ -709,7 +709,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Utilities.Common.Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -1636,24 +1636,24 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         return $"{operation}({attrPlaceholder}, {condValPlaceholder})";
     }
 
-    private static void AddValueToExpression(Expression expression, string placeholder, PrimitiveType value)
+    private static void AddValueToExpression(Expression expression, string placeholder, Utilities.Common.Primitive value)
     {
         switch (value.Kind)
         {
-            case PrimitiveTypeKind.String:
-                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsString, false);
+            case PrimitiveKind.String:
+                expression.ExpressionAttributeValues[placeholder] = new Amazon.DynamoDBv2.DocumentModel.Primitive(value.AsString, false);
                 break;
-            case PrimitiveTypeKind.Boolean:
+            case PrimitiveKind.Boolean:
                 expression.ExpressionAttributeValues[placeholder] = new DynamoDBBool(value.AsBoolean);
                 break;
-            case PrimitiveTypeKind.Integer:
-                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsInteger.ToString(CultureInfo.InvariantCulture), true);
+            case PrimitiveKind.Integer:
+                expression.ExpressionAttributeValues[placeholder] = new Amazon.DynamoDBv2.DocumentModel.Primitive(value.AsInteger.ToString(CultureInfo.InvariantCulture), true);
                 break;
-            case PrimitiveTypeKind.Double:
-                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.AsDouble.ToString(CultureInfo.InvariantCulture), true);
+            case PrimitiveKind.Double:
+                expression.ExpressionAttributeValues[placeholder] = new Amazon.DynamoDBv2.DocumentModel.Primitive(value.AsDouble.ToString(CultureInfo.InvariantCulture), true);
                 break;
-            case PrimitiveTypeKind.ByteArray:
-                expression.ExpressionAttributeValues[placeholder] = new Primitive(value.ToString());
+            case PrimitiveKind.ByteArray:
+                expression.ExpressionAttributeValues[placeholder] = new Amazon.DynamoDBv2.DocumentModel.Primitive(value.ToString());
                 break;
         }
     }
@@ -1741,18 +1741,18 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     /// <summary>
     /// Compares a JSON token with a primitive value
     /// </summary>
-    private static int CompareValues(JToken token, PrimitiveType primitive)
+    private static int CompareValues(JToken token, Utilities.Common.Primitive primitive)
     {
         try
         {
             return primitive.Kind switch
             {
-                PrimitiveTypeKind.String => string.Compare(token.ToString(), primitive.AsString, StringComparison.Ordinal),
-                PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer => ((long)token).CompareTo(primitive.AsInteger),
-                PrimitiveTypeKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsInteger),
-                PrimitiveTypeKind.Double when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsDouble),
-                PrimitiveTypeKind.Double when token.Type is JTokenType.Integer => ((double)(long)token).CompareTo(primitive.AsDouble),
-                PrimitiveTypeKind.Boolean when token.Type is JTokenType.Boolean => ((bool)token).CompareTo(primitive.AsBoolean),
+                PrimitiveKind.String => string.Compare(token.ToString(), primitive.AsString, StringComparison.Ordinal),
+                PrimitiveKind.Integer when token.Type is JTokenType.Integer => ((long)token).CompareTo(primitive.AsInteger),
+                PrimitiveKind.Integer when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsInteger),
+                PrimitiveKind.Double when token.Type is JTokenType.Float => ((double)token).CompareTo(primitive.AsDouble),
+                PrimitiveKind.Double when token.Type is JTokenType.Integer => ((double)(long)token).CompareTo(primitive.AsDouble),
+                PrimitiveKind.Boolean when token.Type is JTokenType.Boolean => ((bool)token).CompareTo(primitive.AsBoolean),
                 _ => string.Compare(token.ToString(), primitive.ToString(), StringComparison.Ordinal)
             };
         }
@@ -1790,27 +1790,27 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeEquals(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeNotEquals(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterThan(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessThan(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessOrEqual(string attributeName, Utilities.Common.Primitive value) =>
         new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
@@ -1822,11 +1822,11 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementExists(string attributeName, Utilities.Common.Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementNotExists(string attributeName, Utilities.Common.Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion

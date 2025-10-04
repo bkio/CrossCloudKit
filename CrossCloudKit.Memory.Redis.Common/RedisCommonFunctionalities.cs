@@ -251,13 +251,13 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return exception is RedisException or TimeoutException or RedisConnectionException;
     }
 
-    protected static RedisValue ConvertPrimitiveTypeToRedisValue(PrimitiveType value)
+    protected static RedisValue ConvertPrimitiveToRedisValue(Primitive value)
     {
         return JsonConvert.SerializeObject(value);
     }
-    protected static PrimitiveType? ConvertRedisValueToPrimitiveType(RedisValue input)
+    protected static Primitive? ConvertRedisValueToPrimitive(RedisValue input)
     {
-        return input.IsNullOrEmpty ? null : JsonConvert.DeserializeObject<PrimitiveType>(input.ToString());
+        return input.IsNullOrEmpty ? null : JsonConvert.DeserializeObject<Primitive>(input.ToString());
     }
     // ReSharper disable once UnusedMethodReturnValue.Local
     protected static async Task<OperationResult<bool>> PublishChangeNotificationAsync<T>(
@@ -291,7 +291,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     protected async Task<OperationResult<bool>> Common_PushToListAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool toTail,
         bool onlyIfListExists,
         bool publishChange,
@@ -304,7 +304,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
         var scope = memoryScope.Compile();
         var listKey = BuildListKey(scope, listName);
-        var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
+        var redisValues = valueArray.Select(ConvertPrimitiveToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
@@ -351,17 +351,17 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         return result;
     }
 
-    protected async Task<OperationResult<PrimitiveType[]>> Common_PushToListTailIfValuesNotExistsAsync(
+    protected async Task<OperationResult<Primitive[]>> Common_PushToListTailIfValuesNotExistsAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         IPubSubService? pubSubService = null,
         CancellationToken cancellationToken = default)
     {
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<PrimitiveType[]>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
+            return OperationResult<Primitive[]>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         const string script = """
             local listKey = KEYS[1]
@@ -399,7 +399,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
         var scope = memoryScope.Compile();
         var listKey = BuildListKey(scope, listName);
-        var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
+        var redisValues = valueArray.Select(ConvertPrimitiveToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
@@ -408,11 +408,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                 redisValues);
 
             var pushedRedisValues = ((RedisValue[]?)scriptResult).NotNull();
-            return pushedRedisValues.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>().ToArray();
+            return pushedRedisValues.Select(ConvertRedisValueToPrimitive).OfType<Primitive>().ToArray();
         }, cancellationToken);
 
         if (!result.IsSuccessful)
-            return OperationResult<PrimitiveType[]>.Failure($"Redis operation failed: {result.ErrorMessage}", HttpStatusCode.InternalServerError);
+            return OperationResult<Primitive[]>.Failure($"Redis operation failed: {result.ErrorMessage}", HttpStatusCode.InternalServerError);
 
         if (result.IsSuccessful && publishChange && pubSubService is not null && result.Data.Length != 0)
         {
@@ -422,7 +422,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
         return result;
     }
-    protected async Task<OperationResult<PrimitiveType?>> Common_PopFromListAsync(
+    protected async Task<OperationResult<Primitive?>> Common_PopFromListAsync(
         IMemoryScope memoryScope,
         string listName,
         bool fromTail,
@@ -437,11 +437,11 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
             : await database.ListLeftPopAsync(listKey), cancellationToken);
 
         if (!poppedValue.IsSuccessful)
-            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(1): {poppedValue.ErrorMessage}", poppedValue.StatusCode);
+            return OperationResult<Primitive?>.Failure($"Redis operation failed(1): {poppedValue.ErrorMessage}", poppedValue.StatusCode);
 
-        var primitiveValue = ConvertRedisValueToPrimitiveType(poppedValue.Data);
+        var primitiveValue = ConvertRedisValueToPrimitive(poppedValue.Data);
         if (primitiveValue is null)
-            return OperationResult<PrimitiveType?>.Failure($"Redis operation failed(2).", HttpStatusCode.InternalServerError);
+            return OperationResult<Primitive?>.Failure($"Redis operation failed(2).", HttpStatusCode.InternalServerError);
 
         if (publishChange && pubSubService is not null)
         {
@@ -450,22 +450,22 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                 new { List = listName, Popped = primitiveValue }, cancellationToken);
         }
 
-        return OperationResult<PrimitiveType?>.Success(primitiveValue);
+        return OperationResult<Primitive?>.Success(primitiveValue);
     }
-    protected async Task<OperationResult<IEnumerable<PrimitiveType?>>> Common_RemoveElementsFromListAsync(
+    protected async Task<OperationResult<IEnumerable<Primitive?>>> Common_RemoveElementsFromListAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         IPubSubService? pubSubService = null,
         CancellationToken cancellationToken = default)
     {
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
+            return OperationResult<IEnumerable<Primitive?>>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         var listKey = BuildListKey(memoryScope, listName);
-        var redisValues = valueArray.Select(ConvertPrimitiveTypeToRedisValue).ToArray();
+        var redisValues = valueArray.Select(ConvertPrimitiveToRedisValue).ToArray();
 
         var result = await ExecuteRedisOperationAsync(async database =>
         {
@@ -476,7 +476,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
                 return (redisValue, hasRemoved);
             });
             var res = await Task.WhenAll(tasks);
-            return res.Where(r => r.hasRemoved).Select(s => s.redisValue).Select(ConvertRedisValueToPrimitiveType);
+            return res.Where(r => r.hasRemoved).Select(s => s.redisValue).Select(ConvertRedisValueToPrimitive);
 
         }, cancellationToken);
 
@@ -488,7 +488,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
 
         return result;
     }
-    protected async Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> Common_GetAllElementsOfListAsync(
+    protected async Task<OperationResult<ReadOnlyCollection<Primitive>>> Common_GetAllElementsOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         CancellationToken cancellationToken = default)
@@ -499,10 +499,10 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
         {
             var values = await database.ListRangeAsync(listKey);
             if (values.Length == 0)
-                return new List<PrimitiveType>(0).AsReadOnly();
+                return new List<Primitive>(0).AsReadOnly();
 
-            var result = new List<PrimitiveType>(values.Length);
-            result.AddRange(values.Select(ConvertRedisValueToPrimitiveType).OfType<PrimitiveType>());
+            var result = new List<Primitive>(values.Length);
+            result.AddRange(values.Select(ConvertRedisValueToPrimitive).OfType<Primitive>());
 
             return result.AsReadOnly();
         }, cancellationToken);
@@ -592,7 +592,7 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     protected async Task<OperationResult<bool>> Common_ListContainsAsync(
         IMemoryScope memoryScope,
         string listName,
-        PrimitiveType value,
+        Primitive value,
         CancellationToken cancellationToken = default)
     {
         var elements = await Common_GetAllElementsOfListAsync(memoryScope, listName, cancellationToken);

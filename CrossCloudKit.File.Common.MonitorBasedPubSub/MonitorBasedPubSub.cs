@@ -65,7 +65,7 @@ public class MonitorBasedPubSub : IAsyncDisposable
         var newNotification = await MemoryService.PushToListTailIfValuesNotExistsAsync(
             SystemClassMemoryScopeInstance,
             EventNotificationConfigsListName,
-            new List<PrimitiveType> { valueCompiled },
+            new List<Primitive> { valueCompiled },
             false,
             cancellationToken);
 
@@ -98,8 +98,8 @@ public class MonitorBasedPubSub : IAsyncDisposable
         if (!eventListenConfigsResult.IsSuccessful)
             return OperationResult<int>.Failure(eventListenConfigsResult.ErrorMessage, eventListenConfigsResult.StatusCode);
 
-        var malformedConfigs = new List<PrimitiveType>();
-        var deleteConfigs = new List<PrimitiveType>();
+        var malformedConfigs = new List<Primitive>();
+        var deleteConfigs = new List<Primitive>();
         var deleteConfigsParsed = new List<EventNotificationConfig>();
 
         foreach (var eventListenConfigPt in eventListenConfigsResult.Data)
@@ -179,7 +179,7 @@ public class MonitorBasedPubSub : IAsyncDisposable
         if (!elements.IsSuccessful || elements.Data == null)
             throw new InvalidOperationException($"GetAllElementsOfListAsync failed with: {elements.ErrorMessage}");
 
-        var malformedConfigs = new List<PrimitiveType>();
+        var malformedConfigs = new List<Primitive>();
         var bucketNameToPathPrefixToConfigs = new Dictionary<string, Dictionary<string, List<EventNotificationConfig>>>();
 
         foreach (var element in elements.Data)
@@ -331,7 +331,7 @@ public class MonitorBasedPubSub : IAsyncDisposable
             // Remove deleted files from storage
             if (filesToRemove.Count > 0)
             {
-                var elementsToRemove = filesToRemove.Select(fileKey => new FileStateEntry { FileKey = fileKey, State = previousFileStates[fileKey] }).Select(fileStateEntry => JsonConvert.SerializeObject(fileStateEntry, Formatting.None)).Select(dummy => (PrimitiveType)dummy).ToList();
+                var elementsToRemove = filesToRemove.Select(fileKey => new FileStateEntry { FileKey = fileKey, State = previousFileStates[fileKey] }).Select(fileStateEntry => JsonConvert.SerializeObject(fileStateEntry, Formatting.None)).Select(dummy => (Primitive)dummy).ToList();
 
                 var removeResult = await MemoryService.RemoveElementsFromListAsync(
                     SystemClassMemoryScopeInstance,
@@ -348,8 +348,8 @@ public class MonitorBasedPubSub : IAsyncDisposable
             if (filesToUpdate.Count <= 0) continue;
 
             // For updates, we need to remove old entries first, then add new ones
-            var oldElementsToRemove = new List<PrimitiveType>();
-            var newElementsToAdd = new List<PrimitiveType>();
+            var oldElementsToRemove = new List<Primitive>();
+            var newElementsToAdd = new List<Primitive>();
 
             foreach (var (fileKey, newState) in filesToUpdate)
             {

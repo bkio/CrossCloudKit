@@ -127,7 +127,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
         // Create test data in database
         var testTableName = "TestUsers";
-        var testKey = new DbKey("Id", new PrimitiveType("user1"));
+        var testKey = new DbKey("Id", new Primitive("user1"));
         var testItem = new JObject
         {
             ["Name"] = "John Doe",
@@ -258,10 +258,10 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         restoreResult.IsSuccessful.Should().BeTrue();
 
         // Verify both tables were restored
-        var user1 = await _databaseService.GetItemAsync("Users", new DbKey("Id", new PrimitiveType("user1")));
-        var user2 = await _databaseService.GetItemAsync("Users", new DbKey("Id", new PrimitiveType("user2")));
-        var prod1 = await _databaseService.GetItemAsync("Products", new DbKey("ProductId", new PrimitiveType("prod1")));
-        var prod2 = await _databaseService.GetItemAsync("Products", new DbKey("ProductId", new PrimitiveType("prod2")));
+        var user1 = await _databaseService.GetItemAsync("Users", new DbKey("Id", new Primitive("user1")));
+        var user2 = await _databaseService.GetItemAsync("Users", new DbKey("Id", new Primitive("user2")));
+        var prod1 = await _databaseService.GetItemAsync("Products", new DbKey("ProductId", new Primitive("prod1")));
+        var prod2 = await _databaseService.GetItemAsync("Products", new DbKey("ProductId", new Primitive("prod2")));
 
         user1.IsSuccessful.Should().BeTrue();
         user2.IsSuccessful.Should().BeTrue();
@@ -427,7 +427,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
         // Create existing data
         var tableName = "Users";
-        var key = new DbKey("Id", new PrimitiveType("user1"));
+        var key = new DbKey("Id", new Primitive("user1"));
         var existingItem = new JObject
         {
             ["Name"] = "Original Name",
@@ -657,7 +657,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var ordersTable = "Orders";
 
         // Users table data
-        var user1Key = new DbKey("Id", new PrimitiveType("user1"));
+        var user1Key = new DbKey("Id", new Primitive("user1"));
         var user1Data = new JObject
         {
             ["Id"] = "user1",
@@ -667,7 +667,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             ["IsActive"] = true
         };
 
-        var user2Key = new DbKey("Id", new PrimitiveType("user2"));
+        var user2Key = new DbKey("Id", new Primitive("user2"));
         var user2Data = new JObject
         {
             ["Id"] = "user2",
@@ -678,7 +678,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         };
 
         // Products table data
-        var product1Key = new DbKey("ProductId", new PrimitiveType("prod1"));
+        var product1Key = new DbKey("ProductId", new Primitive("prod1"));
         var product1Data = new JObject
         {
             ["ProductId"] = "prod1",
@@ -688,7 +688,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
             ["InStock"] = true
         };
 
-        var product2Key = new DbKey("ProductId", new PrimitiveType("prod2"));
+        var product2Key = new DbKey("ProductId", new Primitive("prod2"));
         var product2Data = new JObject
         {
             ["ProductId"] = "prod2",
@@ -699,7 +699,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         };
 
         // Orders table data
-        var order1Key = new DbKey("OrderId", new PrimitiveType("order1"));
+        var order1Key = new DbKey("OrderId", new Primitive("order1"));
         var order1Data = new JObject
         {
             ["OrderId"] = "order1",
@@ -841,7 +841,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
         // Create tables but don't add any data
         var testTable = "EmptyTable";
-        var testKey = new DbKey("Id", new PrimitiveType("test"));
+        var testKey = new DbKey("Id", new Primitive("test"));
         var testData = new JObject { ["Id"] = "test", ["Name"] = "Test" };
 
         // Insert and then delete to create empty table
@@ -875,7 +875,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         await using var backupService = CreateBackupService();
 
         var tableName = "TestTable";
-        var key = new DbKey("Id", new PrimitiveType("test1"));
+        var key = new DbKey("Id", new Primitive("test1"));
         var data = new JObject
         {
             ["Id"] = "test1",
@@ -925,8 +925,8 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var existingTable1 = "ExistingTable1";
         var existingTable2 = "ExistingTable2";
 
-        await _databaseService.PutItemAsync(existingTable1, new DbKey("Id", new PrimitiveType("existing1")), new JObject { ["Id"] = "existing1", ["Data"] = "old" });
-        await _databaseService.PutItemAsync(existingTable2, new DbKey("Id", new PrimitiveType("existing2")), new JObject { ["Id"] = "existing2", ["Data"] = "old" });
+        await _databaseService.PutItemAsync(existingTable1, new DbKey("Id", new Primitive("existing1")), new JObject { ["Id"] = "existing1", ["Data"] = "old" });
+        await _databaseService.PutItemAsync(existingTable2, new DbKey("Id", new Primitive("existing2")), new JObject { ["Id"] = "existing2", ["Data"] = "old" });
 
         // Create backup data with different table
         var backupData = new JArray
@@ -969,8 +969,8 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         result.IsSuccessful.Should().BeTrue();
 
         // Verify existing tables were dropped
-        var existing1After = await _databaseService.GetItemAsync(existingTable1, new DbKey("Id", new PrimitiveType("existing1")));
-        var existing2After = await _databaseService.GetItemAsync(existingTable2, new DbKey("Id", new PrimitiveType("existing2")));
+        var existing1After = await _databaseService.GetItemAsync(existingTable1, new DbKey("Id", new Primitive("existing1")));
+        var existing2After = await _databaseService.GetItemAsync(existingTable2, new DbKey("Id", new Primitive("existing2")));
 
         existing1After.IsSuccessful.Should().BeTrue();
         existing2After.IsSuccessful.Should().BeTrue();
@@ -978,7 +978,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         existing2After.Data.Should().BeNull();
 
         // Verify new table was created
-        var newItemAfter = await _databaseService.GetItemAsync("NewTable", new DbKey("Id", new PrimitiveType("new1")));
+        var newItemAfter = await _databaseService.GetItemAsync("NewTable", new DbKey("Id", new Primitive("new1")));
         newItemAfter.IsSuccessful.Should().BeTrue();
         newItemAfter.Data.Should().NotBeNull();
         newItemAfter.Data!["Data"]!.Value<string>().Should().Be("new");
@@ -1004,8 +1004,8 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
             // Create test data in source database
             var tableName = "MigrationTest";
-            var key1 = new DbKey("Id", new PrimitiveType("migrate1"));
-            var key2 = new DbKey("Id", new PrimitiveType("migrate2"));
+            var key1 = new DbKey("Id", new Primitive("migrate1"));
+            var key2 = new DbKey("Id", new Primitive("migrate2"));
             var data1 = new JObject { ["Id"] = "migrate1", ["Name"] = "Source Item 1", ["Value"] = 100 };
             var data2 = new JObject { ["Id"] = "migrate2", ["Name"] = "Source Item 2", ["Value"] = 200 };
 
@@ -1077,7 +1077,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         {
             // Create test data in source database
             var tableName = "MigrationCleanupTest";
-            var key = new DbKey("Id", new PrimitiveType("cleanup1"));
+            var key = new DbKey("Id", new Primitive("cleanup1"));
             var data = new JObject { ["Id"] = "cleanup1", ["Name"] = "Test Item", ["Value"] = 42 };
 
             await _databaseService.PutItemAsync(tableName, key, data);
@@ -1194,7 +1194,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
 
         // Verify manual backup works
         var tableName = "ManualTest";
-        var key = new DbKey("Id", new PrimitiveType("manual1"));
+        var key = new DbKey("Id", new Primitive("manual1"));
         var data = new JObject { ["Id"] = "manual1", ["Data"] = "Manual backup test" };
 
         await _databaseService.PutItemAsync(tableName, key, data);
@@ -1214,7 +1214,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var tableName = "ConcurrentTest";
         for (int i = 1; i <= 5; i++)
         {
-            var key = new DbKey("Id", new PrimitiveType($"item{i}"));
+            var key = new DbKey("Id", new Primitive($"item{i}"));
             var data = new JObject { ["Id"] = $"item{i}", ["Data"] = $"Item {i}" };
             await _databaseService.PutItemAsync(tableName, key, data);
         }
@@ -1292,7 +1292,7 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         var insertTasks = new List<Task>();
         for (int i = 1; i <= itemCount; i++)
         {
-            var key = new DbKey("Id", new PrimitiveType($"item{i:D3}"));
+            var key = new DbKey("Id", new Primitive($"item{i:D3}"));
             var data = new JObject
             {
                 ["Id"] = $"item{i:D3}",

@@ -122,7 +122,7 @@ namespace CrossCloudKit.PubSub.Redis
                 SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 [
-                    new PrimitiveType(topic)
+                    new Primitive(topic)
                 ],
                 true,
                 false,
@@ -145,7 +145,7 @@ namespace CrossCloudKit.PubSub.Redis
                 SystemClassMemoryScopeInstance,
                 UsedOnBucketEventListName,
                 [
-                    new PrimitiveType(topic)
+                    new Primitive(topic)
                 ],
                 false,
                 this,

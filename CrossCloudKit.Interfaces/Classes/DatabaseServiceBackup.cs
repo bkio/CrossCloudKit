@@ -351,7 +351,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                     var putResult = await _databaseService.PutItemCoreAsync(
                         tableData.TableName,
                         new DbKey(tableData.KeyName,
-                            new PrimitiveType(
+                            new Primitive(
                             item[tableData.KeyName].NotNull().Value<string>().NotNull())),
                         (JObject)item,
                         DbReturnItemBehavior.DoNotReturn,

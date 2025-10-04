@@ -351,7 +351,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     /// <inheritdoc />
     public async Task<OperationResult<bool>> SetKeyValuesAsync(
         IMemoryScope memoryScope,
-        IEnumerable<KeyValuePair<string, PrimitiveType>> keyValues,
+        IEnumerable<KeyValuePair<string, Primitive>> keyValues,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
@@ -398,7 +398,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     public async Task<OperationResult<bool>> SetKeyValueConditionallyAsync(
         IMemoryScope memoryScope,
         string key,
-        PrimitiveType value,
+        Primitive value,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
@@ -410,25 +410,25 @@ public sealed class MemoryServiceBasic : IMemoryService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<(bool newlySet, PrimitiveType? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
+    public async Task<OperationResult<(bool newlySet, Primitive? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
         IMemoryScope memoryScope,
         string key,
-        PrimitiveType value,
+        Primitive value,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable);
+            return OperationResult<(bool newlySet, Primitive? value)>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable);
 
         try
         {
             var scope = memoryScope.Compile();
             bool addedSuccessfully;
-            PrimitiveType? existingValue;
+            Primitive? existingValue;
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
+                return OperationResult<(bool newlySet, Primitive? value)>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
@@ -449,65 +449,65 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (addedSuccessfully && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    new Dictionary<string, PrimitiveType> { [key] = value }, cancellationToken);
+                    new Dictionary<string, Primitive> { [key] = value }, cancellationToken);
             }
 
-            return OperationResult<(bool newlySet, PrimitiveType? value)>.Success((addedSuccessfully, existingValue));
+            return OperationResult<(bool newlySet, Primitive? value)>.Success((addedSuccessfully, existingValue));
         }
         catch (Exception ex)
         {
-            return OperationResult<(bool newlySet, PrimitiveType? value)>.Failure($"Failed to set key value conditionally: {ex.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<(bool newlySet, Primitive? value)>.Failure($"Failed to set key value conditionally: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public Task<OperationResult<PrimitiveType?>> GetKeyValueAsync(
+    public Task<OperationResult<Primitive?>> GetKeyValueAsync(
         IMemoryScope memoryScope,
         string key,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<PrimitiveType?>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(OperationResult<Primitive?>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var scope = memoryScope.Compile();
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<PrimitiveType?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+                return Task.FromResult(OperationResult<Primitive?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
             var value = data.KeyValues.GetValueOrDefault(key);
-            return Task.FromResult(OperationResult<PrimitiveType?>.Success(value));
+            return Task.FromResult(OperationResult<Primitive?>.Success(value));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<PrimitiveType?>.Failure($"Failed to get key value: {ex.Message}", HttpStatusCode.InternalServerError));
+            return Task.FromResult(OperationResult<Primitive?>.Failure($"Failed to get key value: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
     /// <inheritdoc />
-    public Task<OperationResult<Dictionary<string, PrimitiveType>>> GetKeyValuesAsync(
+    public Task<OperationResult<Dictionary<string, Primitive>>> GetKeyValuesAsync(
         IMemoryScope memoryScope,
         IEnumerable<string> keys,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
 
         var keyArray = keys.ToArray();
         if (keyArray.Length == 0)
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Keys are empty.", HttpStatusCode.BadRequest));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure("Keys are empty.", HttpStatusCode.BadRequest));
 
         try
         {
             var scope = memoryScope.Compile();
-            var result = new Dictionary<string, PrimitiveType>();
+            var result = new Dictionary<string, Primitive>();
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure(
+                return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure(
                     $"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
             using var mutex = mutexWrapper.Data;
 
@@ -521,37 +521,37 @@ public sealed class MemoryServiceBasic : IMemoryService
                 }
             }
 
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Success(result));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure($"Failed to get key values: {ex.Message}", HttpStatusCode.InternalServerError));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure($"Failed to get key values: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
     /// <inheritdoc />
-    public Task<OperationResult<Dictionary<string, PrimitiveType>>> GetAllKeyValuesAsync(
+    public Task<OperationResult<Dictionary<string, Primitive>>> GetAllKeyValuesAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var scope = memoryScope.Compile();
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
+                return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
-            var result = new Dictionary<string, PrimitiveType>(data.KeyValues);
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Success(result));
+            var result = new Dictionary<string, Primitive>(data.KeyValues);
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Success(result));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<Dictionary<string, PrimitiveType>>.Failure($"Failed to get all key values: {ex.Message}", HttpStatusCode.InternalServerError));
+            return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure($"Failed to get all key values: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -717,9 +717,9 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             foreach (var (key, increment) in incrementArray)
             {
-                var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
+                var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveKind.Integer ? val.AsInteger : 0L;
                 var newValue = currentValue + increment;
-                data.KeyValues[key] = new PrimitiveType(newValue);
+                data.KeyValues[key] = new Primitive(newValue);
                 result[key] = newValue;
             }
 
@@ -728,7 +728,7 @@ public sealed class MemoryServiceBasic : IMemoryService
             if (result.Count > 0 && publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    result.ToDictionary(kv => kv.Key, kv => new PrimitiveType(kv.Value)), cancellationToken);
+                    result.ToDictionary(kv => kv.Key, kv => new Primitive(kv.Value)), cancellationToken);
             }
 
             return OperationResult<Dictionary<string, long>>.Success(result);
@@ -760,15 +760,15 @@ public sealed class MemoryServiceBasic : IMemoryService
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
-            var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveTypeKind.Integer ? val.AsInteger : 0L;
+            var currentValue = data.KeyValues.TryGetValue(key, out var val) && val.Kind == PrimitiveKind.Integer ? val.AsInteger : 0L;
             var newValue = currentValue + incrementBy;
-            data.KeyValues[key] = new PrimitiveType(newValue);
+            data.KeyValues[key] = new Primitive(newValue);
             SaveStoredData(scope, data);
 
             if (publishChange && _pubSubService is not null)
             {
                 await PublishChangeNotificationAsync(_pubSubService, memoryScope, "SetKeyValue",
-                    new Dictionary<string, PrimitiveType> { [key] = new(newValue) }, cancellationToken);
+                    new Dictionary<string, Primitive> { [key] = new(newValue) }, cancellationToken);
             }
 
             return OperationResult<long>.Success(newValue);
@@ -785,7 +785,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     public async Task<OperationResult<bool>> PushToListTailAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
@@ -812,7 +812,7 @@ public sealed class MemoryServiceBasic : IMemoryService
                 return OperationResult<bool>.Success(false);
 
             if (!data.Lists.ContainsKey(listName))
-                data.Lists[listName] = new List<PrimitiveType>();
+                data.Lists[listName] = new List<Primitive>();
 
             data.Lists[listName].AddRange(valueArray);
             SaveStoredData(scope, data);
@@ -835,7 +835,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     public async Task<OperationResult<bool>> PushToListHeadAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
@@ -882,28 +882,28 @@ public sealed class MemoryServiceBasic : IMemoryService
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<PrimitiveType[]>> PushToListTailIfValuesNotExistsAsync(
+    public async Task<OperationResult<Primitive[]>> PushToListTailIfValuesNotExistsAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<PrimitiveType[]>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+            return OperationResult<Primitive[]>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<PrimitiveType[]>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
+            return OperationResult<Primitive[]>.Failure("Value array is empty.", HttpStatusCode.BadRequest);
 
         try
         {
             var scope = memoryScope.Compile();
-            var addedValues = new List<PrimitiveType>();
+            var addedValues = new List<Primitive>();
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return OperationResult<PrimitiveType[]>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
+                return OperationResult<Primitive[]>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
@@ -928,23 +928,23 @@ public sealed class MemoryServiceBasic : IMemoryService
                     new { ListName = listName, Values = addedValues }, cancellationToken);
             }
 
-            return OperationResult<PrimitiveType[]>.Success(addedValues.ToArray());
+            return OperationResult<Primitive[]>.Success(addedValues.ToArray());
         }
         catch (Exception ex)
         {
-            return OperationResult<PrimitiveType[]>.Failure($"Failed to push to list tail if values not exist: {ex.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<Primitive[]>.Failure($"Failed to push to list tail if values not exist: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<PrimitiveType?>> PopLastElementOfListAsync(
+    public async Task<OperationResult<Primitive?>> PopLastElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<PrimitiveType?>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+            return OperationResult<Primitive?>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         try
         {
@@ -952,7 +952,7 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return OperationResult<PrimitiveType?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
+                return OperationResult<Primitive?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
@@ -970,35 +970,35 @@ public sealed class MemoryServiceBasic : IMemoryService
                         new { ListName = listName, Value = poppedValue }, cancellationToken);
                 }
 
-                return OperationResult<PrimitiveType?>.Success(poppedValue);
+                return OperationResult<Primitive?>.Success(poppedValue);
             }
 
-            return OperationResult<PrimitiveType?>.Failure("List is empty or does not exist.", HttpStatusCode.NotFound);
+            return OperationResult<Primitive?>.Failure("List is empty or does not exist.", HttpStatusCode.NotFound);
         }
         catch (Exception ex)
         {
-            return OperationResult<PrimitiveType?>.Failure($"Failed to pop last element from list: {ex.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<Primitive?>.Failure($"Failed to pop last element from list: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<PrimitiveType?>> PopFirstElementOfListAsync(
+    public async Task<OperationResult<Primitive?>> PopFirstElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<PrimitiveType?>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+            return OperationResult<Primitive?>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         try
         {
             var scope = memoryScope.Compile();
-            PrimitiveType? poppedValue = null;
+            Primitive? poppedValue = null;
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return OperationResult<PrimitiveType?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
+                return OperationResult<Primitive?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
             using var mutex = mutexWrapper.Data;
 
             var data = GetOrCreateStoredData(scope);
@@ -1016,37 +1016,37 @@ public sealed class MemoryServiceBasic : IMemoryService
                     new { ListName = listName, Value = poppedValue }, cancellationToken);
             }
 
-            return OperationResult<PrimitiveType?>.Success(poppedValue);
+            return OperationResult<Primitive?>.Success(poppedValue);
         }
         catch (Exception ex)
         {
-            return OperationResult<PrimitiveType?>.Failure($"Failed to pop first element from list: {ex.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<Primitive?>.Failure($"Failed to pop first element from list: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public async Task<OperationResult<IEnumerable<PrimitiveType?>>> RemoveElementsFromListAsync(
+    public async Task<OperationResult<IEnumerable<Primitive?>>> RemoveElementsFromListAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return OperationResult<IEnumerable<PrimitiveType?>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+            return OperationResult<IEnumerable<Primitive?>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
-            return OperationResult<IEnumerable<PrimitiveType?>>.Success([]);
+            return OperationResult<IEnumerable<Primitive?>>.Success([]);
 
         try
         {
             var scope = memoryScope.Compile();
-            var removedValues = new List<PrimitiveType?>();
+            var removedValues = new List<Primitive?>();
 
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return OperationResult<IEnumerable<PrimitiveType?>>.Failure(
+                return OperationResult<IEnumerable<Primitive?>>.Failure(
                     $"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode);
             using var mutex = mutexWrapper.Data;
 
@@ -1066,29 +1066,29 @@ public sealed class MemoryServiceBasic : IMemoryService
                     new { ListName = listName, Values = removedValues }, cancellationToken);
             }
 
-            return OperationResult<IEnumerable<PrimitiveType?>>.Success(removedValues);
+            return OperationResult<IEnumerable<Primitive?>>.Success(removedValues);
         }
         catch (Exception ex)
         {
-            return OperationResult<IEnumerable<PrimitiveType?>>.Failure($"Failed to remove elements from list: {ex.Message}", HttpStatusCode.InternalServerError);
+            return OperationResult<IEnumerable<Primitive?>>.Failure($"Failed to remove elements from list: {ex.Message}", HttpStatusCode.InternalServerError);
         }
     }
 
     /// <inheritdoc />
-    public Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> GetAllElementsOfListAsync(
+    public Task<OperationResult<ReadOnlyCollection<Primitive>>> GetAllElementsOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
-            return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(OperationResult<ReadOnlyCollection<Primitive>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
 
         try
         {
             var scope = memoryScope.Compile();
             var mutexWrapper = CreateMutex(scope);
             if (!mutexWrapper.IsSuccessful)
-                return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure(
+                return Task.FromResult(OperationResult<ReadOnlyCollection<Primitive>>.Failure(
                     $"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
             using var mutex = mutexWrapper.Data;
 
@@ -1096,16 +1096,16 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             if (!data.Lists.TryGetValue(listName, out var list))
                 return Task.FromResult(
-                    OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(Array.Empty<PrimitiveType>().ToList()
+                    OperationResult<ReadOnlyCollection<Primitive>>.Success(Array.Empty<Primitive>().ToList()
                         .AsReadOnly()));
 
-            var snapshot = new List<PrimitiveType>(list);
-            return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Success(snapshot.AsReadOnly()));
+            var snapshot = new List<Primitive>(list);
+            return Task.FromResult(OperationResult<ReadOnlyCollection<Primitive>>.Success(snapshot.AsReadOnly()));
 
         }
         catch (Exception ex)
         {
-            return Task.FromResult(OperationResult<ReadOnlyCollection<PrimitiveType>>.Failure($"Failed to get all elements of list: {ex.Message}", HttpStatusCode.InternalServerError));
+            return Task.FromResult(OperationResult<ReadOnlyCollection<Primitive>>.Failure($"Failed to get all elements of list: {ex.Message}", HttpStatusCode.InternalServerError));
         }
     }
 
@@ -1249,7 +1249,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     public Task<OperationResult<bool>> ListContainsAsync(
         IMemoryScope memoryScope,
         string listName,
-        PrimitiveType value,
+        Primitive value,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
@@ -1389,8 +1389,8 @@ public sealed class MemoryServiceBasic : IMemoryService
 
     private record StoredData
     {
-        public Dictionary<string, PrimitiveType> KeyValues { get; init; } = new();
-        public Dictionary<string, List<PrimitiveType>> Lists { get; init; } = new();
+        public Dictionary<string, Primitive> KeyValues { get; init; } = new();
+        public Dictionary<string, List<Primitive>> Lists { get; init; } = new();
         public DateTime? ExpiryTime { get; init; }
     }
 

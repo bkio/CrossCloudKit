@@ -22,7 +22,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers, Cross-Process Basic
   - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
   - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
-- **Type-Safe Operations**: Strongly-typed primitive operations with `PrimitiveType` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
+- **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
   - Automatic backup and restore with scheduled backups and manual backups, all atomically
@@ -96,9 +96,6 @@ dotnet add package CrossCloudKit.Interfaces
 #### AWS DynamoDB
 ```csharp
 using CrossCloudKit.Database.AWS;
-using CrossCloudKit.Interfaces;
-using CrossCloudKit.Utilities.Common;
-using Newtonsoft.Json.Linq;
 
 // Initialize service
 var dbService = new DatabaseServiceAWS(
@@ -113,11 +110,11 @@ var item = new JObject
     ["Age"] = 30
 };
 
-var keyValue = new PrimitiveType("user-123");
-await dbService.PutItemAsync("Users", "Id", keyValue, item);
+var key = new DbKey("id", new Primitive("user-123"));
+await dbService.PutItemAsync("Users", new DbKey("id", key, item);
 
 // Retrieve the item
-var result = await dbService.GetItemAsync("Users", "Id", keyValue);
+var result = await dbService.GetItemAsync("Users", key);
 if (result.IsSuccessful && result.Data != null)
 {
     Console.WriteLine($"User: {result.Data["Name"]}");
@@ -132,9 +129,10 @@ var dbService = new DatabaseServiceMongoDB(
     // Parameters here
 );
 
-// Same API as AWS DynamoDB!
-var keyValue = new PrimitiveType("user-456");
-await dbService.PutItemAsync("Users", "Id", keyValue, item);
+// Same unified API
+var key = new DbKey("id", new Primitive("user-123"));
+
+await dbService.PutItemAsync("Users", key, item);
 ```
 #### Google Cloud Datastore
 ```csharp
@@ -146,7 +144,9 @@ var dbService = new DatabaseServiceGC(
 );
 
 // Same unified API
-await dbService.PutItemAsync("Users", "Id", keyValue, item);
+var key = new DbKey("id", new Primitive("user-123"));
+
+await dbService.PutItemAsync("Users", key, item);
 ```
 ### File Storage Services
 
@@ -231,8 +231,8 @@ var scope = new MemoryScopeLambda(() => "user:123");
 // Set key-value pairs
 await memoryService.SetKeyValuesAsync(scope, new[]
 {
-    new KeyValuePair<string, PrimitiveType>("name", new PrimitiveType("John Doe")),
-    new KeyValuePair<string, PrimitiveType>("age", new PrimitiveType(30L))
+    new KeyValuePair<string, Primitive>("name", new Primitive("John Doe")),
+    new KeyValuePair<string, Primitive>("age", new Primitive(30L))
 });
 
 // Get values
@@ -316,12 +316,15 @@ await pubSubService.SubscribeAsync("user-events", async (topic, message) =>
 ```csharp
 // Conditional update
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
+
+var key = new DbKey("id", new Primitive("user-123"));
+
 var result = await dbService.UpdateItemAsync(
-    "Users", "Id", keyValue, updateData,
+    "Users", key, updateData,
     conditions:
-        dbService.AttributeEquals("IsAdmin", new PrimitiveType(true))
-        .Or(dbService.AttributeEquals("Status", new PrimitiveType("active"))
-            .And(dbService.AttributeEquals("IsAdmin", new PrimitiveType(false))))
+        dbService.AttributeEquals("IsAdmin", new Primitive(true))
+        .Or(dbService.AttributeEquals("Status", new Primitive("active"))
+            .And(dbService.AttributeEquals("IsAdmin", new Primitive(false))))
 );
 
 // Check existence with conditions
@@ -333,25 +336,29 @@ var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, condition)
 // Add elements to array
 var elementsToAdd = new[]
 {
-    new PrimitiveType("admin"),
-    new PrimitiveType("editor")
+    new Primitive("admin"),
+    new Primitive("editor")
 };
 
+var key = new DbKey("id", new Primitive("user-123"));
+
 await dbService.AddElementsToArrayAsync(
-    "Users", "Id", keyValue, "Roles", elementsToAdd
+    "Users", key, "Roles", elementsToAdd
 );
 
 // Remove elements from array
-var elementsToRemove = new[] { new PrimitiveType("editor") };
+var elementsToRemove = new[] { new Primitive("editor") };
 await dbService.RemoveElementsFromArrayAsync(
     "Users", "Id", keyValue, "Roles", elementsToRemove
 );
 ```
 #### Atomic Increment
 ```csharp
+var key = new DbKey("id", new Primitive("user-123"));
+
 // Atomically increment a counter
 var newValue = await dbService.IncrementAttributeAsync(
-    "Users", "Id", keyValue, "LoginCount", incrementValue: 1
+    "Users", key, "LoginCount", incrementValue: 1
 );
 
 if (newValue.IsSuccessful)
@@ -362,15 +369,15 @@ if (newValue.IsSuccessful)
 #### Scanning and Filtering
 ```csharp
 // Scan all items
-var allUsers = await dbService.ScanTableAsync("Users", new[] { "Id" });
+var allUsers = await dbService.ScanTableAsync("Users");
 
 // Scan with filter
-var activeUsersFilter = dbService.AttributeEquals("Status", new PrimitiveType("active"));
-var activeUsers = await dbService.ScanTableWithFilterAsync("Users", new[] { "Id" }, [activeUsersFilter]);
+var activeUsersFilter = dbService.AttributeEquals("Status", new Primitive("active"));
+var activeUsers = await dbService.ScanTableWithFilterAsync("Users", activeUsersFilter);
 
 // Paginated scan
 var (items, nextToken, totalCount) = await dbService.ScanTablePaginatedAsync(
-    "Users", new[] { "Id" }, pageSize: 10
+    "Users", pageSize: 10
 );
 ```
 
@@ -561,8 +568,8 @@ webAppBuilder.Services.AddSingleton<IDistributedCache>(
 // Work with Redis lists
 await memoryService.PushToListTailAsync(scope, "queue", new[]
 {
-    new PrimitiveType("task1"),
-    new PrimitiveType("task2")
+    new Primitive("task1"),
+    new Primitive("task2")
 });
 
 // Pop from list
@@ -570,7 +577,7 @@ var task = await memoryService.PopFirstElementOfListAsync(scope, "queue");
 Console.WriteLine($"Processing: {task.Data?.AsString}");
 
 // Check if list contains value
-var contains = await memoryService.ListContainsAsync(scope, "queue", new PrimitiveType("task2"));
+var contains = await memoryService.ListContainsAsync(scope, "queue", new Primitive("task2"));
 ```
 #### Advanced Memory Operations
 ```csharp
@@ -579,7 +586,7 @@ await memoryService.SetKeyExpireTimeAsync(scope, TimeSpan.FromHours(1));
 
 // Conditional set (only if not exists)
 var wasSet = await memoryService.SetKeyValueConditionallyAsync(
-    scope, "initialized", new PrimitiveType("true")
+    scope, "initialized", new Primitive("true")
 );
 
 // Get all keys in scope
@@ -608,17 +615,17 @@ await pubSubService.SubscribeAsync("file-events", async (topic, message) =>
 ```
 ## 📊 Supported Data Types
 
-CrossCloudKit uses a unified `PrimitiveType` system that seamlessly maps across all cloud providers:
+CrossCloudKit uses a unified `Primitive` system that seamlessly maps across all cloud providers:
 ```csharp
 // String values
-var stringKey = new PrimitiveType("hello-world");
+var stringKey = new Primitive("hello-world");
 
 // Numeric values
-var integerKey = new PrimitiveType(12345L);
-var doubleKey = new PrimitiveType(123.45);
+var integerKey = new Primitive(12345L);
+var doubleKey = new Primitive(123.45);
 
 // Binary data
-var binaryKey = new PrimitiveType(new byte[] { 1, 2, 3, 4 });
+var binaryKey = new Primitive(new byte[] { 1, 2, 3, 4 });
 
 // Type-safe access
 Console.WriteLine(stringKey.AsString);
@@ -710,7 +717,7 @@ REDIS_PASSWORD=your-redis-password
 │ Basic File-Based │ Basic File-Based │ Basic Cross-Proc │  (Cross-Proc, Lists)       │
 ├──────────────────┴──────────────────┴──────────────────┴────────────────────────────┤
 │                            CrossCloudKit.Utilities.Common                           │
-│                   (PrimitiveType, OperationResult, etc.)                            │
+│                   (Primitive, OperationResult, etc.)                            │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -894,7 +901,7 @@ public class OrderProcessingService
     private readonly IMemoryService _cache;
     public async Task ProcessOrderAsync(Order order) {
         // Store order in database
-        await _db.PutItemAsync("orders", "id", new PrimitiveType(order.Id), JObject.FromObject(order));
+        await _db.PutItemAsync("orders", "id", new Primitive(order.Id), JObject.FromObject(order));
 
         // Generate receipt and store in file storage
         var receipt = GenerateReceipt(order); await _files.UploadFileAsync(receipt, "receipts", $"{order.Id}.pdf");
@@ -904,7 +911,7 @@ public class OrderProcessingService
 
         await _cache.SetKeyValuesAsync(cacheScope, new[]
         {
-            new KeyValuePair<string, PrimitiveType>("status", new PrimitiveType("processing"))
+            new KeyValuePair<string, Primitive>("status", new Primitive("processing"))
         });
 
         // Publish order event await

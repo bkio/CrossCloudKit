@@ -135,7 +135,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <returns>True if the operation was successful; otherwise, false.</returns>
     Task<OperationResult<bool>> SetKeyValuesAsync(
         IMemoryScope memoryScope,
-        IEnumerable<KeyValuePair<string, PrimitiveType>> keyValues,
+        IEnumerable<KeyValuePair<string, Primitive>> keyValues,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 
@@ -151,7 +151,7 @@ public interface IMemoryService : IAsyncDisposable
     Task<OperationResult<bool>> SetKeyValueConditionallyAsync(
         IMemoryScope memoryScope,
         string key,
-        PrimitiveType value,
+        Primitive value,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 
@@ -164,10 +164,10 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Pair of "True if the key was set; false if it already existed" and "value of the key after this operation"</returns>
-    public Task<OperationResult<(bool newlySet, PrimitiveType? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
+    public Task<OperationResult<(bool newlySet, Primitive? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
             IMemoryScope memoryScope,
             string key,
-            PrimitiveType value,
+            Primitive value,
             bool publishChange = true,
             CancellationToken cancellationToken = default);
 
@@ -178,7 +178,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="key">The key to retrieve.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The value if found; otherwise, null.</returns>
-    Task<OperationResult<PrimitiveType?>> GetKeyValueAsync(
+    Task<OperationResult<Primitive?>> GetKeyValueAsync(
         IMemoryScope memoryScope,
         string key,
         CancellationToken cancellationToken = default);
@@ -190,7 +190,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="keys">Collection of keys to retrieve.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Dictionary of found key-value pairs.</returns>
-    Task<OperationResult<Dictionary<string, PrimitiveType>>> GetKeyValuesAsync(
+    Task<OperationResult<Dictionary<string, Primitive>>> GetKeyValuesAsync(
         IMemoryScope memoryScope,
         IEnumerable<string> keys,
         CancellationToken cancellationToken = default);
@@ -201,7 +201,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Dictionary of all key-value pairs in the namespace.</returns>
-    Task<OperationResult<Dictionary<string, PrimitiveType>>> GetAllKeyValuesAsync(
+    Task<OperationResult<Dictionary<string, Primitive>>> GetAllKeyValuesAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default);
 
@@ -296,7 +296,7 @@ public interface IMemoryService : IAsyncDisposable
     Task<OperationResult<bool>> PushToListTailAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
@@ -311,10 +311,10 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Array of values that were successfully pushed</returns>
-    Task<OperationResult<PrimitiveType[]>> PushToListTailIfValuesNotExistsAsync(
+    Task<OperationResult<Primitive[]>> PushToListTailIfValuesNotExistsAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 
@@ -331,7 +331,7 @@ public interface IMemoryService : IAsyncDisposable
     Task<OperationResult<bool>> PushToListHeadAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool onlyIfListExists = false,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
@@ -344,7 +344,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The popped element if found; otherwise, null.</returns>
-    Task<OperationResult<PrimitiveType?>> PopLastElementOfListAsync(
+    Task<OperationResult<Primitive?>> PopLastElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         bool publishChange = true,
@@ -358,7 +358,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The popped element if found; otherwise, null.</returns>
-    Task<OperationResult<PrimitiveType?>> PopFirstElementOfListAsync(
+    Task<OperationResult<Primitive?>> PopFirstElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         bool publishChange = true,
@@ -373,10 +373,10 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Removed values</returns>
-    Task<OperationResult<IEnumerable<PrimitiveType?>>> RemoveElementsFromListAsync(
+    Task<OperationResult<IEnumerable<Primitive?>>> RemoveElementsFromListAsync(
         IMemoryScope memoryScope,
         string listName,
-        IEnumerable<PrimitiveType> values,
+        IEnumerable<Primitive> values,
         bool publishChange = true,
         CancellationToken cancellationToken = default);
 
@@ -387,7 +387,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="listName">The name of the list.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Collection of all elements in the list.</returns>
-    Task<OperationResult<ReadOnlyCollection<PrimitiveType>>> GetAllElementsOfListAsync(
+    Task<OperationResult<ReadOnlyCollection<Primitive>>> GetAllElementsOfListAsync(
         IMemoryScope memoryScope,
         string listName,
         CancellationToken cancellationToken = default);
@@ -445,6 +445,6 @@ public interface IMemoryService : IAsyncDisposable
     Task<OperationResult<bool>> ListContainsAsync(
         IMemoryScope memoryScope,
         string listName,
-        PrimitiveType value,
+        Primitive value,
         CancellationToken cancellationToken = default);
 }

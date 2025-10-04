@@ -284,7 +284,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         }
     }
 
-    private Entity? FromJsonToEntity(KeyFactory factory, string keyName, PrimitiveType keyValue, JObject? jsonObject)
+    private Entity? FromJsonToEntity(KeyFactory factory, string keyName, Primitive keyValue, JObject? jsonObject)
     {
         if (jsonObject == null) return null;
 
@@ -375,20 +375,20 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         return asJArray;
     }
 
-    private static bool CompareJTokenWithPrimitive(JToken token, PrimitiveType primitive)
+    private static bool CompareJTokenWithPrimitive(JToken token, Primitive primitive)
     {
         return primitive.Kind switch
         {
-            PrimitiveTypeKind.Double => Math.Abs(primitive.AsDouble - token.Value<double>()) < 0.0000001,
-            PrimitiveTypeKind.Boolean => primitive.AsBoolean == token.Value<bool>(),
-            PrimitiveTypeKind.Integer => primitive.AsInteger == token.Value<long>(),
-            PrimitiveTypeKind.ByteArray
+            PrimitiveKind.Double => Math.Abs(primitive.AsDouble - token.Value<double>()) < 0.0000001,
+            PrimitiveKind.Boolean => primitive.AsBoolean == token.Value<bool>(),
+            PrimitiveKind.Integer => primitive.AsInteger == token.Value<long>(),
+            PrimitiveKind.ByteArray
                 => Convert.ToBase64String(primitive.AsByteArray) == token.Value<string>(),
             _ => primitive.AsString == token.Value<string>()
         };
     }
 
-    private static string GetFinalKeyFromNameValue(string keyName, PrimitiveType keyValue)
+    private static string GetFinalKeyFromNameValue(string keyName, Primitive keyValue)
         => $"{keyName}:{keyValue}";
 
     /// <inheritdoc />
@@ -796,7 +796,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
@@ -866,11 +866,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         {
                             var jToken = element.Kind switch
                             {
-                                PrimitiveTypeKind.String => new JValue(element.AsString),
-                                PrimitiveTypeKind.Integer => new JValue(element.AsInteger),
-                                PrimitiveTypeKind.Boolean => new JValue(element.AsBoolean),
-                                PrimitiveTypeKind.Double => new JValue(element.AsDouble),
-                                PrimitiveTypeKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
+                                PrimitiveKind.String => new JValue(element.AsString),
+                                PrimitiveKind.Integer => new JValue(element.AsInteger),
+                                PrimitiveKind.Boolean => new JValue(element.AsBoolean),
+                                PrimitiveKind.Double => new JValue(element.AsDouble),
+                                PrimitiveKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
                                 _ => new JValue(element.ToString())
                             };
                             existingArray.Add(jToken);
@@ -905,11 +905,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                     {
                         var jToken = element.Kind switch
                         {
-                            PrimitiveTypeKind.String => new JValue(element.AsString),
-                            PrimitiveTypeKind.Integer => new JValue(element.AsInteger),
-                            PrimitiveTypeKind.Boolean => new JValue(element.AsBoolean),
-                            PrimitiveTypeKind.Double => new JValue(element.AsDouble),
-                            PrimitiveTypeKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
+                            PrimitiveKind.String => new JValue(element.AsString),
+                            PrimitiveKind.Integer => new JValue(element.AsInteger),
+                            PrimitiveKind.Boolean => new JValue(element.AsBoolean),
+                            PrimitiveKind.Double => new JValue(element.AsDouble),
+                            PrimitiveKind.ByteArray => new JValue(Convert.ToBase64String(element.AsByteArray)),
                             _ => new JValue(element.ToString())
                         };
                         newArray.Add(jToken);
@@ -969,7 +969,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -1027,11 +1027,11 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                             // Remove elements
                             var elementsToRemoveStrings = elementsToRemove.Select(element => element.Kind switch
                             {
-                                PrimitiveTypeKind.String => element.AsString,
-                                PrimitiveTypeKind.Integer => element.AsInteger.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveTypeKind.Boolean => element.AsBoolean.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveTypeKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveTypeKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
+                                PrimitiveKind.String => element.AsString,
+                                PrimitiveKind.Integer => element.AsInteger.ToString(CultureInfo.InvariantCulture),
+                                PrimitiveKind.Boolean => element.AsBoolean.ToString(CultureInfo.InvariantCulture),
+                                PrimitiveKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
+                                PrimitiveKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
                                 _ => element.ToString()
                             }).ToHashSet();
 
@@ -1656,17 +1656,17 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         };
     }
 
-    private static int CompareJTokenValues(JToken token, PrimitiveType primitive)
+    private static int CompareJTokenValues(JToken token, Primitive primitive)
     {
         try
         {
             return primitive.Kind switch
             {
-                PrimitiveTypeKind.Double when token.Type is JTokenType.Float or JTokenType.Integer =>
+                PrimitiveKind.Double when token.Type is JTokenType.Float or JTokenType.Integer =>
                     ((double)token).CompareTo(primitive.AsDouble),
-                PrimitiveTypeKind.Integer when token.Type is JTokenType.Integer or JTokenType.Float =>
+                PrimitiveKind.Integer when token.Type is JTokenType.Integer or JTokenType.Float =>
                     ((long)token).CompareTo(primitive.AsInteger),
-                PrimitiveTypeKind.String when token.Type != JTokenType.Null =>
+                PrimitiveKind.String when token.Type != JTokenType.Null =>
                     string.Compare(token.Value<string>(), primitive.AsString, StringComparison.InvariantCulture),
                 _ => 0
             };
@@ -1695,7 +1695,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 var keyParts = entity.Key.Path.Last().Name?.Split(':');
                 if (keyParts?.Length == 2)
                 {
-                    AddKeyToJson(asJson, keyParts[0], new PrimitiveType(keyParts[1]));
+                    AddKeyToJson(asJson, keyParts[0], new Primitive(keyParts[1]));
                 }
             }
 
@@ -1722,35 +1722,35 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     public async ValueTask DisposeAsync()

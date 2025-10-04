@@ -141,7 +141,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            await MemoryService.SetKeyValuesAsync(TestScope, [new("test-key", new PrimitiveType("test-value"))]);
+            await MemoryService.SetKeyValuesAsync(TestScope, [new("test-key", new Primitive("test-value"))]);
             var ttl = TimeSpan.FromMinutes(10);
 
             // Act
@@ -187,7 +187,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            await MemoryService.SetKeyValuesAsync(TestScope, [new("test-key", new PrimitiveType("test-value"))]);
+            await MemoryService.SetKeyValuesAsync(TestScope, [new("test-key", new Primitive("test-value"))]);
 
             // Act
             var result = await MemoryService.GetKeyExpireTimeAsync(TestScope);
@@ -214,9 +214,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var keyValues = new[]
             {
-                new KeyValuePair<string, PrimitiveType>("key1", new PrimitiveType("value1")),
-                new KeyValuePair<string, PrimitiveType>("key2", new PrimitiveType(42L)),
-                new KeyValuePair<string, PrimitiveType>("key3", new PrimitiveType(3.14))
+                new KeyValuePair<string, Primitive>("key1", new Primitive("value1")),
+                new KeyValuePair<string, Primitive>("key2", new Primitive(42L)),
+                new KeyValuePair<string, Primitive>("key3", new Primitive(3.14))
             };
 
             // Act
@@ -238,7 +238,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = Array.Empty<KeyValuePair<string, PrimitiveType>>();
+            var keyValues = Array.Empty<KeyValuePair<string, Primitive>>();
 
             // Act
             var result = await MemoryService.SetKeyValuesAsync(TestScope, keyValues);
@@ -260,7 +260,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "new-key";
-            var value = new PrimitiveType("new-value");
+            var value = new Primitive("new-value");
 
             // Act
             var result = await MemoryService.SetKeyValueConditionallyAsync(TestScope, key, value);
@@ -282,8 +282,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "existing-key";
-            var originalValue = new PrimitiveType("original-value");
-            var newValue = new PrimitiveType("new-value");
+            var originalValue = new Primitive("original-value");
+            var newValue = new Primitive("new-value");
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, originalValue)]);
 
@@ -311,7 +311,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "new-conditional-key";
-            var value = new PrimitiveType("new-conditional-value");
+            var value = new Primitive("new-conditional-value");
 
             // Act
             var result = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value);
@@ -338,8 +338,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "existing-conditional-key";
-            var originalValue = new PrimitiveType("original-conditional-value");
-            var newValue = new PrimitiveType("new-conditional-value");
+            var originalValue = new Primitive("original-conditional-value");
+            var newValue = new Primitive("new-conditional-value");
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, originalValue)]);
 
@@ -368,7 +368,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "publish-conditional-key";
-            var value = new PrimitiveType("publish-conditional-value");
+            var value = new Primitive("publish-conditional-value");
 
             // Act & Assert
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -397,8 +397,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "existing-no-publish-conditional-key";
-            var originalValue = new PrimitiveType("original-conditional-value");
-            var newValue = new PrimitiveType("new-conditional-value");
+            var originalValue = new Primitive("original-conditional-value");
+            var newValue = new Primitive("new-conditional-value");
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, originalValue)], publishChange: false);
 
@@ -427,7 +427,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "no-publish-conditional-key";
-            var value = new PrimitiveType("no-publish-conditional-value");
+            var value = new Primitive("no-publish-conditional-value");
 
             // Act & Assert
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -456,7 +456,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var key = "workflow-conditional-key";
 
             // 1. First attempt on non-existing key should succeed
-            var value1 = new PrimitiveType("first-value");
+            var value1 = new Primitive("first-value");
             var result1 = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value1);
 
             result1.IsSuccessful.Should().BeTrue();
@@ -464,7 +464,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             result1.Data.value.Should().Be(value1);
 
             // 2. Second attempt with different value should fail but return existing value
-            var value2 = new PrimitiveType("second-value");
+            var value2 = new Primitive("second-value");
             var result2 = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, key, value2);
 
             result2.IsSuccessful.Should().BeTrue();
@@ -485,7 +485,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // 5. Test with different data types
             var intKey = "workflow-int-key";
-            var intValue = new PrimitiveType(42L);
+            var intValue = new Primitive(42L);
             var intResult = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, intKey, intValue);
 
             intResult.IsSuccessful.Should().BeTrue();
@@ -493,7 +493,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             intResult.Data.value.Should().Be(intValue);
 
             var doubleKey = "workflow-double-key";
-            var doubleValue = new PrimitiveType(3.14);
+            var doubleValue = new Primitive(3.14);
             var doubleResult = await MemoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(TestScope, doubleKey, doubleValue);
 
             doubleResult.IsSuccessful.Should().BeTrue();
@@ -875,7 +875,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "test-key";
-            var value = new PrimitiveType("test-value");
+            var value = new Primitive("test-value");
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, value)]);
 
             // Act
@@ -918,7 +918,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["key1"] = new("value1"),
                 ["key2"] = new(100L),
@@ -966,7 +966,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var existingKeys = new Dictionary<string, PrimitiveType>
+            var existingKeys = new Dictionary<string, Primitive>
             {
                 ["existing1"] = new("value1"),
                 ["existing2"] = new(42L)
@@ -997,7 +997,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["key1"] = new("string-value"),
                 ["key2"] = new(123L),
@@ -1055,9 +1055,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("key1", new PrimitiveType("value1"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("key2", new PrimitiveType("value2"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("key3", new PrimitiveType("value3"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key1", new Primitive("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key2", new Primitive("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key3", new Primitive("value3"))], publishChange: false);
 
             // Act - Search for exact match
             var result = await MemoryService.ScanMemoryScopesWithPattern("exact-match-scope-1");
@@ -1098,11 +1098,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("name", new PrimitiveType("John"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("name", new PrimitiveType("Jane"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("name", new PrimitiveType("Bob"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope4, [new("role", new PrimitiveType("admin"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope5, [new("role", new PrimitiveType("guest"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("name", new Primitive("John"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("name", new Primitive("Jane"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("name", new Primitive("Bob"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("role", new Primitive("admin"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("role", new Primitive("guest"))], publishChange: false);
 
             // Act - Search with wildcard pattern
             var result = await MemoryService.ScanMemoryScopesWithPattern("user:*");
@@ -1147,11 +1147,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new PrimitiveType("web-session"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new PrimitiveType("mobile-session"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new PrimitiveType("api-session"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new PrimitiveType("web-cache"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new PrimitiveType("temp-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new Primitive("web-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new Primitive("mobile-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new Primitive("api-session"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new Primitive("web-cache"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new Primitive("temp-session"))], publishChange: false);
 
             // Act - Search with prefix wildcard pattern
             var result = await MemoryService.ScanMemoryScopesWithPattern("session:*");
@@ -1196,11 +1196,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new PrimitiveType("user-profile"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new PrimitiveType("admin-profile"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new PrimitiveType("guest-profile"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new PrimitiveType("user-settings"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new PrimitiveType("web-user-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("data", new Primitive("user-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("data", new Primitive("admin-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("data", new Primitive("guest-profile"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("data", new Primitive("user-settings"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("data", new Primitive("web-user-profile"))], publishChange: false);
 
             // Act - Search with middle wildcard pattern
             var result = await MemoryService.ScanMemoryScopesWithPattern("app:*:profile");
@@ -1243,9 +1243,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value3"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new Primitive("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new Primitive("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new Primitive("value3"))], publishChange: false);
 
             // Act - Search with asterisk only (match all)
             var result = await MemoryService.ScanMemoryScopesWithPattern("*");
@@ -1283,8 +1283,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in scopes with known names
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new Primitive("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new Primitive("value2"))], publishChange: false);
 
             // Act - Search for pattern that should not match any existing scopes
             var result = await MemoryService.ScanMemoryScopesWithPattern("non-existing-pattern-*");
@@ -1340,11 +1340,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create data in different scopes with hierarchical structure
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("amount", new PrimitiveType(100.0))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("amount", new PrimitiveType(200.0))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("amount", new PrimitiveType(300.0))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope4, [new("amount", new PrimitiveType(150.0))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope5, [new("amount", new PrimitiveType(250.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("amount", new Primitive(100.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("amount", new Primitive(200.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("amount", new Primitive(300.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("amount", new Primitive(150.0))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope5, [new("amount", new Primitive(250.0))], publishChange: false);
 
             // Act - Search for orders from 2024
             var result = await MemoryService.ScanMemoryScopesWithPattern("order:2024:*");
@@ -1388,10 +1388,10 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange - Create scopes with lists and key-value data
             await MemoryService.PushToListTailAsync(testScope1, "test-list-1",
-                [new PrimitiveType("item1"), new PrimitiveType("item2")], publishChange: false);
+                [new Primitive("item1"), new Primitive("item2")], publishChange: false);
             await MemoryService.PushToListTailAsync(testScope2, "test-list-2",
-                [new PrimitiveType("item3"), new PrimitiveType("item4")], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value"))], publishChange: false);
+                [new Primitive("item3"), new Primitive("item4")], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new Primitive("value"))], publishChange: false);
 
             // Act - Search for list scopes
             var result = await MemoryService.ScanMemoryScopesWithPattern("list-scope-*");
@@ -1432,10 +1432,10 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create scopes with various special characters
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("dashes"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("underscores"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("dots"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(testScope4, [new("key", new PrimitiveType("colons"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new Primitive("dashes"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new Primitive("underscores"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new Primitive("dots"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope4, [new("key", new Primitive("colons"))], publishChange: false);
 
             // Act - Search for scopes with specific patterns
             var dashResult = await MemoryService.ScanMemoryScopesWithPattern("scope-with-*");
@@ -1483,13 +1483,13 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange - Create scopes with different TTL settings
-            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new PrimitiveType("value1"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope1, [new("key", new Primitive("value1"))], publishChange: false);
             await MemoryService.SetKeyExpireTimeAsync(testScope1, TimeSpan.FromSeconds(1)); // Very short TTL
 
-            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new PrimitiveType("value2"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope2, [new("key", new Primitive("value2"))], publishChange: false);
             await MemoryService.SetKeyExpireTimeAsync(testScope2, TimeSpan.FromSeconds(1)); // Very short TTL
 
-            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new PrimitiveType("value3"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(testScope3, [new("key", new Primitive("value3"))], publishChange: false);
             // No expiration set for testScope3
 
             // Wait for expiration
@@ -1533,7 +1533,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             {
                 var scope = new TestMemoryScope($"cancellation-test-scope-{i}");
                 testScopes.Add(scope);
-                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"value{i}"))], publishChange: false);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new Primitive($"value{i}"))], publishChange: false);
             }
 
             // Act & Assert - Test cancellation
@@ -1583,7 +1583,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             {
                 var scope = new TestMemoryScope($"perf-test-scope-{i:D3}");
                 testScopes.Add(scope);
-                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"value{i}"))], publishChange: false);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new Primitive($"value{i}"))], publishChange: false);
             }
 
             // Add some non-matching scopes
@@ -1591,7 +1591,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             {
                 var scope = new TestMemoryScope($"other-scope-{i:D3}");
                 testScopes.Add(scope);
-                await MemoryService.SetKeyValuesAsync(scope, [new("key", new PrimitiveType($"other{i}"))], publishChange: false);
+                await MemoryService.SetKeyValuesAsync(scope, [new("key", new Primitive($"other{i}"))], publishChange: false);
             }
 
             // Act - Search with pattern (measure performance)
@@ -1656,8 +1656,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             initialResult.Data.Should().BeEmpty("No scopes should exist initially");
 
             // 2. Create user profile scopes
-            await MemoryService.SetKeyValuesAsync(userScope1, [new("name", new PrimitiveType("John Doe"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(userScope2, [new("name", new PrimitiveType("Jane Smith"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(userScope1, [new("name", new Primitive("John Doe"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(userScope2, [new("name", new Primitive("Jane Smith"))], publishChange: false);
 
             var profileResult = await MemoryService.ScanMemoryScopesWithPattern("user:*:profile");
             profileResult.IsSuccessful.Should().BeTrue();
@@ -1666,7 +1666,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             profileResult.Data.Should().Contain("user:jane:profile");
 
             // 3. Add user settings scope
-            await MemoryService.SetKeyValuesAsync(userScope3, [new("theme", new PrimitiveType("dark"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(userScope3, [new("theme", new Primitive("dark"))], publishChange: false);
 
             var allUserResult = await MemoryService.ScanMemoryScopesWithPattern("user:*");
             allUserResult.IsSuccessful.Should().BeTrue();
@@ -1676,8 +1676,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             allUserResult.Data.Should().Contain("user:bob:settings");
 
             // 4. Add admin and guest scopes
-            await MemoryService.SetKeyValuesAsync(adminScope, [new("role", new PrimitiveType("admin"))], publishChange: false);
-            await MemoryService.SetKeyValuesAsync(guestScope, [new("temp", new PrimitiveType("session-123"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(adminScope, [new("role", new Primitive("admin"))], publishChange: false);
+            await MemoryService.SetKeyValuesAsync(guestScope, [new("temp", new Primitive("session-123"))], publishChange: false);
 
             var allScopesResult = await MemoryService.ScanMemoryScopesWithPattern("*");
             allScopesResult.IsSuccessful.Should().BeTrue();
@@ -1749,7 +1749,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "key-to-delete";
-            var value = new PrimitiveType("value-to-delete");
+            var value = new Primitive("value-to-delete");
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, value)]);
 
             // Act
@@ -1796,7 +1796,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["key1"] = new("value1"),
                 ["key2"] = new(42L),
@@ -1850,7 +1850,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["alpha"] = new("value1"),
                 ["beta"] = new("value2"),
@@ -1899,7 +1899,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["key1"] = new("value1"),
                 ["key2"] = new("value2"),
@@ -1951,7 +1951,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var initialValues = new Dictionary<string, PrimitiveType>
+            var initialValues = new Dictionary<string, Primitive>
             {
                 ["counter1"] = new(10L),
                 ["counter2"] = new(20L)
@@ -2034,7 +2034,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "increment-key";
-            var initialValue = new PrimitiveType(50L);
+            var initialValue = new Primitive(50L);
             var incrementBy = 25L;
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, initialValue)]);
@@ -2081,7 +2081,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             const string key = "decrement-key";
-            var initialValue = new PrimitiveType(100L);
+            var initialValue = new Primitive(100L);
             const long decrementBy = -30L;
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, initialValue)]);
@@ -2112,9 +2112,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2"),
-                new PrimitiveType("item3")
+                new Primitive("item1"),
+                new Primitive("item2"),
+                new Primitive("item3")
             };
 
             // Act
@@ -2137,7 +2137,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var values = new[] { new PrimitiveType("item1") };
+            var values = new[] { new Primitive("item1") };
 
             // Act
             var result = await MemoryService.PushToListTailAsync(TestScope, listName, values, onlyIfListExists: true);
@@ -2159,8 +2159,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var initialValues = new[] { new PrimitiveType("initial-item") };
-            var additionalValues = new[] { new PrimitiveType("additional-item") };
+            var initialValues = new[] { new Primitive("initial-item") };
+            var additionalValues = new[] { new Primitive("additional-item") };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, initialValues);
 
@@ -2186,8 +2186,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("head1"),
-                new PrimitiveType("head2")
+                new Primitive("head1"),
+                new Primitive("head2")
             };
 
             // Act
@@ -2212,9 +2212,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("first"),
-                new PrimitiveType("middle"),
-                new PrimitiveType("last")
+                new Primitive("first"),
+                new Primitive("middle"),
+                new Primitive("last")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2225,7 +2225,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Assert
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().NotBeNull();
-            result.Data.Should().Be(new PrimitiveType("last"));
+            result.Data.Should().Be(new Primitive("last"));
         }
         finally
         {
@@ -2261,9 +2261,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("first"),
-                new PrimitiveType("middle"),
-                new PrimitiveType("last")
+                new Primitive("first"),
+                new Primitive("middle"),
+                new Primitive("last")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2274,7 +2274,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Assert
             result.IsSuccessful.Should().BeTrue();
             result.Data.Should().NotBeNull();
-            result.Data.Should().Be(new PrimitiveType("first"));
+            result.Data.Should().Be(new Primitive("first"));
         }
         finally
         {
@@ -2291,18 +2291,18 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("keep1"),
-                new PrimitiveType("remove1"),
-                new PrimitiveType("keep2"),
-                new PrimitiveType("remove2"),
-                new PrimitiveType("keep3")
+                new Primitive("keep1"),
+                new Primitive("remove1"),
+                new Primitive("keep2"),
+                new Primitive("remove2"),
+                new Primitive("keep3")
             };
 
             var toRemove = new[]
             {
-                new PrimitiveType("remove1"),
-                new PrimitiveType("remove2"),
-                new PrimitiveType("non-existing")
+                new Primitive("remove1"),
+                new Primitive("remove2"),
+                new Primitive("non-existing")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2315,8 +2315,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             result.Data.Should().NotBeNull();
 
             var removedElements = result.Data.Where(x => x != null).ToArray();
-            removedElements.Should().Contain(new PrimitiveType("remove1"));
-            removedElements.Should().Contain(new PrimitiveType("remove2"));
+            removedElements.Should().Contain(new Primitive("remove1"));
+            removedElements.Should().Contain(new Primitive("remove2"));
         }
         finally
         {
@@ -2333,10 +2333,10 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2"),
-                new PrimitiveType("item3"),
-                new PrimitiveType("item4")
+                new Primitive("item1"),
+                new Primitive("item2"),
+                new Primitive("item3"),
+                new Primitive("item4")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2385,8 +2385,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2")
+                new Primitive("item1"),
+                new Primitive("item2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2421,12 +2421,12 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var parentValues = new[]
             {
-                new PrimitiveType("sub1"),
-                new PrimitiveType("sub2")
+                new Primitive("sub1"),
+                new Primitive("sub2")
             };
 
-            var sublist1Values = new[] { new PrimitiveType("subitem1") };
-            var sublist2Values = new[] { new PrimitiveType("subitem2") };
+            var sublist1Values = new[] { new Primitive("subitem1") };
+            var sublist2Values = new[] { new Primitive("subitem2") };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, parentValues);
             await MemoryService.PushToListTailAsync(TestScope, sublist1Name, sublist1Values);
@@ -2454,13 +2454,13 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2"),
-                new PrimitiveType("item3"),
-                new PrimitiveType("item4"),
-                new PrimitiveType("item5"),
-                new PrimitiveType("item6"),
-                new PrimitiveType("item7")
+                new Primitive("item1"),
+                new Primitive("item2"),
+                new Primitive("item3"),
+                new Primitive("item4"),
+                new Primitive("item5"),
+                new Primitive("item6"),
+                new Primitive("item7")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
@@ -2506,15 +2506,15 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("apple"),
-                new PrimitiveType("banana"),
-                new PrimitiveType("cherry")
+                new Primitive("apple"),
+                new Primitive("banana"),
+                new Primitive("cherry")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
 
             // Act
-            var result = await MemoryService.ListContainsAsync(TestScope, listName, new PrimitiveType("banana"));
+            var result = await MemoryService.ListContainsAsync(TestScope, listName, new Primitive("banana"));
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -2535,14 +2535,14 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("apple"),
-                new PrimitiveType("banana")
+                new Primitive("apple"),
+                new Primitive("banana")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values);
 
             // Act
-            var result = await MemoryService.ListContainsAsync(TestScope, listName, new PrimitiveType("orange"));
+            var result = await MemoryService.ListContainsAsync(TestScope, listName, new Primitive("orange"));
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -2561,7 +2561,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Act
-            var result = await MemoryService.ListContainsAsync(TestScope, listName, new PrimitiveType("anything"));
+            var result = await MemoryService.ListContainsAsync(TestScope, listName, new Primitive("anything"));
 
             // Assert
             result.IsSuccessful.Should().BeTrue();
@@ -2582,9 +2582,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("new-item1"),
-                new PrimitiveType("new-item2"),
-                new PrimitiveType("new-item3")
+                new Primitive("new-item1"),
+                new Primitive("new-item2"),
+                new Primitive("new-item3")
             };
 
             // Act
@@ -2617,8 +2617,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange - First add some values
             var existingValues = new[]
             {
-                new PrimitiveType("existing1"),
-                new PrimitiveType("existing2")
+                new Primitive("existing1"),
+                new Primitive("existing2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
@@ -2657,8 +2657,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange - First add some values
             var existingValues = new[]
             {
-                new PrimitiveType("existing1"),
-                new PrimitiveType("existing2")
+                new Primitive("existing1"),
+                new Primitive("existing2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
@@ -2666,11 +2666,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act - Try to add a mix of existing and new values
             var mixedValues = new[]
             {
-                new PrimitiveType("existing1"), // Already exists
-                new PrimitiveType("new1"),      // New value
-                new PrimitiveType("existing2"), // Already exists
-                new PrimitiveType("new2"),      // New value
-                new PrimitiveType("new3")       // New value
+                new Primitive("existing1"), // Already exists
+                new Primitive("new1"),      // New value
+                new Primitive("existing2"), // Already exists
+                new Primitive("new2"),      // New value
+                new Primitive("new3")       // New value
             };
 
             var result = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, mixedValues);
@@ -2682,9 +2682,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var expectedPushedValues = new[]
             {
-                new PrimitiveType("new1"),
-                new PrimitiveType("new2"),
-                new PrimitiveType("new3")
+                new Primitive("new1"),
+                new Primitive("new2"),
+                new Primitive("new3")
             };
             result.Data.Should().BeEquivalentTo(expectedPushedValues, options => options.WithStrictOrdering());
 
@@ -2695,11 +2695,11 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var expectedValues = new[]
             {
-                new PrimitiveType("existing1"),
-                new PrimitiveType("existing2"),
-                new PrimitiveType("new1"),
-                new PrimitiveType("new2"),
-                new PrimitiveType("new3")
+                new Primitive("existing1"),
+                new Primitive("existing2"),
+                new Primitive("new1"),
+                new Primitive("new2"),
+                new Primitive("new3")
             };
 
             listResult.Data.Should().BeEquivalentTo(expectedValues, options => options.WithStrictOrdering());
@@ -2741,8 +2741,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange - First add some values
             var existingValues = new[]
             {
-                new PrimitiveType("existing1"),
-                new PrimitiveType("existing2")
+                new Primitive("existing1"),
+                new Primitive("existing2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, existingValues, publishChange: false);
@@ -2750,16 +2750,16 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act & Assert - Try to add mixed values and capture notifications
             var mixedValues = new[]
             {
-                new PrimitiveType("existing1"), // Already exists - should not be published
-                new PrimitiveType("new1"),      // New value - should be published
-                new PrimitiveType("existing2"), // Already exists - should not be published
-                new PrimitiveType("new2")       // New value - should be published
+                new Primitive("existing1"), // Already exists - should not be published
+                new Primitive("new1"),      // New value - should be published
+                new Primitive("existing2"), // Already exists - should not be published
+                new Primitive("new2")       // New value - should be published
             };
 
             var expectedPushedValues = new[]
             {
-                new PrimitiveType("new1"),
-                new PrimitiveType("new2")
+                new Primitive("new1"),
+                new Primitive("new2")
             };
 
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -2795,8 +2795,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("no-publish-item1"),
-                new PrimitiveType("no-publish-item2")
+                new Primitive("no-publish-item1"),
+                new Primitive("no-publish-item2")
             };
 
             // Act & Assert
@@ -2832,12 +2832,12 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange - Values with duplicates
             var valuesWithDuplicates = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2"),
-                new PrimitiveType("item1"), // Duplicate
-                new PrimitiveType("item3"),
-                new PrimitiveType("item2"), // Duplicate
-                new PrimitiveType("item4")
+                new Primitive("item1"),
+                new Primitive("item2"),
+                new Primitive("item1"), // Duplicate
+                new Primitive("item3"),
+                new Primitive("item2"), // Duplicate
+                new Primitive("item4")
             };
 
             // Act
@@ -2853,16 +2853,16 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             listResult.IsSuccessful.Should().BeTrue();
 
             // Each unique value should appear at least once, but exact behavior may vary
-            listResult.Data.Should().Contain(new PrimitiveType("item1"));
-            listResult.Data.Should().Contain(new PrimitiveType("item2"));
-            listResult.Data.Should().Contain(new PrimitiveType("item3"));
-            listResult.Data.Should().Contain(new PrimitiveType("item4"));
+            listResult.Data.Should().Contain(new Primitive("item1"));
+            listResult.Data.Should().Contain(new Primitive("item2"));
+            listResult.Data.Should().Contain(new Primitive("item3"));
+            listResult.Data.Should().Contain(new Primitive("item4"));
 
             // The returned array should contain the values that were actually pushed
-            result.Data.Should().Contain(new PrimitiveType("item1"));
-            result.Data.Should().Contain(new PrimitiveType("item2"));
-            result.Data.Should().Contain(new PrimitiveType("item3"));
-            result.Data.Should().Contain(new PrimitiveType("item4"));
+            result.Data.Should().Contain(new Primitive("item1"));
+            result.Data.Should().Contain(new Primitive("item2"));
+            result.Data.Should().Contain(new Primitive("item3"));
+            result.Data.Should().Contain(new Primitive("item4"));
         }
         finally
         {
@@ -2881,8 +2881,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // 1. Add initial values to empty list
             var initialValues = new[]
             {
-                new PrimitiveType("alpha"),
-                new PrimitiveType("beta")
+                new Primitive("alpha"),
+                new Primitive("beta")
             };
 
             var result1 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, initialValues);
@@ -2897,16 +2897,16 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // 2. Try to add some existing and some new values
             var mixedValues = new[]
             {
-                new PrimitiveType("alpha"),   // Exists
-                new PrimitiveType("gamma"),   // New
-                new PrimitiveType("beta"),    // Exists
-                new PrimitiveType("delta")    // New
+                new Primitive("alpha"),   // Exists
+                new Primitive("gamma"),   // New
+                new Primitive("beta"),    // Exists
+                new Primitive("delta")    // New
             };
 
             var expectedNewValues = new[]
             {
-                new PrimitiveType("gamma"),
-                new PrimitiveType("delta")
+                new Primitive("gamma"),
+                new Primitive("delta")
             };
 
             var result2 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, mixedValues);
@@ -2921,10 +2921,10 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // 3. Try to add all existing values
             var allExistingValues = new[]
             {
-                new PrimitiveType("alpha"),
-                new PrimitiveType("beta"),
-                new PrimitiveType("gamma"),
-                new PrimitiveType("delta")
+                new Primitive("alpha"),
+                new Primitive("beta"),
+                new Primitive("gamma"),
+                new Primitive("delta")
             };
 
             var result3 = await MemoryService.PushToListTailIfValuesNotExistsAsync(TestScope, listName, allExistingValues);
@@ -2942,10 +2942,10 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var expectedFinalValues = new[]
             {
-                new PrimitiveType("alpha"),
-                new PrimitiveType("beta"),
-                new PrimitiveType("gamma"),
-                new PrimitiveType("delta")
+                new Primitive("alpha"),
+                new Primitive("beta"),
+                new Primitive("gamma"),
+                new Primitive("delta")
             };
 
             finalList.Data.Should().BeEquivalentTo(expectedFinalValues, options => options.WithStrictOrdering());
@@ -2968,7 +2968,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange & Act & Assert
 
             // 1. Set initial values
-            var initialValues = new Dictionary<string, PrimitiveType>
+            var initialValues = new Dictionary<string, Primitive>
             {
                 ["user:1:name"] = new("John Doe"),
                 ["user:1:age"] = new(30L),
@@ -2992,8 +2992,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var getKeysResult = await MemoryService.GetKeyValuesAsync(TestScope, ["user:1:name", "user:1:age"]);
             getKeysResult.IsSuccessful.Should().BeTrue();
             getKeysResult.Data.Should().HaveCount(2);
-            getKeysResult.Data!["user:1:name"].Should().Be(new PrimitiveType("John Doe"));
-            getKeysResult.Data["user:1:age"].Should().Be(new PrimitiveType(31L));
+            getKeysResult.Data!["user:1:name"].Should().Be(new Primitive("John Doe"));
+            getKeysResult.Data["user:1:age"].Should().Be(new Primitive(31L));
 
             // 5. Delete specific key
             var deleteResult = await MemoryService.DeleteKeyAsync(TestScope, "user:1:score");
@@ -3025,12 +3025,12 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // 1. Push to tail
             var pushTailResult = await MemoryService.PushToListTailAsync(TestScope, listName,
-                [new PrimitiveType("first"), new PrimitiveType("second")]);
+                [new Primitive("first"), new Primitive("second")]);
             pushTailResult.IsSuccessful.Should().BeTrue();
 
             // 2. Push to head
             var pushHeadResult = await MemoryService.PushToListHeadAsync(TestScope, listName,
-                [new PrimitiveType("zero")]);
+                [new Primitive("zero")]);
             pushHeadResult.IsSuccessful.Should().BeTrue();
 
             // 3. Check list size
@@ -3042,23 +3042,23 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var getAllResult = await MemoryService.GetAllElementsOfListAsync(TestScope, listName);
             getAllResult.IsSuccessful.Should().BeTrue();
             getAllResult.Data.Should().BeEquivalentTo(
-                [new PrimitiveType("zero"), new PrimitiveType("first"), new PrimitiveType("second")],
+                [new Primitive("zero"), new Primitive("first"), new Primitive("second")],
                 options => options.WithStrictOrdering());
 
             // 5. Check contains
-            var containsResult = await MemoryService.ListContainsAsync(TestScope, listName, new PrimitiveType("first"));
+            var containsResult = await MemoryService.ListContainsAsync(TestScope, listName, new Primitive("first"));
             containsResult.IsSuccessful.Should().BeTrue();
             containsResult.Data.Should().BeTrue();
 
             // 6. Pop from head
             var popHeadResult = await MemoryService.PopFirstElementOfListAsync(TestScope, listName);
             popHeadResult.IsSuccessful.Should().BeTrue();
-            popHeadResult.Data.Should().Be(new PrimitiveType("zero"));
+            popHeadResult.Data.Should().Be(new Primitive("zero"));
 
             // 7. Pop from tail
             var popTailResult = await MemoryService.PopLastElementOfListAsync(TestScope, listName);
             popTailResult.IsSuccessful.Should().BeTrue();
-            popTailResult.Data.Should().Be(new PrimitiveType("second"));
+            popTailResult.Data.Should().Be(new Primitive("second"));
 
             // 8. Final size check
             var finalSizeResult = await MemoryService.GetListSizeAsync(TestScope, listName);
@@ -3067,7 +3067,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // 9. Remove remaining element
             var removeResult = await MemoryService.RemoveElementsFromListAsync(TestScope, listName,
-                [new PrimitiveType("first")]);
+                [new Primitive("first")]);
             removeResult.IsSuccessful.Should().BeTrue();
 
             // 10. Verify empty
@@ -3082,12 +3082,12 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
     }
 
     [RetryFact(3, 5000)]
-    public async Task PrimitiveTypeCompatibility_AllTypes_ShouldWorkCorrectly()
+    public async Task PrimitiveCompatibility_AllTypes_ShouldWorkCorrectly()
     {
         try
         {
             // Test all primitive types
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["string-key"] = new("Hello, World!"),
                 ["long-key"] = new(9223372036854775807L), // Max long
@@ -3126,7 +3126,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var shortTtl = TimeSpan.FromSeconds(3); // Very short TTL for testing
             var testKey = "ttl-test-key";
-            var testValue = new PrimitiveType("ttl-test-value");
+            var testValue = new Primitive("ttl-test-value");
 
             // Set a short TTL on the scope
             var setTtlResult = await MemoryService.SetKeyExpireTimeAsync(TestScope, shortTtl);
@@ -3181,7 +3181,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var mediumTtl = TimeSpan.FromSeconds(5);
-            var testKeys = new Dictionary<string, PrimitiveType>
+            var testKeys = new Dictionary<string, Primitive>
             {
                 ["ttl-key1"] = new("value1"),
                 ["ttl-key2"] = new(42L),
@@ -3203,7 +3203,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var midTtlResult = await MemoryService.GetKeyValueAsync(TestScope, "ttl-key1");
             midTtlResult.IsSuccessful.Should().BeTrue();
-            midTtlResult.Data.Should().Be(new PrimitiveType("value1"), "Data should still be accessible mid-TTL");
+            midTtlResult.Data.Should().Be(new Primitive("value1"), "Data should still be accessible mid-TTL");
 
             // Wait for full expiration
             await Task.Delay(TimeSpan.FromSeconds(4)); // Total wait: 6 seconds (> 5 second TTL)
@@ -3237,9 +3237,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var shortTtl = TimeSpan.FromSeconds(4);
             var listValues = new[]
             {
-                new PrimitiveType("ttl-item1"),
-                new PrimitiveType("ttl-item2"),
-                new PrimitiveType("ttl-item3")
+                new Primitive("ttl-item1"),
+                new Primitive("ttl-item2"),
+                new Primitive("ttl-item3")
             };
 
             // Set TTL and create list
@@ -3320,7 +3320,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Test that operations work correctly when publishChange is set to false
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["no-publish-key"] = new("no-publish-value")
             };
@@ -3330,7 +3330,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var getResult = await MemoryService.GetKeyValueAsync(TestScope, "no-publish-key");
             getResult.IsSuccessful.Should().BeTrue();
-            getResult.Data.Should().Be(new PrimitiveType("no-publish-value"));
+            getResult.Data.Should().Be(new Primitive("no-publish-value"));
 
             var deleteResult = await MemoryService.DeleteKeyAsync(TestScope, "no-publish-key", publishChange: false);
             deleteResult.IsSuccessful.Should().BeTrue();
@@ -3375,7 +3375,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Test with larger datasets
-            var largeKeyValues = new Dictionary<string, PrimitiveType>();
+            var largeKeyValues = new Dictionary<string, Primitive>();
             for (var i = 0; i < 100; i++)
             {
                 largeKeyValues[$"large-key-{i:D3}"] = new($"large-value-{i:D3}");
@@ -3477,8 +3477,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var keyValues = new[]
             {
-                new KeyValuePair<string, PrimitiveType>("publish-key1", new PrimitiveType("publish-value1")),
-                new KeyValuePair<string, PrimitiveType>("publish-key2", new PrimitiveType(42L))
+                new KeyValuePair<string, Primitive>("publish-key1", new Primitive("publish-value1")),
+                new KeyValuePair<string, Primitive>("publish-key2", new Primitive(42L))
             };
 
             // Act & Assert
@@ -3508,7 +3508,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var keyValues = new[]
             {
-                new KeyValuePair<string, PrimitiveType>("no-publish-key", new PrimitiveType("no-publish-value"))
+                new KeyValuePair<string, Primitive>("no-publish-key", new Primitive("no-publish-value"))
             };
 
             // Act & Assert
@@ -3534,7 +3534,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "conditional-key";
-            var value = new PrimitiveType("conditional-value");
+            var value = new Primitive("conditional-value");
 
             // Act & Assert
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -3562,7 +3562,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "conditional-no-publish-key";
-            var value = new PrimitiveType("conditional-value");
+            var value = new Primitive("conditional-value");
 
             // Act & Assert
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -3587,7 +3587,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "delete-publish-key";
-            var value = new PrimitiveType("delete-value");
+            var value = new Primitive("delete-value");
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, value)], publishChange: false);
 
             // Act & Assert
@@ -3616,7 +3616,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             const string key = "delete-no-publish-key";
-            var value = new PrimitiveType("delete-value");
+            var value = new Primitive("delete-value");
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, value)], publishChange: false);
 
             // Act & Assert
@@ -3641,7 +3641,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var keyValues = new Dictionary<string, PrimitiveType>
+            var keyValues = new Dictionary<string, Primitive>
             {
                 ["key1"] = new("value1"),
                 ["key2"] = new("value2")
@@ -3672,7 +3672,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var initialValues = new Dictionary<string, PrimitiveType>
+            var initialValues = new Dictionary<string, Primitive>
             {
                 ["counter1"] = new(10L),
                 ["counter2"] = new(20L)
@@ -3711,7 +3711,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         {
             // Arrange
             var key = "increment-publish-key";
-            var initialValue = new PrimitiveType(100L);
+            var initialValue = new Primitive(100L);
             var incrementBy = 25L;
 
             await MemoryService.SetKeyValuesAsync(TestScope, [new(key, initialValue)], publishChange: false);
@@ -3744,8 +3744,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2")
+                new Primitive("item1"),
+                new Primitive("item2")
             };
 
             // Act & Assert
@@ -3776,8 +3776,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("head1"),
-                new PrimitiveType("head2")
+                new Primitive("head1"),
+                new Primitive("head2")
             };
 
             // Act & Assert
@@ -3808,8 +3808,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("first"),
-                new PrimitiveType("last")
+                new Primitive("first"),
+                new Primitive("last")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values, publishChange: false);
@@ -3819,7 +3819,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             {
                 var result = await MemoryService.PopLastElementOfListAsync(TestScope, listName, publishChange: true);
                 result.IsSuccessful.Should().BeTrue();
-                result.Data.Should().Be(new PrimitiveType("last"));
+                result.Data.Should().Be(new Primitive("last"));
             });
 
             // Verify change notification was published
@@ -3842,8 +3842,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("first"),
-                new PrimitiveType("second")
+                new Primitive("first"),
+                new Primitive("second")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values, publishChange: false);
@@ -3853,7 +3853,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             {
                 var result = await MemoryService.PopFirstElementOfListAsync(TestScope, listName, publishChange: true);
                 result.IsSuccessful.Should().BeTrue();
-                result.Data.Should().Be(new PrimitiveType("first"));
+                result.Data.Should().Be(new Primitive("first"));
             });
 
             // Verify change notification was published
@@ -3876,15 +3876,15 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("keep"),
-                new PrimitiveType("remove1"),
-                new PrimitiveType("remove2")
+                new Primitive("keep"),
+                new Primitive("remove1"),
+                new Primitive("remove2")
             };
 
             var toRemove = new[]
             {
-                new PrimitiveType("remove1"),
-                new PrimitiveType("remove2")
+                new Primitive("remove1"),
+                new Primitive("remove2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values, publishChange: false);
@@ -3916,8 +3916,8 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var values = new[]
             {
-                new PrimitiveType("item1"),
-                new PrimitiveType("item2")
+                new Primitive("item1"),
+                new Primitive("item2")
             };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, values, publishChange: false);
@@ -3952,9 +3952,9 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Arrange
             var sublistPrefix = "publish-sublist-";
 
-            var parentValues = new[] { new PrimitiveType("parent1") };
-            var sublist1Values = new[] { new PrimitiveType("sub1") };
-            var sublist2Values = new[] { new PrimitiveType("sub2") };
+            var parentValues = new[] { new Primitive("parent1") };
+            var sublist1Values = new[] { new Primitive("sub1") };
+            var sublist2Values = new[] { new Primitive("sub2") };
 
             await MemoryService.PushToListTailAsync(TestScope, listName, parentValues, publishChange: false);
             await MemoryService.PushToListTailAsync(TestScope, sublist1Name, sublist1Values, publishChange: false);
@@ -3987,7 +3987,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
         try
         {
             // Arrange
-            var values = new[] { new PrimitiveType("item1") };
+            var values = new[] { new Primitive("item1") };
 
             // Act & Assert - Test multiple list operations with publishChange=false
             var messages = await CapturePublishedMessagesAsync(async () =>
@@ -4028,7 +4028,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var messages1 = await CapturePublishedMessagesAsync(async () =>
             {
                 var result = await MemoryService.SetKeyValuesAsync(TestScope,
-                    [new("multi-key", new PrimitiveType("multi-value"))], publishChange: true);
+                    [new("multi-key", new Primitive("multi-value"))], publishChange: true);
                 result.IsSuccessful.Should().BeTrue();
             });
             allMessages.AddRange(messages1);
@@ -4036,7 +4036,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var messages2 = await CapturePublishedMessagesAsync(async () =>
             {
                 var result = await MemoryService.PushToListTailAsync(TestScope, listName,
-                    [new PrimitiveType("list-item")], publishChange: true);
+                    [new Primitive("list-item")], publishChange: true);
                 result.IsSuccessful.Should().BeTrue();
             });
             allMessages.AddRange(messages2);

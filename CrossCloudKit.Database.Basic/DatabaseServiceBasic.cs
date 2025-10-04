@@ -77,16 +77,16 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         return Path.Combine(_databasePath, sanitizedTableName);
     }
 
-    private string GetItemFilePath(string tableName, string keyName, PrimitiveType keyValue)
+    private string GetItemFilePath(string tableName, string keyName, Primitive keyValue)
     {
         var tablePath = GetTablePath(tableName);
         var keyString = keyValue.Kind switch
         {
-            PrimitiveTypeKind.String => keyValue.AsString,
-            PrimitiveTypeKind.Boolean => keyValue.AsBoolean.ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.Integer => keyValue.AsInteger.ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.Double => keyValue.AsDouble.ToString(CultureInfo.InvariantCulture),
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(keyValue.AsByteArray),
+            PrimitiveKind.String => keyValue.AsString,
+            PrimitiveKind.Boolean => keyValue.AsBoolean.ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.Integer => keyValue.AsInteger.ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.Double => keyValue.AsDouble.ToString(CultureInfo.InvariantCulture),
+            PrimitiveKind.ByteArray => Convert.ToBase64String(keyValue.AsByteArray),
             _ => keyValue.ToString()
         };
 
@@ -186,17 +186,17 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             return false;
         }
 
-        var itemValue = TokenToPrimitiveType(token);
+        var itemValue = TokenToPrimitive(token);
         var conditionValue = condition.Value;
 
         return condition.ConditionType switch
         {
-            ConditionType.AttributeEquals => ComparePrimitiveTypes(itemValue, conditionValue) == 0,
-            ConditionType.AttributeNotEquals => ComparePrimitiveTypes(itemValue, conditionValue) != 0,
-            ConditionType.AttributeGreater => ComparePrimitiveTypes(itemValue, conditionValue) > 0,
-            ConditionType.AttributeGreaterOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) >= 0,
-            ConditionType.AttributeLess => ComparePrimitiveTypes(itemValue, conditionValue) < 0,
-            ConditionType.AttributeLessOrEqual => ComparePrimitiveTypes(itemValue, conditionValue) <= 0,
+            ConditionType.AttributeEquals => ComparePrimitives(itemValue, conditionValue) == 0,
+            ConditionType.AttributeNotEquals => ComparePrimitives(itemValue, conditionValue) != 0,
+            ConditionType.AttributeGreater => ComparePrimitives(itemValue, conditionValue) > 0,
+            ConditionType.AttributeGreaterOrEqual => ComparePrimitives(itemValue, conditionValue) >= 0,
+            ConditionType.AttributeLess => ComparePrimitives(itemValue, conditionValue) < 0,
+            ConditionType.AttributeLessOrEqual => ComparePrimitives(itemValue, conditionValue) <= 0,
             _ => false
         };
     }
@@ -210,26 +210,26 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
         var elementExists = array.Any(element =>
         {
-            var arrayElementValue = TokenToPrimitiveType(element);
-            return ComparePrimitiveTypes(arrayElementValue, condition.ElementValue) == 0;
+            var arrayElementValue = TokenToPrimitive(element);
+            return ComparePrimitives(arrayElementValue, condition.ElementValue) == 0;
         });
 
         return condition.ConditionType == ConditionType.ArrayElementExists ? elementExists : !elementExists;
     }
 
-    private static PrimitiveType TokenToPrimitiveType(JToken token)
+    private static Primitive TokenToPrimitive(JToken token)
     {
         return token.Type switch
         {
-            JTokenType.String => new PrimitiveType(token.Value<string>().NotNull()),
-            JTokenType.Integer => new PrimitiveType(token.Value<long>()),
-            JTokenType.Float => new PrimitiveType(token.Value<double>()),
-            JTokenType.Boolean => new PrimitiveType(token.Value<bool>()),
-            _ => new PrimitiveType(token.ToString())
+            JTokenType.String => new Primitive(token.Value<string>().NotNull()),
+            JTokenType.Integer => new Primitive(token.Value<long>()),
+            JTokenType.Float => new Primitive(token.Value<double>()),
+            JTokenType.Boolean => new Primitive(token.Value<bool>()),
+            _ => new Primitive(token.ToString())
         };
     }
 
-    private static int ComparePrimitiveTypes(PrimitiveType a, PrimitiveType b)
+    private static int ComparePrimitives(Primitive a, Primitive b)
     {
         if (a.Kind != b.Kind)
         {
@@ -238,11 +238,11 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
         return a.Kind switch
         {
-            PrimitiveTypeKind.String => string.Compare(a.AsString, b.AsString, StringComparison.Ordinal),
-            PrimitiveTypeKind.Boolean => a.AsBoolean.CompareTo(b.AsBoolean),
-            PrimitiveTypeKind.Integer => a.AsInteger.CompareTo(b.AsInteger),
-            PrimitiveTypeKind.Double => a.AsDouble.CompareTo(b.AsDouble),
-            PrimitiveTypeKind.ByteArray => CompareByteArrays(a.AsByteArray, b.AsByteArray),
+            PrimitiveKind.String => string.Compare(a.AsString, b.AsString, StringComparison.Ordinal),
+            PrimitiveKind.Boolean => a.AsBoolean.CompareTo(b.AsBoolean),
+            PrimitiveKind.Integer => a.AsInteger.CompareTo(b.AsInteger),
+            PrimitiveKind.Double => a.AsDouble.CompareTo(b.AsDouble),
+            PrimitiveKind.ByteArray => CompareByteArrays(a.AsByteArray, b.AsByteArray),
             _ => string.Compare(a.ToString(), b.ToString(), StringComparison.Ordinal)
         };
     }
@@ -437,7 +437,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
@@ -494,7 +494,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             {
                 foreach (var element in elementsToAdd)
                 {
-                    var jToken = PrimitiveTypeToJToken(element);
+                    var jToken = PrimitiveToJToken(element);
                     array.Add(jToken);
                 }
             }
@@ -538,7 +538,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -581,7 +581,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             {
                 foreach (var element in elementsToRemove)
                 {
-                    var jToken = PrimitiveTypeToJToken(element);
+                    var jToken = PrimitiveToJToken(element);
                     var toRemove = array.Where(item => JToken.DeepEquals(item, jToken)).ToList();
                     foreach (var item in toRemove)
                     {
@@ -1061,34 +1061,34 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         return result;
     }
 
-    private static JToken PrimitiveTypeToJToken(PrimitiveType primitive)
+    private static JToken PrimitiveToJToken(Primitive primitive)
     {
         return primitive.Kind switch
         {
-            PrimitiveTypeKind.String => primitive.AsString,
-            PrimitiveTypeKind.Boolean => primitive.AsBoolean,
-            PrimitiveTypeKind.Integer => primitive.AsInteger,
-            PrimitiveTypeKind.Double => primitive.AsDouble,
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(primitive.AsByteArray),
+            PrimitiveKind.String => primitive.AsString,
+            PrimitiveKind.Boolean => primitive.AsBoolean,
+            PrimitiveKind.Integer => primitive.AsInteger,
+            PrimitiveKind.Double => primitive.AsDouble,
+            PrimitiveKind.ByteArray => Convert.ToBase64String(primitive.AsByteArray),
             _ => primitive.ToString()
         };
     }
 
-    private static bool TryParseKeyValue(string keyValueString, out PrimitiveType keyValue)
+    private static bool TryParseKeyValue(string keyValueString, out Primitive keyValue)
     {
-        keyValue = new PrimitiveType("");
+        keyValue = new Primitive("");
 
         // Try parsing as long first
         if (long.TryParse(keyValueString, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
         {
-            keyValue = new PrimitiveType(longValue);
+            keyValue = new Primitive(longValue);
             return true;
         }
 
         // Try parsing as double
         if (double.TryParse(keyValueString, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
         {
-            keyValue = new PrimitiveType(doubleValue);
+            keyValue = new Primitive(doubleValue);
             return true;
         }
 
@@ -1096,7 +1096,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         try
         {
             var bytes = Convert.FromBase64String(keyValueString);
-            keyValue = new PrimitiveType(bytes);
+            keyValue = new Primitive(bytes);
             return true;
         }
         catch (FormatException)
@@ -1105,7 +1105,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         }
 
         // Default to string
-        keyValue = new PrimitiveType(keyValueString);
+        keyValue = new Primitive(keyValueString);
         return true;
     }
 
@@ -1134,35 +1134,35 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion

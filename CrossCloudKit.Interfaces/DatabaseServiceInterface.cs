@@ -53,7 +53,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute equals the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
-    Condition AttributeEquals(string attributeName, PrimitiveType value);
+    Condition AttributeEquals(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute does not equal a specific value
@@ -62,7 +62,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute does not equal the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
-    Condition AttributeNotEquals(string attributeName, PrimitiveType value);
+    Condition AttributeNotEquals(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is greater than a specific value
@@ -71,7 +71,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value);
+    Condition AttributeIsGreaterThan(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is greater than or equal to a specific value
@@ -80,7 +80,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value);
+    Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is less than a specific value
@@ -89,7 +89,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    Condition AttributeIsLessThan(string attributeName, PrimitiveType value);
+    Condition AttributeIsLessThan(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an attribute is less than or equal to a specific value
@@ -98,7 +98,7 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
-    Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value);
+    Condition AttributeIsLessOrEqual(string attributeName, Primitive value);
 
     /// <summary>
     /// Creates a condition that checks if an array attribute contains a specific element
@@ -107,7 +107,7 @@ public interface IDatabaseService
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array contains the specified element</returns>
     /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
-    Condition ArrayElementExists(string attributeName, PrimitiveType elementValue);
+    Condition ArrayElementExists(string attributeName, Primitive elementValue);
 
     /// <summary>
     /// Creates a condition that checks if an array attribute does not contain a specific element
@@ -116,7 +116,7 @@ public interface IDatabaseService
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array does not contain the specified element</returns>
     /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
-    Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue);
+    Condition ArrayElementNotExists(string attributeName, Primitive elementValue);
 
     /// <summary>
     /// Checks if an item exists in the database and optionally verifies that it satisfies specified conditions.
@@ -318,7 +318,7 @@ public interface IDatabaseService
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
@@ -354,7 +354,7 @@ public interface IDatabaseService
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);

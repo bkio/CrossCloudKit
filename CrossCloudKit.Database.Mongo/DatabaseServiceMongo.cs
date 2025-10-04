@@ -281,13 +281,13 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         return tableObj;
     }
 
-    private static FilterDefinition<BsonDocument> BuildEqFilter(string keyName, PrimitiveType keyValue) => keyValue.Kind switch
+    private static FilterDefinition<BsonDocument> BuildEqFilter(string keyName, Primitive keyValue) => keyValue.Kind switch
     {
-        PrimitiveTypeKind.Double => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsDouble),
-        PrimitiveTypeKind.Boolean => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsBoolean),
-        PrimitiveTypeKind.Integer => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsInteger),
-        PrimitiveTypeKind.ByteArray => Builders<BsonDocument>.Filter.Eq(keyName, Convert.ToBase64String(keyValue.AsByteArray)), // Convert to Base64 to match JSON storage
-        PrimitiveTypeKind.String => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsString),
+        PrimitiveKind.Double => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsDouble),
+        PrimitiveKind.Boolean => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsBoolean),
+        PrimitiveKind.Integer => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsInteger),
+        PrimitiveKind.ByteArray => Builders<BsonDocument>.Filter.Eq(keyName, Convert.ToBase64String(keyValue.AsByteArray)), // Convert to Base64 to match JSON storage
+        PrimitiveKind.String => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.AsString),
         _ => Builders<BsonDocument>.Filter.Eq(keyName, keyValue.ToString())
     };
 
@@ -392,7 +392,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                     {
                         if (document.TryGetElement(key.Name, out var valueElement))
                         {
-                            AddKeyToJson(createdJson, key.Name, BsonValueToPrimitiveType(valueElement.Value));
+                            AddKeyToJson(createdJson, key.Name, BsonValueToPrimitive(valueElement.Value));
                         }
                     }
 
@@ -492,7 +492,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
@@ -550,11 +550,11 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             var elementsToAddList = elementsToAdd.Select(element => element.Kind switch
             {
-                PrimitiveTypeKind.String => (object)element.AsString,
-                PrimitiveTypeKind.Integer => element.AsInteger,
-                PrimitiveTypeKind.Boolean => element.AsBoolean,
-                PrimitiveTypeKind.Double => element.AsDouble,
-                PrimitiveTypeKind.ByteArray => element.AsByteArray,
+                PrimitiveKind.String => (object)element.AsString,
+                PrimitiveKind.Integer => element.AsInteger,
+                PrimitiveKind.Boolean => element.AsBoolean,
+                PrimitiveKind.Double => element.AsDouble,
+                PrimitiveKind.ByteArray => element.AsByteArray,
                 _ => element.ToString()
             }).ToList();
 
@@ -668,7 +668,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -717,11 +717,11 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             var elementsToRemoveList = elementsToRemove.Select(element => element.Kind switch
             {
-                PrimitiveTypeKind.String => (object)element.AsString,
-                PrimitiveTypeKind.Integer => element.AsInteger,
-                PrimitiveTypeKind.Boolean => element.AsBoolean,
-                PrimitiveTypeKind.Double => element.AsDouble,
-                PrimitiveTypeKind.ByteArray => element.AsByteArray,
+                PrimitiveKind.String => (object)element.AsString,
+                PrimitiveKind.Integer => element.AsInteger,
+                PrimitiveKind.Boolean => element.AsBoolean,
+                PrimitiveKind.Double => element.AsDouble,
+                PrimitiveKind.ByteArray => element.AsByteArray,
                 _ => element.ToString()
             }).ToList();
 
@@ -1277,16 +1277,16 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         }
     }
 
-    private static PrimitiveType BsonValueToPrimitiveType(BsonValue bsonValue)
+    private static Primitive BsonValueToPrimitive(BsonValue bsonValue)
     {
         return bsonValue.BsonType switch
         {
-            BsonType.String => new PrimitiveType(bsonValue.AsString),
-            BsonType.Int32 => new PrimitiveType(bsonValue.AsInt32),
-            BsonType.Int64 => new PrimitiveType(bsonValue.AsInt64),
-            BsonType.Double => new PrimitiveType(bsonValue.AsDouble),
-            BsonType.Binary => new PrimitiveType(bsonValue.AsByteArray),
-            _ => new PrimitiveType(bsonValue.ToJson())
+            BsonType.String => new Primitive(bsonValue.AsString),
+            BsonType.Int32 => new Primitive(bsonValue.AsInt32),
+            BsonType.Int64 => new Primitive(bsonValue.AsInt64),
+            BsonType.Double => new Primitive(bsonValue.AsDouble),
+            BsonType.Binary => new Primitive(bsonValue.AsByteArray),
+            _ => new Primitive(bsonValue.ToJson())
         };
     }
 
@@ -1308,11 +1308,11 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     {
         var value = condition.Value.Kind switch
         {
-            PrimitiveTypeKind.String => (object)condition.Value.AsString,
-            PrimitiveTypeKind.Integer => condition.Value.AsInteger,
-            PrimitiveTypeKind.Boolean => condition.Value.AsBoolean,
-            PrimitiveTypeKind.Double => condition.Value.AsDouble,
-            PrimitiveTypeKind.ByteArray => condition.Value.AsByteArray,
+            PrimitiveKind.String => (object)condition.Value.AsString,
+            PrimitiveKind.Integer => condition.Value.AsInteger,
+            PrimitiveKind.Boolean => condition.Value.AsBoolean,
+            PrimitiveKind.Double => condition.Value.AsDouble,
+            PrimitiveKind.ByteArray => condition.Value.AsByteArray,
             _ => condition.Value.ToString()
         };
 
@@ -1338,11 +1338,11 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     {
         object[] elementValue = condition.ElementValue.Kind switch
         {
-            PrimitiveTypeKind.String => [condition.ElementValue.AsString],
-            PrimitiveTypeKind.Integer => [condition.ElementValue.AsInteger],
-            PrimitiveTypeKind.Boolean => [condition.ElementValue.AsBoolean],
-            PrimitiveTypeKind.Double => [condition.ElementValue.AsDouble],
-            PrimitiveTypeKind.ByteArray => [condition.ElementValue.AsByteArray],
+            PrimitiveKind.String => [condition.ElementValue.AsString],
+            PrimitiveKind.Integer => [condition.ElementValue.AsInteger],
+            PrimitiveKind.Boolean => [condition.ElementValue.AsBoolean],
+            PrimitiveKind.Double => [condition.ElementValue.AsDouble],
+            PrimitiveKind.ByteArray => [condition.ElementValue.AsByteArray],
             _ => [condition.ElementValue.ToString()]
         };
 
@@ -1405,35 +1405,35 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLess, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value) =>
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
         new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue) =>
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
         new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
 
     #endregion

@@ -16,22 +16,22 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
 {
     internal readonly IMemoryService MemoryService = memoryService;
 
-    private static JToken FromPrimitiveTypeToJToken(PrimitiveType primitive)
+    private static JToken FromPrimitiveToJToken(Primitive primitive)
     {
         return primitive.Kind switch
         {
-            PrimitiveTypeKind.Double => primitive.AsDouble,
-            PrimitiveTypeKind.Boolean => primitive.AsBoolean,
-            PrimitiveTypeKind.Integer => primitive.AsInteger,
-            PrimitiveTypeKind.ByteArray => Convert.ToBase64String(primitive.AsByteArray),
-            PrimitiveTypeKind.String => primitive.AsString,
+            PrimitiveKind.Double => primitive.AsDouble,
+            PrimitiveKind.Boolean => primitive.AsBoolean,
+            PrimitiveKind.Integer => primitive.AsInteger,
+            PrimitiveKind.ByteArray => Convert.ToBase64String(primitive.AsByteArray),
+            PrimitiveKind.String => primitive.AsString,
             _ => primitive.ToString()
         };
     }
 
-    protected static void AddKeyToJson(JObject destination, string keyName, PrimitiveType keyValue)
+    protected static void AddKeyToJson(JObject destination, string keyName, Primitive keyValue)
     {
-        destination[keyName] = FromPrimitiveTypeToJToken(keyValue);
+        destination[keyName] = FromPrimitiveToJToken(keyValue);
     }
 
     /// <inheritdoc />
@@ -172,7 +172,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -187,7 +187,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToAdd,
+        Primitive[] elementsToAdd,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         bool isCalledFromPostInsert = false,
@@ -198,7 +198,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
@@ -213,7 +213,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         DbKey key,
         string arrayAttributeName,
-        PrimitiveType[] elementsToRemove,
+        Primitive[] elementsToRemove,
         DbReturnItemBehavior returnBehavior = DbReturnItemBehavior.DoNotReturn,
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default);
@@ -341,28 +341,28 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     public abstract Condition AttributeNotExists(string attributeName);
 
     /// <inheritdoc />
-    public abstract Condition AttributeEquals(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeEquals(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition AttributeNotEquals(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeNotEquals(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition AttributeIsGreaterThan(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsGreaterThan(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition AttributeIsGreaterOrEqual(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition AttributeIsLessThan(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsLessThan(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition AttributeIsLessOrEqual(string attributeName, PrimitiveType value);
+    public abstract Condition AttributeIsLessOrEqual(string attributeName, Primitive value);
 
     /// <inheritdoc />
-    public abstract Condition ArrayElementExists(string attributeName, PrimitiveType elementValue);
+    public abstract Condition ArrayElementExists(string attributeName, Primitive elementValue);
 
     /// <inheritdoc />
-    public abstract Condition ArrayElementNotExists(string attributeName, PrimitiveType elementValue);
+    public abstract Condition ArrayElementNotExists(string attributeName, Primitive elementValue);
 
     /// <inheritdoc />
     public async Task<OperationResult<IReadOnlyList<string>>> GetTableKeysAsync(
@@ -407,7 +407,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
             SystemTableName,
             new DbKey(SystemTableKeyName, tableName),
             SystemTableKeysAttributeName,
-            [new PrimitiveType(key.Name)],
+            [new Primitive(key.Name)],
             DbReturnItemBehavior.DoNotReturn,
             new ArrayCondition(
                 ConditionType.ArrayElementNotExists,
@@ -462,7 +462,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
             conditions = conditions.And(
                 ArrayElementNotExists(
                     SystemTableKeysAttributeName,
-                    new PrimitiveType(attr.Key)));
+                    new Primitive(attr.Key)));
             conditionNo++;
         }
         if (conditionNo == 0)

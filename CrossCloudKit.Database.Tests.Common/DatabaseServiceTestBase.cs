@@ -63,10 +63,10 @@ public abstract class DatabaseServiceTestBase
         return $"{testName}-{rand}";
     }
 
-    private static PrimitiveType CreateStringKey(string value = "test-key") => new(value);
-    private static PrimitiveType CreateIntegerKey(long value = 123) => new(value);
-    private static PrimitiveType CreateDoubleKey(double value = 123.456) => new(value);
-    private static PrimitiveType CreateByteArrayKey(byte[]? value = null) => new(value ?? [1, 2, 3, 4, 5]);
+    private static Primitive CreateStringKey(string value = "test-key") => new(value);
+    private static Primitive CreateIntegerKey(long value = 123) => new(value);
+    private static Primitive CreateDoubleKey(double value = 123.456) => new(value);
+    private static Primitive CreateByteArrayKey(byte[]? value = null) => new(value ?? [1, 2, 3, 4, 5]);
 
     private static JObject CreateTestItem(string name = "TestItem", int value = 42)
     {
@@ -238,7 +238,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"value-condition-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"value-condition-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -249,43 +249,43 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test AttributeEquals condition - should return true
-            var equalsCondition = service.AttributeEquals("Value", new PrimitiveType(42.0));
+            var equalsCondition = service.AttributeEquals("Value", new Primitive(42.0));
             var existsWithEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), equalsCondition);
             existsWithEquals.IsSuccessful.Should().BeTrue();
             existsWithEquals.Data.Should().BeTrue("Item exists and Value equals 42");
 
             // Test AttributeEquals condition - should return false
-            var equalsConditionFalse = service.AttributeEquals("Value", new PrimitiveType(99.0));
+            var equalsConditionFalse = service.AttributeEquals("Value", new Primitive(99.0));
             var existsWithEqualsFalse = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), equalsConditionFalse);
             existsWithEqualsFalse.IsSuccessful.Should().BeFalse();
             existsWithEqualsFalse.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed, "Item exists but Value does not equal 99");
 
             // Test AttributeGreater condition
-            var greaterCondition = service.AttributeIsGreaterThan("Value", new PrimitiveType(40.0));
+            var greaterCondition = service.AttributeIsGreaterThan("Value", new Primitive(40.0));
             var existsWithGreater = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterCondition);
             existsWithGreater.IsSuccessful.Should().BeTrue();
             existsWithGreater.Data.Should().BeTrue("Item exists and Value > 40");
 
             // Test AttributeLess condition
-            var lessCondition = service.AttributeIsLessThan("Value", new PrimitiveType(50.0));
+            var lessCondition = service.AttributeIsLessThan("Value", new Primitive(50.0));
             var existsWithLess = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessCondition);
             existsWithLess.IsSuccessful.Should().BeTrue();
             existsWithLess.Data.Should().BeTrue("Item exists and Value < 50");
 
             // Test AttributeGreaterOrEqual condition
-            var greaterOrEqualCondition = service.AttributeIsGreaterOrEqual("Value", new PrimitiveType(42.0));
+            var greaterOrEqualCondition = service.AttributeIsGreaterOrEqual("Value", new Primitive(42.0));
             var existsWithGreaterOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterOrEqualCondition);
             existsWithGreaterOrEqual.IsSuccessful.Should().BeTrue();
             existsWithGreaterOrEqual.Data.Should().BeTrue("Item exists and Value >= 42");
 
             // Test AttributeLessOrEqual condition
-            var lessOrEqualCondition = service.AttributeIsLessOrEqual("Value", new PrimitiveType(42.0));
+            var lessOrEqualCondition = service.AttributeIsLessOrEqual("Value", new Primitive(42.0));
             var existsWithLessOrEqual = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessOrEqualCondition);
             existsWithLessOrEqual.IsSuccessful.Should().BeTrue();
             existsWithLessOrEqual.Data.Should().BeTrue("Item exists and Value <= 42");
 
             // Test AttributeNotEquals condition
-            var notEqualsCondition = service.AttributeNotEquals("Status", new PrimitiveType("inactive"));
+            var notEqualsCondition = service.AttributeNotEquals("Status", new Primitive("inactive"));
             var existsWithNotEquals = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), notEqualsCondition);
             existsWithNotEquals.IsSuccessful.Should().BeTrue();
             existsWithNotEquals.Data.Should().BeTrue("Item exists and Status != 'inactive'");
@@ -305,7 +305,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"existence-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"existence-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -361,7 +361,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-condition-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-condition-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -375,7 +375,7 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test ArrayElementExists condition - should allow deletion
-            var arrayExistsCondition = service.ArrayElementExists("Tags", new PrimitiveType("production"));
+            var arrayExistsCondition = service.ArrayElementExists("Tags", new Primitive("production"));
             var deleteResult1 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
                 DbReturnItemBehavior.ReturnOldValues, arrayExistsCondition);
 
@@ -386,14 +386,14 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test ArrayElementNotExists condition - should prevent deletion
-            var arrayNotExistsCondition = service.ArrayElementNotExists("Tags", new PrimitiveType("production"));
+            var arrayNotExistsCondition = service.ArrayElementNotExists("Tags", new Primitive("production"));
             var deleteResult2 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
                 DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition);
 
             deleteResult2.IsSuccessful.Should().BeFalse("Delete should fail when array contains 'production' but condition requires it not to");
 
             // Test ArrayElementNotExists with element that doesn't exist - should allow deletion
-            var arrayNotExistsCondition2 = service.ArrayElementNotExists("Tags", new PrimitiveType("nonexistent"));
+            var arrayNotExistsCondition2 = service.ArrayElementNotExists("Tags", new Primitive("nonexistent"));
             var deleteResult3 = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
                 DbReturnItemBehavior.DoNotReturn, arrayNotExistsCondition2);
 
@@ -414,7 +414,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-add-condition-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-add-condition-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -428,11 +428,11 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test condition that should allow adding elements
-            var allowCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var allowCondition = service.AttributeEquals("Status", new Primitive("active"));
             var elementsToAdd1 = new[]
             {
-                new PrimitiveType("allowed1"),
-                new PrimitiveType("allowed2")
+                new Primitive("allowed1"),
+                new Primitive("allowed2")
             };
 
             var addResult1 = await service.AddElementsToArrayAsync(
@@ -446,11 +446,11 @@ public abstract class DatabaseServiceTestBase
             tags1.Should().Contain(t => t.ToString() == "allowed2");
 
             // Test condition that should prevent adding elements
-            var preventCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
+            var preventCondition = service.AttributeEquals("Status", new Primitive("inactive"));
             var elementsToAdd2 = new[]
             {
-                new PrimitiveType("blocked1"),
-                new PrimitiveType("blocked2")
+                new Primitive("blocked1"),
+                new Primitive("blocked2")
             };
 
             var addResult2 = await service.AddElementsToArrayAsync(
@@ -485,7 +485,7 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Scenario: User account management with conditions
-            var userId = new PrimitiveType($"user-{Guid.NewGuid():N}");
+            var userId = new Primitive($"user-{Guid.NewGuid():N}");
             var userItem = new JObject
             {
                 ["Username"] = "testuser",
@@ -497,7 +497,7 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, userId), userItem);
 
             // Business rule: Only deduct money if account is active
-            var activeCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var activeCondition = service.AttributeEquals("Status", new Primitive("active"));
 
             // Test deducting money - should work
             var deductResult = await service.IncrementAttributeAsync(
@@ -509,7 +509,7 @@ public abstract class DatabaseServiceTestBase
             await service.UpdateItemAsync(tableName, new DbKey(keyName, userId),
                 new JObject { ["LoginAttempts"] = 5 });
 
-            var tooManyAttemptsCondition = service.AttributeIsGreaterOrEqual("LoginAttempts", new PrimitiveType(5.0));
+            var tooManyAttemptsCondition = service.AttributeIsGreaterOrEqual("LoginAttempts", new Primitive(5.0));
             var blockResult = await service.UpdateItemAsync(tableName, new DbKey(keyName, userId),
                 new JObject { ["Status"] = "blocked" },
                 DbReturnItemBehavior.DoNotReturn, tooManyAttemptsCondition);
@@ -523,10 +523,10 @@ public abstract class DatabaseServiceTestBase
             deductFromBlockedResult.IsSuccessful.Should().BeFalse("Should not deduct money from blocked account");
 
             // Business rule: Add permission only if user has basic permissions
-            var hasReadPermissionCondition = service.ArrayElementExists("Permissions", new PrimitiveType("read"));
+            var hasReadPermissionCondition = service.ArrayElementExists("Permissions", new Primitive("read"));
             var addPermissionResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, userId), "Permissions",
-                [new PrimitiveType("admin")],
+                [new Primitive("admin")],
                 DbReturnItemBehavior.ReturnNewValues, hasReadPermissionCondition);
 
             addPermissionResult.IsSuccessful.Should().BeTrue("Should add admin permission when user has read permission");
@@ -548,7 +548,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -564,8 +564,8 @@ public abstract class DatabaseServiceTestBase
             // Add elements to array
             var elementsToAdd = new[]
             {
-                new PrimitiveType("added1"),
-                new PrimitiveType("added2")
+                new Primitive("added1"),
+                new Primitive("added2")
             };
 
             var addResult = await service.AddElementsToArrayAsync(
@@ -583,8 +583,8 @@ public abstract class DatabaseServiceTestBase
             // Remove elements from array
             var elementsToRemove = new[]
             {
-                new PrimitiveType("initial"),
-                new PrimitiveType("added1")
+                new Primitive("initial"),
+                new Primitive("added1")
             };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
@@ -615,7 +615,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType("complex-mongo-doc");
+        var keyValue = new Primitive("complex-mongo-doc");
 
         var complexItem = new JObject
         {
@@ -690,7 +690,7 @@ public abstract class DatabaseServiceTestBase
 
         // Create multiple items for batch testing
         var keys = Enumerable.Range(1, 25)
-            .Select(i => new DbKey(keyName, new PrimitiveType($"batch-key-{i}")))
+            .Select(i => new DbKey(keyName, new Primitive($"batch-key-{i}")))
             .ToArray();
 
         try
@@ -736,7 +736,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType("conditional-test");
+        var keyValue = new Primitive("conditional-test");
 
         try
         {
@@ -790,7 +790,7 @@ public abstract class DatabaseServiceTestBase
             var tasks = Enumerable.Range(1, concurrentOperations)
                 .Select(async i =>
                 {
-                    var keyValue = new PrimitiveType($"parallel-key-{i}");
+                    var keyValue = new Primitive($"parallel-key-{i}");
                     var item = new JObject
                     {
                         ["Name"] = $"ParallelItem-{i}",
@@ -824,7 +824,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType("large-item-key");
+        var keyValue = new Primitive("large-item-key");
 
         // Create a large item (but within DynamoDB's 400KB limit)
         var largeData = new string('A', 100_000); // 100KB string
@@ -866,7 +866,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         const string keyName = "Id";
-        var keyValue = new PrimitiveType("507f1f77bcf86cd799439011"); // Valid ObjectId format
+        var keyValue = new Primitive("507f1f77bcf86cd799439011"); // Valid ObjectId format
 
         var item = new JObject
         {
@@ -904,7 +904,7 @@ public abstract class DatabaseServiceTestBase
         // Arrange
         var service = CreateDatabaseService();
         const string attributeName = "TestAttribute";
-        var testValue = new PrimitiveType("testValue");
+        var testValue = new Primitive("testValue");
 
         try
         {
@@ -953,7 +953,7 @@ public abstract class DatabaseServiceTestBase
         // Arrange
         var service = CreateDatabaseService();
         const string attributeName = "TestArray";
-        var elementValue = new PrimitiveType("testElement");
+        var elementValue = new Primitive("testElement");
 
         try
         {
@@ -979,7 +979,7 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public async Task PrimitiveTypes_IntegerKeys_ShouldWorkCorrectly()
+    public async Task Primitives_IntegerKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
 
@@ -1006,7 +1006,7 @@ public abstract class DatabaseServiceTestBase
             existsResult.Data.Should().BeTrue();
 
             // Test conditions with integer comparisons
-            var greaterCondition = service.AttributeIsGreaterThan("Value", new PrimitiveType(90L));
+            var greaterCondition = service.AttributeIsGreaterThan("Value", new Primitive(90L));
             var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), greaterCondition);
             conditionalExists.IsSuccessful.Should().BeTrue();
             conditionalExists.Data.Should().BeTrue("Value (100) should be greater than 90");
@@ -1020,7 +1020,7 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public async Task PrimitiveTypes_DoubleKeys_ShouldWorkCorrectly()
+    public async Task Primitives_DoubleKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
 
@@ -1042,7 +1042,7 @@ public abstract class DatabaseServiceTestBase
             getResult.Data!["Name"]?.ToString().Should().Be("DoubleKeyTest");
 
             // Test conditions with double comparisons
-            var lessCondition = service.AttributeIsLessThan("Value", new PrimitiveType(250.0));
+            var lessCondition = service.AttributeIsLessThan("Value", new Primitive(250.0));
             var conditionalExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), lessCondition);
             conditionalExists.IsSuccessful.Should().BeTrue();
             conditionalExists.Data.Should().BeTrue("Value (200) should be less than 250");
@@ -1056,7 +1056,7 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public async Task PrimitiveTypes_ByteArrayKeys_ShouldWorkCorrectly()
+    public async Task Primitives_ByteArrayKeys_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
 
@@ -1097,7 +1097,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"cross-type-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"cross-type-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1112,18 +1112,18 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test integer vs double comparison (should work for compatible values)
-            var integerCondition = service.AttributeEquals("IntegerValue", new PrimitiveType(42L));
+            var integerCondition = service.AttributeEquals("IntegerValue", new Primitive(42L));
             var integerResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), integerCondition);
             integerResult.IsSuccessful.Should().BeTrue();
             integerResult.Data.Should().BeTrue("Integer value should match");
 
-            var doubleCondition = service.AttributeEquals("DoubleValue", new PrimitiveType(42.0));
+            var doubleCondition = service.AttributeEquals("DoubleValue", new Primitive(42.0));
             var doubleResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), doubleCondition);
             doubleResult.IsSuccessful.Should().BeTrue();
             doubleResult.Data.Should().BeTrue("Double value should match");
 
             // Test string comparison
-            var stringCondition = service.AttributeEquals("StringValue", new PrimitiveType("42"));
+            var stringCondition = service.AttributeEquals("StringValue", new Primitive("42"));
             var stringResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringCondition);
             stringResult.IsSuccessful.Should().BeTrue();
             stringResult.Data.Should().BeTrue("String value should match");
@@ -1143,7 +1143,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"conditional-put-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"conditional-put-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1180,7 +1180,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"return-behavior-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"return-behavior-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1223,13 +1223,13 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
-    public async Task ArrayOperations_WithDifferentPrimitiveTypes_ShouldWorkCorrectly()
+    public async Task ArrayOperations_WithDifferentPrimitives_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-types-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-types-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1243,8 +1243,8 @@ public abstract class DatabaseServiceTestBase
 
             var stringElementsToAdd = new[]
             {
-                new PrimitiveType("string1"),
-                new PrimitiveType("string2")
+                new Primitive("string1"),
+                new Primitive("string2")
             };
             var stringAddResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "StringTags", stringElementsToAdd);
@@ -1256,8 +1256,8 @@ public abstract class DatabaseServiceTestBase
 
             var integerElementsToAdd = new[]
             {
-                new PrimitiveType(10L),
-                new PrimitiveType(20L)
+                new Primitive(10L),
+                new Primitive(20L)
             };
             var integerAddResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "IntegerTags", integerElementsToAdd);
@@ -1269,8 +1269,8 @@ public abstract class DatabaseServiceTestBase
 
             var doubleElementsToAdd = new[]
             {
-                new PrimitiveType(1.1),
-                new PrimitiveType(2.2)
+                new Primitive(1.1),
+                new Primitive(2.2)
             };
             var doubleAddResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "DoubleTags", doubleElementsToAdd);
@@ -1306,7 +1306,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"conditional-remove-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"conditional-remove-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1320,8 +1320,8 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test remove with condition that should succeed
-            var allowCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
-            var elementsToRemove = new[] { new PrimitiveType("tag2"), new PrimitiveType("tag3") };
+            var allowCondition = service.AttributeEquals("Status", new Primitive("active"));
+            var elementsToRemove = new[] { new Primitive("tag2"), new Primitive("tag3") };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", elementsToRemove,
@@ -1336,8 +1336,8 @@ public abstract class DatabaseServiceTestBase
             tags.Should().NotContain(t => t.ToString() == "tag3");
 
             // Test remove with condition that should fail
-            var preventCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
-            var moreElementsToRemove = new[] { new PrimitiveType("tag1") };
+            var preventCondition = service.AttributeEquals("Status", new Primitive("inactive"));
+            var moreElementsToRemove = new[] { new Primitive("tag1") };
 
             var removeResult2 = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Tags", moreElementsToRemove,
@@ -1502,7 +1502,7 @@ public abstract class DatabaseServiceTestBase
             // Create items in multiple tables to ensure they exist
             foreach (var tableName in tableNames)
             {
-                var keyValue = new PrimitiveType($"test-key-{tableName}");
+                var keyValue = new Primitive($"test-key-{tableName}");
                 var item = CreateTestItem($"TestItem-{tableName}", 42);
                 await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
             }
@@ -1541,7 +1541,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"increment-scenarios-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"increment-scenarios-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1564,14 +1564,14 @@ public abstract class DatabaseServiceTestBase
             incrementResult3.Data.Should().Be(12.0);
 
             // Test increment with condition that should succeed
-            var allowCondition = service.AttributeIsGreaterOrEqual("Counter", new PrimitiveType(10.0));
+            var allowCondition = service.AttributeIsGreaterOrEqual("Counter", new Primitive(10.0));
             var incrementResult4 = await service.IncrementAttributeAsync(
                 tableName, new DbKey(keyName, keyValue), "Counter", 8.0, allowCondition);
             incrementResult4.IsSuccessful.Should().BeTrue("Should increment when condition is met");
             incrementResult4.Data.Should().Be(20.0);
 
             // Test increment with condition that should fail
-            var preventCondition = service.AttributeIsLessThan("Counter", new PrimitiveType(10.0));
+            var preventCondition = service.AttributeIsLessThan("Counter", new Primitive(10.0));
             var incrementResult5 = await service.IncrementAttributeAsync(
                 tableName, new DbKey(keyName, keyValue), "Counter", 1.0, preventCondition);
             incrementResult5.IsSuccessful.Should().BeFalse("Should not increment when condition fails");
@@ -1616,17 +1616,17 @@ public abstract class DatabaseServiceTestBase
                     ["Score"] = score,
                     ["Status"] = status
                 };
-                await service.PutItemAsync(tableName, new DbKey(keyName, new PrimitiveType(key)), item);
+                await service.PutItemAsync(tableName, new DbKey(keyName, new Primitive(key)), item);
             }
 
             // Test scan with filter for active users
-            var activeFilter = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var activeFilter = service.AttributeEquals("Status", new Primitive("active"));
             var activeResult = await service.ScanTableWithFilterAsync(tableName, activeFilter);
             activeResult.IsSuccessful.Should().BeTrue();
             activeResult.Data.Items.Count.Should().Be(3, "Should find 3 active users");
 
             // Test scan with filter for high scores
-            var highScoreFilter = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var highScoreFilter = service.AttributeIsGreaterThan("Score", new Primitive(80.0));
             var highScoreResult = await service.ScanTableWithFilterAsync(tableName, highScoreFilter);
             highScoreResult.IsSuccessful.Should().BeTrue();
             highScoreResult.Data.Items.Count.Should().Be(3, "Should find 3 users with score > 80");
@@ -1650,7 +1650,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"edge-cases-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"edge-cases-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1667,13 +1667,13 @@ public abstract class DatabaseServiceTestBase
             putResult.IsSuccessful.Should().BeTrue();
 
             // Test adding to empty array
-            var elementsToAdd = new[] { new PrimitiveType("firstElement") };
+            var elementsToAdd = new[] { new Primitive("firstElement") };
             var addResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "EmptyTags", elementsToAdd);
             addResult.IsSuccessful.Should().BeTrue();
 
             // Test conditions with empty string
-            var emptyStringCondition = service.AttributeEquals("EmptyString", new PrimitiveType(""));
+            var emptyStringCondition = service.AttributeEquals("EmptyString", new Primitive(""));
             var emptyStringExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), emptyStringCondition);
             emptyStringExists.IsSuccessful.Should().BeTrue();
 
@@ -1683,7 +1683,7 @@ public abstract class DatabaseServiceTestBase
             // emptyStringExists.Data.Should().BeTrue("Should match empty string");
 
             // Test conditions with zero value
-            var zeroCondition = service.AttributeEquals("ZeroValue", new PrimitiveType(0.0));
+            var zeroCondition = service.AttributeEquals("ZeroValue", new Primitive(0.0));
             var zeroExists = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), zeroCondition);
             zeroExists.IsSuccessful.Should().BeTrue();
             zeroExists.Data.Should().BeTrue("Should match zero value");
@@ -1708,7 +1708,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-element-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-element-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1723,30 +1723,30 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test string array element conditions
-            var stringExistsCondition = service.ArrayElementExists("StringTags", new PrimitiveType("banana"));
+            var stringExistsCondition = service.ArrayElementExists("StringTags", new Primitive("banana"));
             var stringExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringExistsCondition);
             stringExistsResult.IsSuccessful.Should().BeTrue();
             stringExistsResult.Data.Should().BeTrue("Should find 'banana' in string array");
 
-            var stringNotExistsCondition = service.ArrayElementNotExists("StringTags", new PrimitiveType("grape"));
+            var stringNotExistsCondition = service.ArrayElementNotExists("StringTags", new Primitive("grape"));
             var stringNotExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), stringNotExistsCondition);
             stringNotExistsResult.IsSuccessful.Should().BeTrue();
             stringNotExistsResult.Data.Should().BeTrue("Should not find 'grape' in string array");
 
             // Test integer array element conditions
-            var integerExistsCondition = service.ArrayElementExists("NumberTags", new PrimitiveType(20L));
+            var integerExistsCondition = service.ArrayElementExists("NumberTags", new Primitive(20L));
             var integerExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), integerExistsCondition);
             integerExistsResult.IsSuccessful.Should().BeTrue();
             integerExistsResult.Data.Should().BeTrue("Should find 20 in number array");
 
             // Test double array element conditions
-            var doubleExistsCondition = service.ArrayElementExists("DoubleTags", new PrimitiveType(2.5));
+            var doubleExistsCondition = service.ArrayElementExists("DoubleTags", new Primitive(2.5));
             var doubleExistsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), doubleExistsCondition);
             doubleExistsResult.IsSuccessful.Should().BeTrue();
             doubleExistsResult.Data.Should().BeTrue("Should find 2.5 in double array");
 
             // Test array element conditions in operations
-            var hasAppleCondition = service.ArrayElementExists("StringTags", new PrimitiveType("apple"));
+            var hasAppleCondition = service.ArrayElementExists("StringTags", new Primitive("apple"));
             var deleteResult = await service.DeleteItemAsync(tableName, new DbKey(keyName, keyValue),
                 DbReturnItemBehavior.ReturnOldValues, hasAppleCondition);
             deleteResult.IsSuccessful.Should().BeTrue("Delete should succeed when array contains 'apple'");
@@ -1767,7 +1767,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"multiple-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"multiple-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1785,10 +1785,10 @@ public abstract class DatabaseServiceTestBase
             // Test multiple conditions that should all pass (AND logic)
             var conditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("active")),
-                service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0)),
-                service.AttributeEquals("Level", new PrimitiveType("premium")),
-                service.ArrayElementExists("Tags", new PrimitiveType("vip"))
+                service.AttributeEquals("Status", new Primitive("active")),
+                service.AttributeIsGreaterThan("Score", new Primitive(80.0)),
+                service.AttributeEquals("Level", new Primitive("premium")),
+                service.ArrayElementExists("Tags", new Primitive("vip"))
             };
 
             var result = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), conditions.AggregateAnd());
@@ -1798,9 +1798,9 @@ public abstract class DatabaseServiceTestBase
             // Test multiple conditions where one fails (should fail overall)
             var failingConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("active")), // passes
-                service.AttributeIsGreaterThan("Score", new PrimitiveType(90.0)), // fails (85 < 90)
-                service.AttributeEquals("Level", new PrimitiveType("premium")) // passes
+                service.AttributeEquals("Status", new Primitive("active")), // passes
+                service.AttributeIsGreaterThan("Score", new Primitive(90.0)), // fails (85 < 90)
+                service.AttributeEquals("Level", new Primitive("premium")) // passes
             };
 
             var failResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingConditions.AggregateAnd());
@@ -1812,8 +1812,8 @@ public abstract class DatabaseServiceTestBase
             {
                 service.AttributeExists("Name"),
                 service.AttributeNotExists("NonExistentField"),
-                service.AttributeIsLessOrEqual("Score", new PrimitiveType(90.0)),
-                service.ArrayElementNotExists("Tags", new PrimitiveType("banned"))
+                service.AttributeIsLessOrEqual("Score", new Primitive(90.0)),
+                service.ArrayElementNotExists("Tags", new Primitive("banned"))
             };
 
             var mixedResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), mixedConditions.AggregateAnd());
@@ -1835,7 +1835,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"multiple-update-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"multiple-update-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1853,9 +1853,9 @@ public abstract class DatabaseServiceTestBase
             // Test update with multiple conditions that should pass
             var successConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("active")),
-                service.AttributeIsGreaterOrEqual("Balance", new PrimitiveType(500.0)),
-                service.AttributeEquals("Tier", new PrimitiveType("gold"))
+                service.AttributeEquals("Status", new Primitive("active")),
+                service.AttributeIsGreaterOrEqual("Balance", new Primitive(500.0)),
+                service.AttributeEquals("Tier", new Primitive("gold"))
             };
 
             var updateData1 = new JObject
@@ -1874,9 +1874,9 @@ public abstract class DatabaseServiceTestBase
             // Test update with conditions where one fails
             var failConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("active")), // passes
-                service.AttributeIsGreaterThan("Balance", new PrimitiveType(900.0)), // fails (800 < 900)
-                service.AttributeEquals("Tier", new PrimitiveType("gold")) // passes
+                service.AttributeEquals("Status", new Primitive("active")), // passes
+                service.AttributeIsGreaterThan("Balance", new Primitive(900.0)), // fails (800 < 900)
+                service.AttributeEquals("Tier", new Primitive("gold")) // passes
             };
 
             var updateData2 = new JObject { ["Balance"] = 700.0 };
@@ -1907,7 +1907,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"multiple-delete-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"multiple-delete-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1925,9 +1925,9 @@ public abstract class DatabaseServiceTestBase
             // Test delete with conditions that should prevent deletion
             var preventConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("inactive")), // passes
-                service.AttributeEquals("DataRetentionDays", new PrimitiveType(0.0)), // passes
-                service.AttributeEquals("HasBackup", new PrimitiveType(false)) // fails
+                service.AttributeEquals("Status", new Primitive("inactive")), // passes
+                service.AttributeEquals("DataRetentionDays", new Primitive(0.0)), // passes
+                service.AttributeEquals("HasBackup", new Primitive(false)) // fails
             };
 
             var deleteResult1 = await service.DeleteItemAsync(
@@ -1945,10 +1945,10 @@ public abstract class DatabaseServiceTestBase
             // Test delete with all conditions passing
             var allowConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("inactive")),
-                service.AttributeEquals("DataRetentionDays", new PrimitiveType(0.0)),
+                service.AttributeEquals("Status", new Primitive("inactive")),
+                service.AttributeEquals("DataRetentionDays", new Primitive(0.0)),
                 service.AttributeExists("HasBackup"),
-                service.ArrayElementNotExists("Permissions", new PrimitiveType("active"))
+                service.ArrayElementNotExists("Permissions", new Primitive("active"))
             };
 
             var deleteResult2 = await service.DeleteItemAsync(
@@ -1979,7 +1979,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"multiple-array-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"multiple-array-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -1997,15 +1997,15 @@ public abstract class DatabaseServiceTestBase
             // Test adding elements with multiple conditions that should pass
             var addConditions = new[]
             {
-                service.AttributeEquals("UserType", new PrimitiveType("admin")),
-                service.AttributeEquals("IsActive", new PrimitiveType(true)),
-                service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(3.0))
+                service.AttributeEquals("UserType", new Primitive("admin")),
+                service.AttributeEquals("IsActive", new Primitive(true)),
+                service.AttributeIsGreaterOrEqual("SecurityLevel", new Primitive(3.0))
             };
 
             var elementsToAdd = new[]
             {
-                new PrimitiveType("delete"),
-                new PrimitiveType("admin")
+                new Primitive("delete"),
+                new Primitive("admin")
             };
 
             var addResult = await service.AddElementsToArrayAsync(
@@ -2021,12 +2021,12 @@ public abstract class DatabaseServiceTestBase
             // Test removing elements with conditions where one fails
             var removeConditions = new[]
             {
-                service.AttributeEquals("UserType", new PrimitiveType("admin")), // passes
-                service.AttributeEquals("IsActive", new PrimitiveType(true)), // passes
-                service.AttributeIsGreaterThan("SecurityLevel", new PrimitiveType(7.0)) // fails (5 < 7)
+                service.AttributeEquals("UserType", new Primitive("admin")), // passes
+                service.AttributeEquals("IsActive", new Primitive(true)), // passes
+                service.AttributeIsGreaterThan("SecurityLevel", new Primitive(7.0)) // fails (5 < 7)
             };
 
-            var elementsToRemove = new[] { new PrimitiveType("admin") };
+            var elementsToRemove = new[] { new Primitive("admin") };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Permissions", elementsToRemove,
@@ -2055,7 +2055,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"multiple-increment-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"multiple-increment-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -2074,10 +2074,10 @@ public abstract class DatabaseServiceTestBase
             // Test increment with conditions that should allow transaction
             var allowConditions = new[]
             {
-                service.AttributeEquals("AccountType", new PrimitiveType("savings")),
-                service.AttributeEquals("IsVerified", new PrimitiveType(true)),
-                service.AttributeIsGreaterThan("Balance", new PrimitiveType(200.0)),
-                service.AttributeIsLessThan("TransactionCount", new PrimitiveType(10L))
+                service.AttributeEquals("AccountType", new Primitive("savings")),
+                service.AttributeEquals("IsVerified", new Primitive(true)),
+                service.AttributeIsGreaterThan("Balance", new Primitive(200.0)),
+                service.AttributeIsLessThan("TransactionCount", new Primitive(10L))
             };
 
             var incrementResult1 = await service.IncrementAttributeAsync(
@@ -2089,10 +2089,10 @@ public abstract class DatabaseServiceTestBase
             // Test increment with conditions where one fails
             var rejectConditions = new[]
             {
-                service.AttributeEquals("AccountType", new PrimitiveType("savings")), // passes
-                service.AttributeEquals("IsVerified", new PrimitiveType(true)), // passes
-                service.AttributeIsGreaterThan("Balance", new PrimitiveType(1000.0)), // fails (850 < 1000)
-                service.AttributeIsLessThan("TransactionCount", new PrimitiveType(10L)) // passes
+                service.AttributeEquals("AccountType", new Primitive("savings")), // passes
+                service.AttributeEquals("IsVerified", new Primitive(true)), // passes
+                service.AttributeIsGreaterThan("Balance", new Primitive(1000.0)), // fails (850 < 1000)
+                service.AttributeIsLessThan("TransactionCount", new Primitive(10L)) // passes
             };
 
             var incrementResult2 = await service.IncrementAttributeAsync(
@@ -2108,8 +2108,8 @@ public abstract class DatabaseServiceTestBase
             // Test positive increment (deposit) with relaxed conditions
             var depositConditions = new[]
             {
-                service.AttributeEquals("AccountType", new PrimitiveType("savings")),
-                service.AttributeEquals("IsVerified", new PrimitiveType(true))
+                service.AttributeEquals("AccountType", new Primitive("savings")),
+                service.AttributeEquals("IsVerified", new Primitive(true))
             };
 
             var depositResult = await service.IncrementAttributeAsync(
@@ -2133,7 +2133,7 @@ public abstract class DatabaseServiceTestBase
 
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"complex-business-scenario-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"complex-business-scenario-{Guid.NewGuid():N}");
 
         try
         {
@@ -2160,11 +2160,11 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Can fulfill order if all conditions met
             var fulfillmentConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("pending")),
-                service.AttributeEquals("PaymentStatus", new PrimitiveType("paid")),
-                service.AttributeIsGreaterThan("WarehouseStock", new PrimitiveType(50L)),
-                service.ArrayElementExists("Items", new PrimitiveType("laptop")),
-                service.AttributeIsLessOrEqual("Priority", new PrimitiveType(2L))
+                service.AttributeEquals("Status", new Primitive("pending")),
+                service.AttributeEquals("PaymentStatus", new Primitive("paid")),
+                service.AttributeIsGreaterThan("WarehouseStock", new Primitive(50L)),
+                service.ArrayElementExists("Items", new Primitive("laptop")),
+                service.AttributeIsLessOrEqual("Priority", new Primitive(2L))
             };
 
             // Test successful order fulfillment
@@ -2185,8 +2185,8 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Can ship order with additional conditions
             var shippingConditions = new[]
             {
-                service.AttributeEquals("Status", new PrimitiveType("processing")),
-                service.AttributeEquals("PaymentStatus", new PrimitiveType("paid")),
+                service.AttributeEquals("Status", new Primitive("processing")),
+                service.AttributeEquals("PaymentStatus", new Primitive("paid")),
                 service.AttributeExists("FulfillmentDate"),
                 service.AttributeNotExists("ShippingDate") // shouldn't be shipped yet
             };
@@ -2207,9 +2207,9 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Premium customer gets loyalty points after shipping
             var loyaltyConditions = new[]
             {
-                service.AttributeEquals("CustomerTier", new PrimitiveType("premium")),
-                service.AttributeEquals("Status", new PrimitiveType("shipped")),
-                service.AttributeIsGreaterOrEqual("TotalAmount", new PrimitiveType(200.0))
+                service.AttributeEquals("CustomerTier", new Primitive("premium")),
+                service.AttributeEquals("Status", new Primitive("shipped")),
+                service.AttributeIsGreaterOrEqual("TotalAmount", new Primitive(200.0))
             };
 
             // Calculate loyalty points (10% of total amount)
@@ -2222,8 +2222,8 @@ public abstract class DatabaseServiceTestBase
             // Business Rule: Cannot cancel order once shipped
             var cancelConditions = new[]
             {
-                service.AttributeNotEquals("Status", new PrimitiveType("shipped")),
-                service.AttributeNotEquals("Status", new PrimitiveType("delivered"))
+                service.AttributeNotEquals("Status", new Primitive("shipped")),
+                service.AttributeNotEquals("Status", new Primitive("delivered"))
             };
 
             var cancelResult = await service.UpdateItemAsync(
@@ -2273,7 +2273,7 @@ public abstract class DatabaseServiceTestBase
                     ["Value"] = value,
                     ["TestData"] = true
                 };
-                await service.PutItemAsync(tableName, new DbKey(keyName, new PrimitiveType(key)), item);
+                await service.PutItemAsync(tableName, new DbKey(keyName, new Primitive(key)), item);
             }
 
             // Act - Scan the table
@@ -2322,7 +2322,7 @@ public abstract class DatabaseServiceTestBase
                     ["Name"] = name,
                     ["IsPaginatedTest"] = true
                 };
-                await service.PutItemAsync(tableName, new DbKey(keyName, new PrimitiveType(key)), item);
+                await service.PutItemAsync(tableName, new DbKey(keyName, new Primitive(key)), item);
             }
 
             var totalFound = 0;
@@ -2389,11 +2389,11 @@ public abstract class DatabaseServiceTestBase
                     ["Price"] = price,
                     ["IsFilterTest"] = true
                 };
-                await service.PutItemAsync(tableName, new DbKey(keyName, new PrimitiveType(key)), item);
+                await service.PutItemAsync(tableName, new DbKey(keyName, new Primitive(key)), item);
             }
 
             // Act - Filter for electronics category
-            var filterCondition = service.AttributeEquals("Category", new PrimitiveType("electronics"));
+            var filterCondition = service.AttributeEquals("Category", new Primitive("electronics"));
             var filterResult = await service.ScanTableWithFilterAsync(tableName, filterCondition);
 
             // Assert
@@ -2450,11 +2450,11 @@ public abstract class DatabaseServiceTestBase
                     ["Score"] = score,
                     ["IsFilterPaginatedTest"] = true
                 };
-                await service.PutItemAsync(tableName, new DbKey(keyName, new PrimitiveType(key)), item);
+                await service.PutItemAsync(tableName, new DbKey(keyName, new Primitive(key)), item);
             }
 
             // Act - Filter for active status with pagination
-            var filterCondition = service.AttributeEquals("Status", new PrimitiveType("active"));
+            var filterCondition = service.AttributeEquals("Status", new Primitive("active"));
             var firstPageResult = await service.ScanTableWithFilterPaginatedAsync(tableName, filterCondition, 3, null);
 
             // Assert first page
@@ -2532,7 +2532,7 @@ public abstract class DatabaseServiceTestBase
             // Create items with different key field names in the same table
 
             // Item 1: Uses "UserId" as key field
-            var userKey1 = new DbKey("UserId", new PrimitiveType($"user-{Guid.NewGuid():N}"));
+            var userKey1 = new DbKey("UserId", new Primitive($"user-{Guid.NewGuid():N}"));
             var userItem1 = new JObject
             {
                 ["Name"] = "John Doe",
@@ -2541,7 +2541,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Item 2: Uses "ProductId" as key field
-            var productKey1 = new DbKey("ProductId", new PrimitiveType($"prod-{Guid.NewGuid():N}"));
+            var productKey1 = new DbKey("ProductId", new Primitive($"prod-{Guid.NewGuid():N}"));
             var productItem1 = new JObject
             {
                 ["Name"] = "Laptop",
@@ -2550,7 +2550,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Item 3: Uses "OrderId" as key field
-            var orderKey1 = new DbKey("OrderId", new PrimitiveType($"order-{Guid.NewGuid():N}"));
+            var orderKey1 = new DbKey("OrderId", new Primitive($"order-{Guid.NewGuid():N}"));
             var orderItem1 = new JObject
             {
                 ["Status"] = "pending",
@@ -2559,7 +2559,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Item 4: Another user with same key field name but different value
-            var userKey2 = new DbKey("UserId", new PrimitiveType($"user-{Guid.NewGuid():N}"));
+            var userKey2 = new DbKey("UserId", new Primitive($"user-{Guid.NewGuid():N}"));
             var userItem2 = new JObject
             {
                 ["Name"] = "Jane Smith",
@@ -2653,12 +2653,12 @@ public abstract class DatabaseServiceTestBase
             updateProductResult.Data!["Price"]?.ToObject<double>().Should().Be(1199.99);
 
             // Test conditional operations across different key field types
-            var premiumUserCondition = service.AttributeEquals("AccountType", new PrimitiveType("gold"));
+            var premiumUserCondition = service.AttributeEquals("AccountType", new Primitive("gold"));
             var conditionalUserExists = await service.ItemExistsAsync(tableName, userKey1, premiumUserCondition);
             conditionalUserExists.IsSuccessful.Should().BeTrue("Updated user should be gold tier");
             conditionalUserExists.Data.Should().BeTrue();
 
-            var onSaleCondition = service.AttributeEquals("OnSale", new PrimitiveType(true));
+            var onSaleCondition = service.AttributeEquals("OnSale", new Primitive(true));
             var conditionalProductExists = await service.ItemExistsAsync(tableName, productKey1, onSaleCondition);
             conditionalProductExists.IsSuccessful.Should().BeTrue("Updated product should be on sale");
             conditionalProductExists.Data.Should().BeTrue();
@@ -2706,16 +2706,16 @@ public abstract class DatabaseServiceTestBase
         try
         {
             // Create items with different key field names
-            var userKey = new DbKey("UserId", new PrimitiveType("user-123"));
+            var userKey = new DbKey("UserId", new Primitive("user-123"));
             var userItem = new JObject { ["Name"] = "Test User" };
 
-            var productKey = new DbKey("ProductId", new PrimitiveType("prod-456"));
+            var productKey = new DbKey("ProductId", new Primitive("prod-456"));
             var productItem = new JObject { ["Name"] = "Test Product" };
 
-            var sessionKey = new DbKey("SessionId", new PrimitiveType("sess-789"));
+            var sessionKey = new DbKey("SessionId", new Primitive("sess-789"));
             var sessionItem = new JObject { ["Status"] = "active" };
 
-            var orderKey = new DbKey("OrderId", new PrimitiveType("order-101"));
+            var orderKey = new DbKey("OrderId", new Primitive("order-101"));
             var orderItem = new JObject { ["Total"] = 99.99 };
 
             // Put items to establish different key fields
@@ -2750,7 +2750,7 @@ public abstract class DatabaseServiceTestBase
                     var keyValueStr = itemWithKey[keyName]?.ToString();
                     if (!string.IsNullOrEmpty(keyValueStr))
                     {
-                        var testKey = new DbKey(keyName, new PrimitiveType(keyValueStr));
+                        var testKey = new DbKey(keyName, new Primitive(keyValueStr));
                         var retrieveResult = await service.GetItemAsync(tableName, testKey);
                         retrieveResult.IsSuccessful.Should().BeTrue($"Should be able to retrieve item with key field {keyName}");
                     }
@@ -2776,16 +2776,16 @@ public abstract class DatabaseServiceTestBase
             // Create items with different key fields and attributes for filtering
             var users = new[]
             {
-                (key: new DbKey("UserId", new PrimitiveType("user-1")), name: "Alice", type: "premium"),
-                (key: new DbKey("UserId", new PrimitiveType("user-2")), name: "Bob", type: "standard"),
-                (key: new DbKey("UserId", new PrimitiveType("user-3")), name: "Charlie", type: "premium")
+                (key: new DbKey("UserId", new Primitive("user-1")), name: "Alice", type: "premium"),
+                (key: new DbKey("UserId", new Primitive("user-2")), name: "Bob", type: "standard"),
+                (key: new DbKey("UserId", new Primitive("user-3")), name: "Charlie", type: "premium")
             };
 
             var products = new[]
             {
-                (key: new DbKey("ProductId", new PrimitiveType("prod-1")), name: "Laptop", category: "electronics"),
-                (key: new DbKey("ProductId", new PrimitiveType("prod-2")), name: "Book", category: "media"),
-                (key: new DbKey("ProductId", new PrimitiveType("prod-3")), name: "Phone", category: "electronics")
+                (key: new DbKey("ProductId", new Primitive("prod-1")), name: "Laptop", category: "electronics"),
+                (key: new DbKey("ProductId", new Primitive("prod-2")), name: "Book", category: "media"),
+                (key: new DbKey("ProductId", new Primitive("prod-3")), name: "Phone", category: "electronics")
             };
 
             // Put all items
@@ -2814,7 +2814,7 @@ public abstract class DatabaseServiceTestBase
             // Test filtering across different key field types
 
             // Filter 1: Find all premium users
-            var premiumFilter = service.AttributeEquals("AccountType", new PrimitiveType("premium"));
+            var premiumFilter = service.AttributeEquals("AccountType", new Primitive("premium"));
             var premiumResult = await service.ScanTableWithFilterAsync(tableName, premiumFilter);
             premiumResult.IsSuccessful.Should().BeTrue("Should filter for premium users");
             premiumResult.Data.Items.Count.Should().Be(2, "Should find 2 premium users");
@@ -2826,7 +2826,7 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Filter 2: Find all electronics products
-            var electronicsFilter = service.AttributeEquals("Category", new PrimitiveType("electronics"));
+            var electronicsFilter = service.AttributeEquals("Category", new Primitive("electronics"));
             var electronicsResult = await service.ScanTableWithFilterAsync(tableName, electronicsFilter);
             electronicsResult.IsSuccessful.Should().BeTrue("Should filter for electronics");
             electronicsResult.Data.Items.Count.Should().Be(2, "Should find 2 electronics products");
@@ -2838,7 +2838,7 @@ public abstract class DatabaseServiceTestBase
             }
 
             // Filter 3: Find all users (by entity type)
-            var userEntityFilter = service.AttributeEquals("EntityType", new PrimitiveType("user"));
+            var userEntityFilter = service.AttributeEquals("EntityType", new Primitive("user"));
             var userEntityResult = await service.ScanTableWithFilterAsync(tableName, userEntityFilter);
             userEntityResult.IsSuccessful.Should().BeTrue("Should filter for user entities");
             userEntityResult.Data.Items.Count.Should().Be(3, "Should find 3 user entities");
@@ -2884,7 +2884,7 @@ public abstract class DatabaseServiceTestBase
             // Create items with different key fields for testing array and increment operations
 
             // User item with UserId key
-            var userKey = new DbKey("UserId", new PrimitiveType("user-array-test"));
+            var userKey = new DbKey("UserId", new Primitive("user-array-test"));
             var userItem = new JObject
             {
                 ["Name"] = "Array Test User",
@@ -2893,7 +2893,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Product item with ProductId key
-            var productKey = new DbKey("ProductId", new PrimitiveType("prod-array-test"));
+            var productKey = new DbKey("ProductId", new Primitive("prod-array-test"));
             var productItem = new JObject
             {
                 ["Name"] = "Array Test Product",
@@ -2902,7 +2902,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Session item with SessionId key
-            var sessionKey = new DbKey("SessionId", new PrimitiveType("sess-array-test"));
+            var sessionKey = new DbKey("SessionId", new Primitive("sess-array-test"));
             var sessionItem = new JObject
             {
                 ["Status"] = "active",
@@ -2918,7 +2918,7 @@ public abstract class DatabaseServiceTestBase
             // Test array operations with different key field names
 
             // Add elements to user permissions
-            var newPermissions = new[] { new PrimitiveType("admin"), new PrimitiveType("delete") };
+            var newPermissions = new[] { new Primitive("admin"), new Primitive("delete") };
             var addPermissionsResult = await service.AddElementsToArrayAsync(
                 tableName, userKey, "Permissions", newPermissions,
                 DbReturnItemBehavior.ReturnNewValues);
@@ -2930,7 +2930,7 @@ public abstract class DatabaseServiceTestBase
             userPermissions.Should().Contain(p => p.ToString() == "delete");
 
             // Add elements to product tags
-            var newTags = new[] { new PrimitiveType("featured"), new PrimitiveType("bestseller") };
+            var newTags = new[] { new Primitive("featured"), new Primitive("bestseller") };
             var addTagsResult = await service.AddElementsToArrayAsync(
                 tableName, productKey, "Tags", newTags,
                 DbReturnItemBehavior.ReturnNewValues);
@@ -2941,7 +2941,7 @@ public abstract class DatabaseServiceTestBase
             productTags.Should().Contain(t => t.ToString() == "featured");
 
             // Add elements to session activities
-            var newActivities = new[] { new PrimitiveType("purchase"), new PrimitiveType("logout") };
+            var newActivities = new[] { new Primitive("purchase"), new Primitive("logout") };
             var addActivitiesResult = await service.AddElementsToArrayAsync(
                 tableName, sessionKey, "Activities", newActivities,
                 DbReturnItemBehavior.ReturnNewValues);
@@ -2974,9 +2974,9 @@ public abstract class DatabaseServiceTestBase
             // Test conditional array operations with different key types
 
             // Remove permission from user only if they have admin permission
-            var hasAdminCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
+            var hasAdminCondition = service.ArrayElementExists("Permissions", new Primitive("admin"));
             var removePermissionResult = await service.RemoveElementsFromArrayAsync(
-                tableName, userKey, "Permissions", [new PrimitiveType("write")],
+                tableName, userKey, "Permissions", [new Primitive("write")],
                 DbReturnItemBehavior.ReturnNewValues, hasAdminCondition);
             removePermissionResult.IsSuccessful.Should().BeTrue("Should remove write permission when admin exists");
 
@@ -2986,7 +2986,7 @@ public abstract class DatabaseServiceTestBase
             finalPermissions.Should().NotContain(p => p.ToString() == "write");
 
             // Test conditional increment with different key type
-            var isPopularCondition = service.ArrayElementExists("Tags", new PrimitiveType("popular"));
+            var isPopularCondition = service.ArrayElementExists("Tags", new Primitive("popular"));
             var conditionalViewIncrement = await service.IncrementAttributeAsync(
                 tableName, productKey, "ViewCount", 5.0, isPopularCondition);
             conditionalViewIncrement.IsSuccessful.Should().BeTrue("Should increment views for popular product");
@@ -3025,7 +3025,7 @@ public abstract class DatabaseServiceTestBase
             // Scenario: Multi-entity system with complex business rules
 
             // User entities with UserId keys
-            var adminKey = new DbKey("UserId", new PrimitiveType("admin-001"));
+            var adminKey = new DbKey("UserId", new Primitive("admin-001"));
             var adminItem = new JObject
             {
                 ["Name"] = "Admin User",
@@ -3035,7 +3035,7 @@ public abstract class DatabaseServiceTestBase
                 ["Active"] = true
             };
 
-            var standardUserKey = new DbKey("UserId", new PrimitiveType("user-001"));
+            var standardUserKey = new DbKey("UserId", new Primitive("user-001"));
             var standardUserItem = new JObject
             {
                 ["Name"] = "Standard User",
@@ -3046,7 +3046,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Resource entities with ResourceId keys
-            var sensitiveResourceKey = new DbKey("ResourceId", new PrimitiveType("resource-001"));
+            var sensitiveResourceKey = new DbKey("ResourceId", new Primitive("resource-001"));
             var sensitiveResourceItem = new JObject
             {
                 ["Name"] = "Sensitive Data",
@@ -3056,7 +3056,7 @@ public abstract class DatabaseServiceTestBase
                 ["Locked"] = false
             };
 
-            var publicResourceKey = new DbKey("ResourceId", new PrimitiveType("resource-002"));
+            var publicResourceKey = new DbKey("ResourceId", new Primitive("resource-002"));
             var publicResourceItem = new JObject
             {
                 ["Name"] = "Public Data",
@@ -3067,7 +3067,7 @@ public abstract class DatabaseServiceTestBase
             };
 
             // Audit entities with AuditId keys
-            var auditKey = new DbKey("AuditId", new PrimitiveType("audit-001"));
+            var auditKey = new DbKey("AuditId", new Primitive("audit-001"));
             var auditItem = new JObject
             {
                 ["Action"] = "login",
@@ -3084,8 +3084,8 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, auditKey, auditItem);
 
             // Business Rule 1: Only admins can access sensitive resources (simulate access tracking)
-            var isAdminCondition = service.AttributeEquals("Role", new PrimitiveType("admin"));
-            var hasAdminPermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
+            var isAdminCondition = service.AttributeEquals("Role", new Primitive("admin"));
+            var hasAdminPermCondition = service.ArrayElementExists("Permissions", new Primitive("admin"));
 
             // Admin accessing sensitive resource should succeed
             var adminAccessResult = await service.IncrementAttributeAsync(
@@ -3093,8 +3093,8 @@ public abstract class DatabaseServiceTestBase
             adminAccessResult.IsSuccessful.Should().BeTrue("Admin should be able to attempt access");
 
             // Business Rule 2: Update resource access count only if user has required permissions
-            var adminHasRequiredPerm = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
-            var resourceNotLocked = service.AttributeEquals("Locked", new PrimitiveType(false));
+            var adminHasRequiredPerm = service.ArrayElementExists("Permissions", new Primitive("admin"));
+            var resourceNotLocked = service.AttributeEquals("Locked", new Primitive(false));
 
             var sensitiveAccessResult = await service.IncrementAttributeAsync(
                 tableName, sensitiveResourceKey, "AccessCount", 1.0, resourceNotLocked);
@@ -3102,9 +3102,9 @@ public abstract class DatabaseServiceTestBase
             sensitiveAccessResult.IsSuccessful.Should().BeTrue("Should increment access count for unlocked resource");
 
             // Business Rule 3: Standard users cannot modify admin permissions
-            var isNotAdmin = service.AttributeNotEquals("Role", new PrimitiveType("admin"));
+            var isNotAdmin = service.AttributeNotEquals("Role", new Primitive("admin"));
             var standardUserTryAddAdmin = await service.AddElementsToArrayAsync(
-                tableName, standardUserKey, "Permissions", [new PrimitiveType("admin")],
+                tableName, standardUserKey, "Permissions", [new Primitive("admin")],
                 DbReturnItemBehavior.DoNotReturn, isNotAdmin);
             standardUserTryAddAdmin.IsSuccessful.Should().BeTrue("Standard user exists and role != admin");
 
@@ -3115,7 +3115,7 @@ public abstract class DatabaseServiceTestBase
             // but this demonstrates how conditions control access
 
             // Business Rule 4: Lock resource if access attempts are too high
-            var highAccessCondition = service.AttributeIsGreaterOrEqual("AccessCount", new PrimitiveType(1.0));
+            var highAccessCondition = service.AttributeIsGreaterOrEqual("AccessCount", new Primitive(1.0));
             var lockResourceResult = await service.UpdateItemAsync(
                 tableName, sensitiveResourceKey, new JObject { ["Locked"] = true, ["LockReason"] = "High access" },
                 DbReturnItemBehavior.ReturnNewValues, highAccessCondition);
@@ -3123,15 +3123,15 @@ public abstract class DatabaseServiceTestBase
             lockResourceResult.Data!["Locked"]?.Value<bool>().Should().Be(true);
 
             // Business Rule 5: Create audit entry only for significant actions
-            var significantSeverity = service.AttributeIsGreaterOrEqual("Severity", new PrimitiveType(2.0));
+            var significantSeverity = service.AttributeIsGreaterOrEqual("Severity", new Primitive(2.0));
             var updateAuditResult = await service.UpdateItemAsync(
                 tableName, auditKey, new JObject { ["Severity"] = 3, ["Reviewed"] = false },
                 DbReturnItemBehavior.ReturnNewValues);
             updateAuditResult.IsSuccessful.Should().BeTrue("Should update audit entry");
 
             // Business Rule 6: Multi-entity workflow - deactivate inactive users
-            var inactiveCondition = service.AttributeIsGreaterThan("LastLoginDays", new PrimitiveType(7L));
-            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
+            var inactiveCondition = service.AttributeIsGreaterThan("LastLoginDays", new Primitive(7L));
+            var activeCondition = service.AttributeEquals("Active", new Primitive(true));
 
             var deactivateInactiveResult = await service.UpdateItemAsync(
                 tableName, standardUserKey, new JObject { ["Active"] = false, ["DeactivatedReason"] = "Inactive" },
@@ -3184,7 +3184,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"simple-and-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"simple-and-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3199,8 +3199,8 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test: condition1.And(condition2)
-            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
-            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var condition1 = service.AttributeEquals("Status", new Primitive("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new Primitive(80.0));
             var andCondition = condition1.And(condition2);
 
             var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), andCondition);
@@ -3208,7 +3208,7 @@ public abstract class DatabaseServiceTestBase
             existsResult.Data.Should().BeTrue();
 
             // Test case where one condition fails
-            var condition3 = service.AttributeEquals("Level", new PrimitiveType("basic"));
+            var condition3 = service.AttributeEquals("Level", new Primitive("basic"));
             var failingAndCondition = condition1.And(condition3);
 
             var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingAndCondition);
@@ -3229,7 +3229,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"simple-or-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"simple-or-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3244,8 +3244,8 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test: condition1.Or(condition2) - first condition fails, second passes
-            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
-            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
+            var condition1 = service.AttributeEquals("Status", new Primitive("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new Primitive(80.0));
             var orCondition = condition1.Or(condition2);
 
             var existsResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), orCondition);
@@ -3253,7 +3253,7 @@ public abstract class DatabaseServiceTestBase
             existsResult.Data.Should().BeTrue();
 
             // Test case where both conditions fail
-            var condition3 = service.AttributeEquals("Level", new PrimitiveType("premium"));
+            var condition3 = service.AttributeEquals("Level", new Primitive("premium"));
             var failingOrCondition = condition1.Or(condition3);
 
             var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingOrCondition);
@@ -3274,7 +3274,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"complex-nested-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"complex-nested-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3292,9 +3292,9 @@ public abstract class DatabaseServiceTestBase
 
             // Test: condition1.And(condition2).Or(condition3)
             // This should create: ((condition1 AND condition2) OR condition3)
-            var condition1 = service.AttributeEquals("Status", new PrimitiveType("active"));
-            var condition2 = service.AttributeIsGreaterThan("Score", new PrimitiveType(80.0));
-            var condition3 = service.AttributeEquals("Category", new PrimitiveType("SUPER_VIP"));
+            var condition1 = service.AttributeEquals("Status", new Primitive("active"));
+            var condition2 = service.AttributeIsGreaterThan("Score", new Primitive(80.0));
+            var condition3 = service.AttributeEquals("Category", new Primitive("SUPER_VIP"));
 
             var complexCondition = condition1.And(condition2).Or(condition3);
 
@@ -3304,8 +3304,8 @@ public abstract class DatabaseServiceTestBase
 
             // Test: condition1.And(condition2.Or(condition3))
             // This should create: (condition1 AND (condition2 OR condition3))
-            var condition4 = service.AttributeEquals("Level", new PrimitiveType("basic"));
-            var condition5 = service.ArrayElementExists("Tags", new PrimitiveType("verified"));
+            var condition4 = service.AttributeEquals("Level", new Primitive("basic"));
+            var condition5 = service.ArrayElementExists("Tags", new Primitive("verified"));
 
             var nestedCondition = condition1.And(condition4.Or(condition5));
 
@@ -3327,7 +3327,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"deep-nesting-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"deep-nesting-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3345,11 +3345,11 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Create deeply nested condition: ((A AND B) OR (C AND D)) AND E
-            var condA = service.AttributeEquals("A", new PrimitiveType("valueA"));
-            var condB = service.AttributeEquals("B", new PrimitiveType("valueB"));
-            var condC = service.AttributeEquals("C", new PrimitiveType("wrongC"));
-            var condD = service.AttributeEquals("D", new PrimitiveType("valueD"));
-            var condE = service.ArrayElementExists("Numbers", new PrimitiveType(2L));
+            var condA = service.AttributeEquals("A", new Primitive("valueA"));
+            var condB = service.AttributeEquals("B", new Primitive("valueB"));
+            var condC = service.AttributeEquals("C", new Primitive("wrongC"));
+            var condD = service.AttributeEquals("D", new Primitive("valueD"));
+            var condE = service.ArrayElementExists("Numbers", new Primitive(2L));
 
             var deepCondition = condA.And(condB).Or(condC.And(condD)).And(condE);
 
@@ -3358,7 +3358,7 @@ public abstract class DatabaseServiceTestBase
             existsResult.Data.Should().BeTrue("Left side of final AND is true because (A AND B) is true, and E is true");
 
             // Test case where final condition fails
-            var condF = service.ArrayElementExists("Numbers", new PrimitiveType(5L));
+            var condF = service.ArrayElementExists("Numbers", new Primitive(5L));
             var failingDeepCondition = condA.And(condB).Or(condC.And(condD)).And(condF);
 
             var failingResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), failingDeepCondition);
@@ -3379,7 +3379,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"update-coupling-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"update-coupling-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3395,9 +3395,9 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test update with complex condition: (Status=pending AND Priority>=3) OR HasTag(urgent)
-            var statusCondition = service.AttributeEquals("Status", new PrimitiveType("pending"));
-            var priorityCondition = service.AttributeIsGreaterOrEqual("Priority", new PrimitiveType(3.0));
-            var urgentTagCondition = service.ArrayElementExists("Tags", new PrimitiveType("urgent"));
+            var statusCondition = service.AttributeEquals("Status", new Primitive("pending"));
+            var priorityCondition = service.AttributeIsGreaterOrEqual("Priority", new Primitive(3.0));
+            var urgentTagCondition = service.ArrayElementExists("Tags", new Primitive("urgent"));
 
             var complexUpdateCondition = statusCondition.And(priorityCondition).Or(urgentTagCondition);
 
@@ -3417,8 +3417,8 @@ public abstract class DatabaseServiceTestBase
             updateResult.Data["ProcessedBy"]?.ToString().Should().Be("worker-1");
 
             // Test update that should fail due to condition
-            var restrictiveCondition = service.AttributeEquals("Owner", new PrimitiveType("admin"))
-                .And(service.ArrayElementExists("Tags", new PrimitiveType("critical")));
+            var restrictiveCondition = service.AttributeEquals("Owner", new Primitive("admin"))
+                .And(service.ArrayElementExists("Tags", new Primitive("critical")));
 
             var secondUpdateData = new JObject { ["Status"] = "completed" };
 
@@ -3447,7 +3447,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"delete-coupling-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"delete-coupling-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3464,10 +3464,10 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test delete with complex condition: (Status=inactive AND LastAccessed>30) OR (Archived=true AND DataRetention=0)
-            var inactiveCondition = service.AttributeEquals("Status", new PrimitiveType("inactive"));
-            var oldAccessCondition = service.AttributeIsGreaterThan("LastAccessed", new PrimitiveType(30.0));
-            var archivedCondition = service.AttributeEquals("Archived", new PrimitiveType(true));
-            var noRetentionCondition = service.AttributeEquals("DataRetention", new PrimitiveType(0.0));
+            var inactiveCondition = service.AttributeEquals("Status", new Primitive("inactive"));
+            var oldAccessCondition = service.AttributeIsGreaterThan("LastAccessed", new Primitive(30.0));
+            var archivedCondition = service.AttributeEquals("Archived", new Primitive(true));
+            var noRetentionCondition = service.AttributeEquals("DataRetention", new Primitive(0.0));
 
             var deleteCondition = inactiveCondition.And(oldAccessCondition).Or(archivedCondition.And(noRetentionCondition));
 
@@ -3498,7 +3498,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"array-coupling-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"array-coupling-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3514,17 +3514,17 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test add elements with complex condition: (UserType=moderator AND SecurityLevel>=5) OR (Active=true AND HasModeratePermission)
-            var moderatorCondition = service.AttributeEquals("UserType", new PrimitiveType("moderator"));
-            var securityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(5.0));
-            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
-            var moderatePermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("moderate"));
+            var moderatorCondition = service.AttributeEquals("UserType", new Primitive("moderator"));
+            var securityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new Primitive(5.0));
+            var activeCondition = service.AttributeEquals("Active", new Primitive(true));
+            var moderatePermCondition = service.ArrayElementExists("Permissions", new Primitive("moderate"));
 
             var addPermissionsCondition = moderatorCondition.And(securityCondition).Or(activeCondition.And(moderatePermCondition));
 
             var newPermissions = new[]
             {
-                new PrimitiveType("admin"),
-                new PrimitiveType("delete")
+                new Primitive("admin"),
+                new Primitive("delete")
             };
 
             var addResult = await service.AddElementsToArrayAsync(
@@ -3538,11 +3538,11 @@ public abstract class DatabaseServiceTestBase
             permissions.Should().Contain(p => p.ToString() == "delete");
 
             // Test remove elements with restrictive condition: SecurityLevel>=8 AND UserType=admin
-            var restrictiveSecurityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new PrimitiveType(8.0));
-            var adminTypeCondition = service.AttributeEquals("UserType", new PrimitiveType("admin"));
+            var restrictiveSecurityCondition = service.AttributeIsGreaterOrEqual("SecurityLevel", new Primitive(8.0));
+            var adminTypeCondition = service.AttributeEquals("UserType", new Primitive("admin"));
 
             var removeCondition = restrictiveSecurityCondition.And(adminTypeCondition);
-            var elementsToRemove = new[] { new PrimitiveType("admin") };
+            var elementsToRemove = new[] { new Primitive("admin") };
 
             var removeResult = await service.RemoveElementsFromArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Permissions", elementsToRemove,
@@ -3570,7 +3570,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"increment-coupling-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"increment-coupling-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3588,10 +3588,10 @@ public abstract class DatabaseServiceTestBase
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
             // Test increment with complex condition: (AccountType=premium AND Balance>500) OR (Verified=true AND HasTrustedFlag)
-            var premiumCondition = service.AttributeEquals("AccountType", new PrimitiveType("premium"));
-            var balanceCondition = service.AttributeIsGreaterThan("Balance", new PrimitiveType(500.0));
-            var verifiedCondition = service.AttributeEquals("Verified", new PrimitiveType(true));
-            var trustedFlagCondition = service.ArrayElementExists("Flags", new PrimitiveType("trusted"));
+            var premiumCondition = service.AttributeEquals("AccountType", new Primitive("premium"));
+            var balanceCondition = service.AttributeIsGreaterThan("Balance", new Primitive(500.0));
+            var verifiedCondition = service.AttributeEquals("Verified", new Primitive(true));
+            var trustedFlagCondition = service.ArrayElementExists("Flags", new Primitive("trusted"));
 
             var incrementCondition = premiumCondition.And(balanceCondition).Or(verifiedCondition.And(trustedFlagCondition));
 
@@ -3603,8 +3603,8 @@ public abstract class DatabaseServiceTestBase
             incrementResult.Data.Should().Be(800.0);
 
             // Test increment with more restrictive condition that should fail
-            var restrictiveCondition = service.AttributeIsGreaterThan("Balance", new PrimitiveType(1000.0))
-                .And(service.AttributeIsLessThan("TransactionCount", new PrimitiveType(2L)));
+            var restrictiveCondition = service.AttributeIsGreaterThan("Balance", new Primitive(1000.0))
+                .And(service.AttributeIsLessThan("TransactionCount", new Primitive(2L)));
 
             var failingIncrementResult = await service.IncrementAttributeAsync(
                 tableName, new DbKey(keyName, keyValue), "Balance", -100.0, restrictiveCondition);
@@ -3630,7 +3630,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"empty-condition-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"empty-condition-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3672,7 +3672,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"mixed-conditions-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"mixed-conditions-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3695,12 +3695,12 @@ public abstract class DatabaseServiceTestBase
             // (ExistingField EXISTS OR NonExistentField NOT EXISTS) AND
             // (ArrayField contains "item2" AND DoubleValue<=100.0)
 
-            var stringCondition = service.AttributeEquals("StringValue", new PrimitiveType("test"));
-            var integerCondition = service.AttributeIsGreaterThan("IntegerValue", new PrimitiveType(40L));
+            var stringCondition = service.AttributeEquals("StringValue", new Primitive("test"));
+            var integerCondition = service.AttributeIsGreaterThan("IntegerValue", new Primitive(40L));
             var existsCondition = service.AttributeExists("ExistingField");
             var notExistsCondition = service.AttributeNotExists("NonExistentField");
-            var arrayCondition = service.ArrayElementExists("ArrayField", new PrimitiveType("item2"));
-            var doubleCondition = service.AttributeIsLessOrEqual("DoubleValue", new PrimitiveType(100.0));
+            var arrayCondition = service.ArrayElementExists("ArrayField", new Primitive("item2"));
+            var doubleCondition = service.AttributeIsLessOrEqual("DoubleValue", new Primitive(100.0));
 
             var mixedCondition = stringCondition.And(integerCondition)
                 .And(existsCondition.Or(notExistsCondition))
@@ -3733,7 +3733,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"business-scenario-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"business-scenario-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3756,17 +3756,17 @@ public abstract class DatabaseServiceTestBase
             // (Role=manager AND Department=engineering AND SecurityClearance>=5) OR
             // (HasSecurityCertification AND SecurityClearance>=8)
 
-            var roleCondition = service.AttributeEquals("Role", new PrimitiveType("manager"));
-            var deptCondition = service.AttributeEquals("Department", new PrimitiveType("engineering"));
-            var clearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(5.0));
-            var securityCertCondition = service.ArrayElementExists("Certifications", new PrimitiveType("Security"));
-            var highClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(8.0));
+            var roleCondition = service.AttributeEquals("Role", new Primitive("manager"));
+            var deptCondition = service.AttributeEquals("Department", new Primitive("engineering"));
+            var clearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new Primitive(5.0));
+            var securityCertCondition = service.ArrayElementExists("Certifications", new Primitive("Security"));
+            var highClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new Primitive(8.0));
 
             var adminAccessCondition = roleCondition.And(deptCondition).And(clearanceCondition)
                 .Or(securityCertCondition.And(highClearanceCondition));
 
             // Test granting admin permission
-            var adminPermissions = new[] { new PrimitiveType("admin") };
+            var adminPermissions = new[] { new Primitive("admin") };
             var grantAdminResult = await service.AddElementsToArrayAsync(
                 tableName, new DbKey(keyName, keyValue), "Permissions", adminPermissions,
                 DbReturnItemBehavior.ReturnNewValues, adminAccessCondition);
@@ -3779,11 +3779,11 @@ public abstract class DatabaseServiceTestBase
             // (Active=true AND LastLogin<=7 AND ProjectCount>0) AND
             // (HasApprovePermission OR HasAdminPermission)
 
-            var activeCondition = service.AttributeEquals("Active", new PrimitiveType(true));
-            var recentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new PrimitiveType(7.0));
-            var hasProjectsCondition = service.AttributeIsGreaterThan("ProjectCount", new PrimitiveType(0.0));
-            var approvePermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("approve"));
-            var adminPermCondition = service.ArrayElementExists("Permissions", new PrimitiveType("admin"));
+            var activeCondition = service.AttributeEquals("Active", new Primitive(true));
+            var recentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new Primitive(7.0));
+            var hasProjectsCondition = service.AttributeIsGreaterThan("ProjectCount", new Primitive(0.0));
+            var approvePermCondition = service.ArrayElementExists("Permissions", new Primitive("approve"));
+            var adminPermCondition = service.ArrayElementExists("Permissions", new Primitive("admin"));
 
             var deleteProjectCondition = activeCondition.And(recentLoginCondition).And(hasProjectsCondition)
                 .And(approvePermCondition.Or(adminPermCondition));
@@ -3803,7 +3803,7 @@ public abstract class DatabaseServiceTestBase
 
             // Try to remove approve permission - should fail if both admin and approve exist
             var removeApproveResult = await service.RemoveElementsFromArrayAsync(
-                tableName, new DbKey(keyName, keyValue), "Permissions", [new PrimitiveType("approve")],
+                tableName, new DbKey(keyName, keyValue), "Permissions", [new Primitive("approve")],
                 DbReturnItemBehavior.DoNotReturn, hasBothPermissions);
 
             // This will succeed because the condition is satisfied (both permissions exist)
@@ -3814,11 +3814,11 @@ public abstract class DatabaseServiceTestBase
             // ((CurrentRole=manager AND ProjectCount>=3) OR (HasLeadershipCert AND SecurityClearance>=6)) AND
             // (Active=true AND LastLogin<=5)
 
-            var managerRoleCondition = service.AttributeEquals("Role", new PrimitiveType("manager"));
-            var minProjectsCondition = service.AttributeIsGreaterOrEqual("ProjectCount", new PrimitiveType(3.0));
-            var leadershipCertCondition = service.ArrayElementExists("Certifications", new PrimitiveType("Leadership"));
-            var goodClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new PrimitiveType(6.0));
-            var veryRecentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new PrimitiveType(5.0));
+            var managerRoleCondition = service.AttributeEquals("Role", new Primitive("manager"));
+            var minProjectsCondition = service.AttributeIsGreaterOrEqual("ProjectCount", new Primitive(3.0));
+            var leadershipCertCondition = service.ArrayElementExists("Certifications", new Primitive("Leadership"));
+            var goodClearanceCondition = service.AttributeIsGreaterOrEqual("SecurityClearance", new Primitive(6.0));
+            var veryRecentLoginCondition = service.AttributeIsLessOrEqual("LastLogin", new Primitive(5.0));
 
             var promotionCondition = managerRoleCondition.And(minProjectsCondition)
                 .Or(leadershipCertCondition.And(goodClearanceCondition))
@@ -3863,7 +3863,7 @@ public abstract class DatabaseServiceTestBase
         var service = CreateDatabaseService();
         var tableName = GetTestTableName();
         var keyName = "Id";
-        var keyValue = new PrimitiveType($"precedence-test-{Guid.NewGuid():N}");
+        var keyValue = new Primitive($"precedence-test-{Guid.NewGuid():N}");
 
         try
         {
@@ -3878,11 +3878,11 @@ public abstract class DatabaseServiceTestBase
             };
             await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
 
-            var condA = service.AttributeEquals("A", new PrimitiveType(true));
-            var condB = service.AttributeEquals("B", new PrimitiveType(true)); // This will be false
-            var condC = service.AttributeEquals("C", new PrimitiveType(true));
-            var condD = service.AttributeEquals("D", new PrimitiveType(true)); // This will be false
-            var condE = service.AttributeEquals("E", new PrimitiveType(true));
+            var condA = service.AttributeEquals("A", new Primitive(true));
+            var condB = service.AttributeEquals("B", new Primitive(true)); // This will be false
+            var condC = service.AttributeEquals("C", new Primitive(true));
+            var condD = service.AttributeEquals("D", new Primitive(true)); // This will be false
+            var condE = service.AttributeEquals("E", new Primitive(true));
 
             // Test: A AND B OR C
             // Should be: (A AND B) OR C = (true AND false) OR true = false OR true = true

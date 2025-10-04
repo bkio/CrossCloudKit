@@ -6,86 +6,86 @@ using Xunit;
 
 namespace CrossCloudKit.Utilities.Common.Tests;
 
-public class PrimitiveTypeTests
+public class PrimitiveTests
 {
     [Fact]
-    public void PrimitiveType_StringConstructor_InitializesCorrectly()
+    public void Primitive_StringConstructor_InitializesCorrectly()
     {
         // Arrange
         const string testValue = "test string";
 
         // Act
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.String, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.String, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsString);
     }
 
     [Fact]
-    public void PrimitiveType_IntegerConstructor_InitializesCorrectly()
+    public void Primitive_IntegerConstructor_InitializesCorrectly()
     {
         // Arrange
         const long testValue = 42L;
 
         // Act
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Integer, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Integer, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsInteger);
     }
 
     [Fact]
-    public void PrimitiveType_DoubleConstructor_InitializesCorrectly()
+    public void Primitive_DoubleConstructor_InitializesCorrectly()
     {
         // Arrange
         const double testValue = 3.14159;
 
         // Act
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Double, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Double, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsDouble);
     }
 
     [Fact]
-    public void PrimitiveType_BooleanConstructor_InitializesCorrectly()
+    public void Primitive_BooleanConstructor_InitializesCorrectly()
     {
         // Arrange
         const bool testValue = true;
 
         // Act
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Boolean, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Boolean, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsBoolean);
     }
 
     [Fact]
-    public void PrimitiveType_ByteArrayConstructor_InitializesCorrectly()
+    public void Primitive_ByteArrayConstructor_InitializesCorrectly()
     {
         // Arrange
         var testValue = new byte[] { 1, 2, 3, 4, 5 };
 
         // Act
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.ByteArray, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.ByteArray, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsByteArray);
     }
 
     [Fact]
-    public void PrimitiveType_ByteArrayConstructor_CreatesIndependentCopy()
+    public void Primitive_ByteArrayConstructor_CreatesIndependentCopy()
     {
         // Arrange
         var originalArray = new byte[] { 1, 2, 3 };
 
         // Act
-        var primitiveType = new PrimitiveType(originalArray);
+        var primitiveType = new Primitive(originalArray);
         originalArray[0] = 99; // Modify original
 
         // Assert
@@ -94,28 +94,28 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_SpanConstructor_InitializesCorrectly()
+    public void Primitive_SpanConstructor_InitializesCorrectly()
     {
         // Arrange
         var testValue = new byte[] { 10, 20, 30, 40 };
         var span = testValue.AsSpan();
 
         // Act
-        var primitiveType = new PrimitiveType(span);
+        var primitiveType = new Primitive(span);
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.ByteArray, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.ByteArray, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsByteArray);
     }
 
     [Fact]
-    public void PrimitiveType_CopyConstructor_CreatesExactCopy()
+    public void Primitive_CopyConstructor_CreatesExactCopy()
     {
         // Arrange
-        var original = new PrimitiveType("test value");
+        var original = new Primitive("test value");
 
         // Act
-        var copy = new PrimitiveType(original);
+        var copy = new Primitive(original);
 
         // Assert
         Assert.Equal(original.Kind, copy.Kind);
@@ -124,14 +124,14 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_CopyConstructor_WithByteArray_CreatesIndependentCopy()
+    public void Primitive_CopyConstructor_WithByteArray_CreatesIndependentCopy()
     {
         // Arrange
         var originalBytes = new byte[] { 1, 2, 3, 4 };
-        var original = new PrimitiveType(originalBytes);
+        var original = new Primitive(originalBytes);
 
         // Act
-        var copy = new PrimitiveType(original);
+        var copy = new Primitive(original);
 
         // Modify original's internal array indirectly (though this shouldn't be possible due to immutability)
         var retrievedOriginal = original.AsByteArray;
@@ -144,10 +144,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsString_WithWrongType_ThrowsInvalidOperationException()
+    public void Primitive_AsString_WithWrongType_ThrowsInvalidOperationException()
     {
         // Arrange
-        var primitiveType = new PrimitiveType(42L);
+        var primitiveType = new Primitive(42L);
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsString);
@@ -155,10 +155,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsInteger_WithWrongType_ThrowsInvalidOperationException()
+    public void Primitive_AsInteger_WithWrongType_ThrowsInvalidOperationException()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsInteger);
@@ -166,10 +166,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsDouble_WithWrongType_ThrowsInvalidOperationException()
+    public void Primitive_AsDouble_WithWrongType_ThrowsInvalidOperationException()
     {
         // Arrange
-        var primitiveType = new PrimitiveType(42L);
+        var primitiveType = new Primitive(42L);
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsDouble);
@@ -177,10 +177,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsByteArray_WithWrongType_ThrowsInvalidOperationException()
+    public void Primitive_AsByteArray_WithWrongType_ThrowsInvalidOperationException()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsByteArray);
@@ -188,10 +188,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsBoolean_WithWrongType_ThrowsInvalidOperationException()
+    public void Primitive_AsBoolean_WithWrongType_ThrowsInvalidOperationException()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => primitiveType.AsBoolean);
@@ -199,11 +199,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetString_WithStringType_ReturnsTrue()
+    public void Primitive_TryGetString_WithStringType_ReturnsTrue()
     {
         // Arrange
         const string testValue = "test string";
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var success = primitiveType.TryGetString(out var value);
@@ -214,10 +214,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetString_WithNonStringType_ReturnsFalse()
+    public void Primitive_TryGetString_WithNonStringType_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType(42L);
+        var primitiveType = new Primitive(42L);
 
         // Act
         var success = primitiveType.TryGetString(out var value);
@@ -228,11 +228,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetInteger_WithIntegerType_ReturnsTrue()
+    public void Primitive_TryGetInteger_WithIntegerType_ReturnsTrue()
     {
         // Arrange
         const long testValue = 123L;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var success = primitiveType.TryGetInteger(out var value);
@@ -243,10 +243,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetInteger_WithNonIntegerType_ReturnsFalse()
+    public void Primitive_TryGetInteger_WithNonIntegerType_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act
         var success = primitiveType.TryGetInteger(out var value);
@@ -257,11 +257,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetDouble_WithDoubleType_ReturnsTrue()
+    public void Primitive_TryGetDouble_WithDoubleType_ReturnsTrue()
     {
         // Arrange
         const double testValue = 2.71828;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var success = primitiveType.TryGetDouble(out var value);
@@ -272,10 +272,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetDouble_WithNonDoubleType_ReturnsFalse()
+    public void Primitive_TryGetDouble_WithNonDoubleType_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType(42L);
+        var primitiveType = new Primitive(42L);
 
         // Act
         var success = primitiveType.TryGetDouble(out var value);
@@ -286,11 +286,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetByteArray_WithByteArrayType_ReturnsTrue()
+    public void Primitive_TryGetByteArray_WithByteArrayType_ReturnsTrue()
     {
         // Arrange
         var testValue = new byte[] { 5, 10, 15, 20 };
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var success = primitiveType.TryGetByteArray(out var value);
@@ -302,10 +302,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetByteArray_WithNonByteArrayType_ReturnsFalse()
+    public void Primitive_TryGetByteArray_WithNonByteArrayType_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act
         var success = primitiveType.TryGetByteArray(out var value);
@@ -316,11 +316,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetBoolean_WithBooleanType_ReturnsTrue()
+    public void Primitive_TryGetBoolean_WithBooleanType_ReturnsTrue()
     {
         // Arrange
         const bool testValue = false;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var success = primitiveType.TryGetBoolean(out var value);
@@ -331,10 +331,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_TryGetBoolean_WithNonBooleanType_ReturnsFalse()
+    public void Primitive_TryGetBoolean_WithNonBooleanType_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act
         var success = primitiveType.TryGetBoolean(out var value);
@@ -349,10 +349,10 @@ public class PrimitiveTypeTests
     [InlineData("")]
     [InlineData("Special characters: !@#$%^&*()")]
     [InlineData("Unicode: 世界 🌍")]
-    public void PrimitiveType_ToString_WithString_ReturnsString(string testValue)
+    public void Primitive_ToString_WithString_ReturnsString(string testValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.ToString();
@@ -367,10 +367,10 @@ public class PrimitiveTypeTests
     [InlineData(-123L)]
     [InlineData(long.MaxValue)]
     [InlineData(long.MinValue)]
-    public void PrimitiveType_ToString_WithInteger_ReturnsStringRepresentation(long testValue)
+    public void Primitive_ToString_WithInteger_ReturnsStringRepresentation(long testValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.ToString();
@@ -385,10 +385,10 @@ public class PrimitiveTypeTests
     [InlineData(-2.71828)]
     [InlineData(double.MaxValue)]
     [InlineData(double.MinValue)]
-    public void PrimitiveType_ToString_WithDouble_ReturnsInvariantCultureString(double testValue)
+    public void Primitive_ToString_WithDouble_ReturnsInvariantCultureString(double testValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         var expected = testValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         // Act
@@ -399,11 +399,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_ToString_WithByteArray_ReturnsBase64String()
+    public void Primitive_ToString_WithByteArray_ReturnsBase64String()
     {
         // Arrange
         var testValue = "Hello"u8.ToArray(); // "Hello" in ASCII
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         var expectedBase64 = Convert.ToBase64String(testValue);
 
         // Act
@@ -416,10 +416,10 @@ public class PrimitiveTypeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void PrimitiveType_ToString_WithBoolean_ReturnsStringRepresentation(bool testValue)
+    public void Primitive_ToString_WithBoolean_ReturnsStringRepresentation(bool testValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         var expected = testValue.ToString();
 
         // Act
@@ -430,12 +430,12 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithSameStringValues_ReturnsTrue()
+    public void Primitive_Equals_WithSameStringValues_ReturnsTrue()
     {
         // Arrange
         const string testValue = "test value";
-        var primitiveType1 = new PrimitiveType(testValue);
-        var primitiveType2 = new PrimitiveType(testValue);
+        var primitiveType1 = new Primitive(testValue);
+        var primitiveType2 = new Primitive(testValue);
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
@@ -444,12 +444,12 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithSameIntegerValues_ReturnsTrue()
+    public void Primitive_Equals_WithSameIntegerValues_ReturnsTrue()
     {
         // Arrange
         const long testValue = 42L;
-        var primitiveType1 = new PrimitiveType(testValue);
-        var primitiveType2 = new PrimitiveType(testValue);
+        var primitiveType1 = new Primitive(testValue);
+        var primitiveType2 = new Primitive(testValue);
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
@@ -458,38 +458,38 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithSimilarDoubleValues_ReturnsTrue()
+    public void Primitive_Equals_WithSimilarDoubleValues_ReturnsTrue()
     {
         // Arrange - Using values that are very close (within tolerance)
         const double testValue1 = 3.14159;
         const double testValue2 = 3.14159000001; // Very close but not exactly equal
-        var primitiveType1 = new PrimitiveType(testValue1);
-        var primitiveType2 = new PrimitiveType(testValue2);
+        var primitiveType1 = new Primitive(testValue1);
+        var primitiveType2 = new Primitive(testValue2);
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithSameByteArrayValues_ReturnsTrue()
+    public void Primitive_Equals_WithSameByteArrayValues_ReturnsTrue()
     {
         // Arrange
         var testValue1 = new byte[] { 1, 2, 3, 4 };
         var testValue2 = new byte[] { 1, 2, 3, 4 };
-        var primitiveType1 = new PrimitiveType(testValue1);
-        var primitiveType2 = new PrimitiveType(testValue2);
+        var primitiveType1 = new Primitive(testValue1);
+        var primitiveType2 = new Primitive(testValue2);
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithSameBooleanValues_ReturnsTrue()
+    public void Primitive_Equals_WithSameBooleanValues_ReturnsTrue()
     {
         // Arrange
         const bool testValue = true;
-        var primitiveType1 = new PrimitiveType(testValue);
-        var primitiveType2 = new PrimitiveType(testValue);
+        var primitiveType1 = new Primitive(testValue);
+        var primitiveType2 = new Primitive(testValue);
 
         // Act & Assert
         Assert.True(primitiveType1.Equals(primitiveType2));
@@ -498,11 +498,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithDifferentKinds_ReturnsFalse()
+    public void Primitive_Equals_WithDifferentKinds_ReturnsFalse()
     {
         // Arrange
-        var stringType = new PrimitiveType("42");
-        var integerType = new PrimitiveType(42L);
+        var stringType = new Primitive("42");
+        var integerType = new Primitive(42L);
 
         // Act & Assert
         Assert.False(stringType.Equals(integerType));
@@ -511,10 +511,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Equals_WithNull_ReturnsFalse()
+    public void Primitive_Equals_WithNull_ReturnsFalse()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act & Assert
         Assert.False(primitiveType.Equals(null));
@@ -523,12 +523,12 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_GetHashCode_WithEqualValues_ReturnsSameHashCode()
+    public void Primitive_GetHashCode_WithEqualValues_ReturnsSameHashCode()
     {
         // Arrange
         const string testValue = "test value";
-        var primitiveType1 = new PrimitiveType(testValue);
-        var primitiveType2 = new PrimitiveType(testValue);
+        var primitiveType1 = new Primitive(testValue);
+        var primitiveType2 = new Primitive(testValue);
 
         // Act
         var hash1 = primitiveType1.GetHashCode();
@@ -539,11 +539,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_GetHashCode_WithDifferentValues_ReturnsDifferentHashCodes()
+    public void Primitive_GetHashCode_WithDifferentValues_ReturnsDifferentHashCodes()
     {
         // Arrange
-        var primitiveType1 = new PrimitiveType("value1");
-        var primitiveType2 = new PrimitiveType("value2");
+        var primitiveType1 = new Primitive("value1");
+        var primitiveType2 = new Primitive("value2");
 
         // Act
         var hash1 = primitiveType1.GetHashCode();
@@ -554,81 +554,81 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_ImplicitConversion_FromString_WorksCorrectly()
+    public void Primitive_ImplicitConversion_FromString_WorksCorrectly()
     {
         // Arrange
         const string testValue = "implicit test";
 
         // Act
-        PrimitiveType primitiveType = testValue;
+        Primitive primitiveType = testValue;
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.String, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.String, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsString);
     }
 
     [Fact]
-    public void PrimitiveType_ImplicitConversion_FromLong_WorksCorrectly()
+    public void Primitive_ImplicitConversion_FromLong_WorksCorrectly()
     {
         // Arrange
         const long testValue = 999L;
 
         // Act
-        PrimitiveType primitiveType = testValue;
+        Primitive primitiveType = testValue;
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Integer, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Integer, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsInteger);
     }
 
     [Fact]
-    public void PrimitiveType_ImplicitConversion_FromDouble_WorksCorrectly()
+    public void Primitive_ImplicitConversion_FromDouble_WorksCorrectly()
     {
         // Arrange
         const double testValue = 1.41421;
 
         // Act
-        PrimitiveType primitiveType = testValue;
+        Primitive primitiveType = testValue;
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Double, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Double, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsDouble);
     }
 
     [Fact]
-    public void PrimitiveType_ImplicitConversion_FromByteArray_WorksCorrectly()
+    public void Primitive_ImplicitConversion_FromByteArray_WorksCorrectly()
     {
         // Arrange
         var testValue = new byte[] { 10, 20, 30 };
 
         // Act
-        PrimitiveType primitiveType = testValue;
+        Primitive primitiveType = testValue;
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.ByteArray, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.ByteArray, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsByteArray);
     }
 
     [Fact]
-    public void PrimitiveType_ImplicitConversion_FromBoolean_WorksCorrectly()
+    public void Primitive_ImplicitConversion_FromBoolean_WorksCorrectly()
     {
         // Arrange
         const bool testValue = true;
 
         // Act
-        PrimitiveType primitiveType = testValue;
+        Primitive primitiveType = testValue;
 
         // Assert
-        Assert.Equal(PrimitiveTypeKind.Boolean, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Boolean, primitiveType.Kind);
         Assert.Equal(testValue, primitiveType.AsBoolean);
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithStringAction_ExecutesCorrectAction()
+    public void Primitive_Match_WithStringAction_ExecutesCorrectAction()
     {
         // Arrange
         const string testValue = "match test";
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         string? capturedValue = null;
 
         // Act
@@ -645,11 +645,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithIntegerAction_ExecutesCorrectAction()
+    public void Primitive_Match_WithIntegerAction_ExecutesCorrectAction()
     {
         // Arrange
         const long testValue = 456L;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         long? capturedValue = null;
 
         // Act
@@ -666,11 +666,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithDoubleAction_ExecutesCorrectAction()
+    public void Primitive_Match_WithDoubleAction_ExecutesCorrectAction()
     {
         // Arrange
         const double testValue = 6.28318;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         double? capturedValue = null;
 
         // Act
@@ -687,11 +687,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithByteArrayAction_ExecutesCorrectAction()
+    public void Primitive_Match_WithByteArrayAction_ExecutesCorrectAction()
     {
         // Arrange
         var testValue = new byte[] { 100, 200, 50, 150 };
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         byte[]? capturedValue = null;
 
         // Act
@@ -709,11 +709,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithBooleanAction_ExecutesCorrectAction()
+    public void Primitive_Match_WithBooleanAction_ExecutesCorrectAction()
     {
         // Arrange
         const bool testValue = false;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
         bool? capturedValue = null;
 
         // Act
@@ -730,10 +730,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_Match_WithNullActions_DoesNotThrow()
+    public void Primitive_Match_WithNullActions_DoesNotThrow()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("test");
+        var primitiveType = new Primitive("test");
 
         // Act & Assert - Should not throw when non-matching actions are null
         primitiveType.Match(
@@ -746,11 +746,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_MatchWithReturn_WithString_ReturnsCorrectValue()
+    public void Primitive_MatchWithReturn_WithString_ReturnsCorrectValue()
     {
         // Arrange
         const string testValue = "return test";
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.Match(
@@ -766,11 +766,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_MatchWithReturn_WithInteger_ReturnsCorrectValue()
+    public void Primitive_MatchWithReturn_WithInteger_ReturnsCorrectValue()
     {
         // Arrange
         const long testValue = 789L;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.Match(
@@ -786,11 +786,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_MatchWithReturn_WithDouble_ReturnsCorrectValue()
+    public void Primitive_MatchWithReturn_WithDouble_ReturnsCorrectValue()
     {
         // Arrange
         const double testValue = 9.80665;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.Match(
@@ -806,11 +806,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_MatchWithReturn_WithByteArray_ReturnsCorrectValue()
+    public void Primitive_MatchWithReturn_WithByteArray_ReturnsCorrectValue()
     {
         // Arrange
         var testValue = new byte[] { 1, 2, 3, 4, 5, 6 };
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.Match(
@@ -826,11 +826,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_MatchWithReturn_WithBoolean_ReturnsCorrectValue()
+    public void Primitive_MatchWithReturn_WithBoolean_ReturnsCorrectValue()
     {
         // Arrange
         const bool testValue = true;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var result = primitiveType.Match(
@@ -846,15 +846,15 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithString_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithString_WorksCorrectly()
     {
         // Arrange
         const string testValue = "json test string";
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -864,15 +864,15 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithInteger_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithInteger_WorksCorrectly()
     {
         // Arrange
         const long testValue = 12345L;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -882,15 +882,15 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithDouble_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithDouble_WorksCorrectly()
     {
         // Arrange
         const double testValue = 123.456;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -900,15 +900,15 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithByteArray_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithByteArray_WorksCorrectly()
     {
         // Arrange
         var testValue = new byte[] { 0xFF, 0x00, 0x80, 0x7F };
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -918,15 +918,15 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithBoolean_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithBoolean_WorksCorrectly()
     {
         // Arrange
         const bool testValue = true;
-        var primitiveType = new PrimitiveType(testValue);
+        var primitiveType = new Primitive(testValue);
 
         // Act
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -936,14 +936,14 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonSerialization_WithNull_WorksCorrectly()
+    public void Primitive_JsonSerialization_WithNull_WorksCorrectly()
     {
         // Arrange
-        PrimitiveType? nullPrimitiveType = null;
+        Primitive? nullPrimitive = null;
 
         // Act
-        var json = JsonConvert.SerializeObject(nullPrimitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType?>(json);
+        var json = JsonConvert.SerializeObject(nullPrimitive);
+        var deserialized = JsonConvert.DeserializeObject<Primitive?>(json);
 
         // Assert
         Assert.Equal("null", json);
@@ -951,10 +951,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_JsonRoundTrip_PreservesAllTypes()
+    public void Primitive_JsonRoundTrip_PreservesAllTypes()
     {
         // Arrange
-        var primitiveTypes = new PrimitiveType[]
+        var primitiveTypes = new Primitive[]
         {
             new("test string"),
             new(true),
@@ -967,7 +967,7 @@ public class PrimitiveTypeTests
         {
             // Act
             var json = JsonConvert.SerializeObject(original);
-            var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+            var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
 
             // Assert
             Assert.NotNull(deserialized);
@@ -976,37 +976,37 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_EdgeCase_EmptyString_HandledCorrectly()
+    public void Primitive_EdgeCase_EmptyString_HandledCorrectly()
     {
         // Arrange
-        var primitiveType = new PrimitiveType("");
+        var primitiveType = new Primitive("");
 
         // Act & Assert
-        Assert.Equal(PrimitiveTypeKind.String, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.String, primitiveType.Kind);
         Assert.Equal("", primitiveType.AsString);
         Assert.Equal("", primitiveType.ToString());
 
         // Test serialization
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
         Assert.Equal(primitiveType, deserialized);
     }
 
     [Fact]
-    public void PrimitiveType_EdgeCase_EmptyByteArray_HandledCorrectly()
+    public void Primitive_EdgeCase_EmptyByteArray_HandledCorrectly()
     {
         // Arrange
         var emptyArray = Array.Empty<byte>();
-        var primitiveType = new PrimitiveType(emptyArray);
+        var primitiveType = new Primitive(emptyArray);
 
         // Act & Assert
-        Assert.Equal(PrimitiveTypeKind.ByteArray, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.ByteArray, primitiveType.Kind);
         Assert.Empty(primitiveType.AsByteArray);
         Assert.Equal(Convert.ToBase64String(emptyArray), primitiveType.ToString());
 
         // Test serialization
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
         Assert.Equal(primitiveType, deserialized);
     }
 
@@ -1014,19 +1014,19 @@ public class PrimitiveTypeTests
     [InlineData(long.MaxValue)]
     [InlineData(long.MinValue)]
     [InlineData(0L)]
-    public void PrimitiveType_EdgeCase_ExtremeIntegerValues_HandledCorrectly(long extremeValue)
+    public void Primitive_EdgeCase_ExtremeIntegerValues_HandledCorrectly(long extremeValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(extremeValue);
+        var primitiveType = new Primitive(extremeValue);
 
         // Act & Assert
-        Assert.Equal(PrimitiveTypeKind.Integer, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Integer, primitiveType.Kind);
         Assert.Equal(extremeValue, primitiveType.AsInteger);
         Assert.Equal(extremeValue.ToString(), primitiveType.ToString());
 
         // Test serialization
         var json = JsonConvert.SerializeObject(primitiveType);
-        var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+        var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
         Assert.Equal(primitiveType, deserialized);
     }
 
@@ -1036,41 +1036,41 @@ public class PrimitiveTypeTests
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
     [InlineData(0.0)]
-    public void PrimitiveType_EdgeCase_ExtremeDoubleValues_HandledCorrectly(double extremeValue)
+    public void Primitive_EdgeCase_ExtremeDoubleValues_HandledCorrectly(double extremeValue)
     {
         // Arrange
-        var primitiveType = new PrimitiveType(extremeValue);
+        var primitiveType = new Primitive(extremeValue);
 
         // Act & Assert
-        Assert.Equal(PrimitiveTypeKind.Double, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Double, primitiveType.Kind);
         Assert.Equal(extremeValue, primitiveType.AsDouble);
 
         if (!double.IsNaN(extremeValue))
         {
             // Test serialization (skip for NaN as it has special handling)
             var json = JsonConvert.SerializeObject(primitiveType);
-            var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+            var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
             Assert.Equal(primitiveType.AsDouble, deserialized!.AsDouble, precision: 10);
         }
     }
 
     [Fact]
-    public void PrimitiveType_EdgeCase_NaNDouble_HandledCorrectly()
+    public void Primitive_EdgeCase_NaNDouble_HandledCorrectly()
     {
         // Arrange
-        var primitiveType = new PrimitiveType(double.NaN);
+        var primitiveType = new Primitive(double.NaN);
 
         // Act & Assert
-        Assert.Equal(PrimitiveTypeKind.Double, primitiveType.Kind);
+        Assert.Equal(PrimitiveKind.Double, primitiveType.Kind);
         Assert.True(double.IsNaN(primitiveType.AsDouble));
 
         // NaN has special equality behavior
-        var other = new PrimitiveType(double.NaN);
+        var other = new Primitive(double.NaN);
         Assert.False(primitiveType.Equals(other)); // NaN != NaN
     }
 
     [Fact]
-    public void PrimitiveType_Performance_ManyCreationsAndAccesses()
+    public void Primitive_Performance_ManyCreationsAndAccesses()
     {
         // Arrange
         const int iterationCount = 10000;
@@ -1079,10 +1079,10 @@ public class PrimitiveTypeTests
         // Act
         for (int i = 0; i < iterationCount; i++)
         {
-            var stringType = new PrimitiveType($"string_{i}");
-            var intType = new PrimitiveType(i);
-            var doubleType = new PrimitiveType((double)i);
-            var byteType = new PrimitiveType(new[] { (byte)i });
+            var stringType = new Primitive($"string_{i}");
+            var intType = new Primitive(i);
+            var doubleType = new Primitive((double)i);
+            var byteType = new Primitive(new[] { (byte)i });
 
             // Access values
             var _ = stringType.AsString;
@@ -1099,11 +1099,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_StressTest_ManyEqualityComparisons()
+    public void Primitive_StressTest_ManyEqualityComparisons()
     {
         // Arrange
         const int comparisonCount = 1000;
-        var types = new PrimitiveType[]
+        var types = new Primitive[]
         {
             new("test"),
             new(42L),
@@ -1134,11 +1134,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_StressTest_JsonSerializationPerformance()
+    public void Primitive_StressTest_JsonSerializationPerformance()
     {
         // Arrange
         const int serializationCount = 1000;
-        var testTypes = new PrimitiveType[]
+        var testTypes = new Primitive[]
         {
             new("serialization test"),
             new(999L),
@@ -1154,7 +1154,7 @@ public class PrimitiveTypeTests
             foreach (var type in testTypes)
             {
                 var json = JsonConvert.SerializeObject(type);
-                var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+                var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
                 Assert.Equal(type, deserialized);
             }
         }
@@ -1167,14 +1167,14 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_IntegrationTest_ComplexScenario()
+    public void Primitive_IntegrationTest_ComplexScenario()
     {
         // Arrange - Complex scenario with all types and operations
-        var stringType = new PrimitiveType("integration test");
-        var boolType = new PrimitiveType(false);
-        var intType = new PrimitiveType(42L);
-        var doubleType = new PrimitiveType(3.14159);
-        var byteType = new PrimitiveType("Hello"u8.ToArray()); // "Hello"
+        var stringType = new Primitive("integration test");
+        var boolType = new Primitive(false);
+        var intType = new Primitive(42L);
+        var doubleType = new Primitive(3.14159);
+        var byteType = new Primitive("Hello"u8.ToArray()); // "Hello"
 
         var allTypes = new[] { stringType, boolType, intType, doubleType, byteType };
 
@@ -1208,11 +1208,11 @@ public class PrimitiveTypeTests
 
             // Test JSON serialization
             var json = JsonConvert.SerializeObject(type);
-            var deserialized = JsonConvert.DeserializeObject<PrimitiveType>(json);
+            var deserialized = JsonConvert.DeserializeObject<Primitive>(json);
             Assert.Equal(type, deserialized);
 
             // Test equality and hash codes
-            var copy = new PrimitiveType(type);
+            var copy = new Primitive(type);
             Assert.Equal(type, copy);
             Assert.Equal(type.GetHashCode(), copy.GetHashCode());
         }
@@ -1229,10 +1229,10 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_ThreadSafety_ConcurrentOperations()
+    public void Primitive_ThreadSafety_ConcurrentOperations()
     {
         // Arrange
-        var sharedType = new PrimitiveType("thread safety test");
+        var sharedType = new Primitive("thread safety test");
         const int taskCount = 10;
         const int operationsPerTask = 100;
 
@@ -1241,7 +1241,7 @@ public class PrimitiveTypeTests
         {
             for (int i = 0; i < operationsPerTask; i++)
             {
-                // Test concurrent read operations (PrimitiveType should be immutable)
+                // Test concurrent read operations (Primitive should be immutable)
                 var _ = sharedType.Kind;
                 var __ = sharedType.AsString;
                 var ___ = sharedType.ToString();
@@ -1265,7 +1265,7 @@ public class PrimitiveTypeTests
 
                 // Test JSON serialization
                 var json = JsonConvert.SerializeObject(sharedType);
-                JsonConvert.DeserializeObject<PrimitiveType>(json);
+                JsonConvert.DeserializeObject<Primitive>(json);
             }
         })).ToArray();
 
@@ -1278,11 +1278,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsByteSpan_ReturnsCorrectSpan()
+    public void Primitive_AsByteSpan_ReturnsCorrectSpan()
     {
         // Arrange
         var testBytes = new byte[] { 1, 2, 3, 4, 5 };
-        var primitiveType = new PrimitiveType(testBytes);
+        var primitiveType = new Primitive(testBytes);
 
         // Act
         var span = primitiveType.AsByteSpan;
@@ -1293,11 +1293,11 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_AsByteSpan_IsReadOnly()
+    public void Primitive_AsByteSpan_IsReadOnly()
     {
         // Arrange
         var testBytes = new byte[] { 1, 2, 3 };
-        var primitiveType = new PrimitiveType(testBytes);
+        var primitiveType = new Primitive(testBytes);
 
         // Act
         var span = primitiveType.AsByteSpan;
@@ -1312,45 +1312,45 @@ public class PrimitiveTypeTests
     }
 
     [Fact]
-    public void PrimitiveType_CopyConstructor_WithNullArgument_ThrowsArgumentNullException()
+    public void Primitive_CopyConstructor_WithNullArgument_ThrowsArgumentNullException()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new PrimitiveType((PrimitiveType)null!));
+        Assert.Throws<ArgumentNullException>(() => new Primitive((Primitive)null!));
     }
 
     [Fact]
-    public void PrimitiveType_ByteArrayConstructor_WithNullArray_ThrowsArgumentNullException()
+    public void Primitive_ByteArrayConstructor_WithNullArray_ThrowsArgumentNullException()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new PrimitiveType((byte[])null!));
+        Assert.Throws<ArgumentNullException>(() => new Primitive((byte[])null!));
     }
 
     [Fact]
-    public void PrimitiveType_StringConstructor_WithNullString_ThrowsArgumentNullException()
+    public void Primitive_StringConstructor_WithNullString_ThrowsArgumentNullException()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new PrimitiveType((string)null!));
+        Assert.Throws<ArgumentNullException>(() => new Primitive((string)null!));
     }
 
     [Fact]
-    public void PrimitiveType_AllKinds_CoveredByTests()
+    public void Primitive_AllKinds_CoveredByTests()
     {
-        // Arrange & Act - Create instances of all PrimitiveTypeKind values
-        var stringType = new PrimitiveType("test");
-        var booleanType = new PrimitiveType(true);
-        var integerType = new PrimitiveType(42L);
-        var doubleType = new PrimitiveType(3.14);
-        var byteArrayType = new PrimitiveType(new byte[] { 1, 2, 3 });
+        // Arrange & Act - Create instances of all PrimitiveKind values
+        var stringType = new Primitive("test");
+        var booleanType = new Primitive(true);
+        var integerType = new Primitive(42L);
+        var doubleType = new Primitive(3.14);
+        var byteArrayType = new Primitive(new byte[] { 1, 2, 3 });
 
         // Assert - All enum values are covered
-        Assert.Equal(PrimitiveTypeKind.String, stringType.Kind);
-        Assert.Equal(PrimitiveTypeKind.Boolean, booleanType.Kind);
-        Assert.Equal(PrimitiveTypeKind.Integer, integerType.Kind);
-        Assert.Equal(PrimitiveTypeKind.Double, doubleType.Kind);
-        Assert.Equal(PrimitiveTypeKind.ByteArray, byteArrayType.Kind);
+        Assert.Equal(PrimitiveKind.String, stringType.Kind);
+        Assert.Equal(PrimitiveKind.Boolean, booleanType.Kind);
+        Assert.Equal(PrimitiveKind.Integer, integerType.Kind);
+        Assert.Equal(PrimitiveKind.Double, doubleType.Kind);
+        Assert.Equal(PrimitiveKind.ByteArray, byteArrayType.Kind);
 
         // Verify all enum values are tested (this ensures we don't miss new kinds)
-        var testedKinds = new HashSet<PrimitiveTypeKind>
+        var testedKinds = new HashSet<PrimitiveKind>
         {
             stringType.Kind,
             booleanType.Kind,
@@ -1359,7 +1359,7 @@ public class PrimitiveTypeTests
             byteArrayType.Kind
         };
 
-        var allKinds = Enum.GetValues<PrimitiveTypeKind>().ToHashSet();
+        var allKinds = Enum.GetValues<PrimitiveKind>().ToHashSet();
         Assert.Equal(allKinds, testedKinds);
     }
 }

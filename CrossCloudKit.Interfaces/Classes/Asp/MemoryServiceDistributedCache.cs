@@ -32,7 +32,7 @@ public class MemoryServiceDistributedCache(IMemoryService memoryService, IMemory
             if (!result.IsSuccessful || result.Data == null)
                 return null;
 
-            return result.Data.Kind == PrimitiveTypeKind.ByteArray
+            return result.Data.Kind == PrimitiveKind.ByteArray
                 ? result.Data.AsByteArray
                 : null;
         }
@@ -77,9 +77,9 @@ public class MemoryServiceDistributedCache(IMemoryService memoryService, IMemory
 
             await memoryService.SetKeyValuesAsync(
                 scope, [
-                    new KeyValuePair<string, PrimitiveType>(KeyAttribute, new PrimitiveType(value)),
-                    new KeyValuePair<string, PrimitiveType>(OriginalTtlAttribute,
-                        new PrimitiveType(expirationSpan.HasValue
+                    new KeyValuePair<string, Primitive>(KeyAttribute, new Primitive(value)),
+                    new KeyValuePair<string, Primitive>(OriginalTtlAttribute,
+                        new Primitive(expirationSpan.HasValue
                             ? expirationSpan.Value.ToString("c")
                             : InfiniteTtlValue))
                 ],

@@ -153,7 +153,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         }
     }
 
-    private bool EvaluateCondition(JObject item, ConditionCoupling condition)
+    private static bool EvaluateCondition(JObject item, ConditionCoupling condition)
     {
         return condition.CouplingType switch
         {
@@ -167,7 +167,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         };
     }
 
-    private bool EvaluateSingleCondition(JObject item, Condition condition)
+    private static bool EvaluateSingleCondition(JObject item, Condition condition)
     {
         return condition.ConditionType switch
         {
@@ -201,7 +201,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         };
     }
 
-    private bool EvaluateArrayElementCondition(JObject item, ArrayCondition condition)
+    private static bool EvaluateArrayElementCondition(JObject item, ArrayCondition condition)
     {
         if (!item.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
         {

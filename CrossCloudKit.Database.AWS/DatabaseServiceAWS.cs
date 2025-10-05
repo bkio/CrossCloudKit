@@ -633,6 +633,43 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
             }
 
+            // For nested paths, ensure intermediate parent objects exist first
+            var pathSegments = ParseAttributePath(arrayAttributeName);
+            if (pathSegments.Length > 1)
+            {
+                // Create intermediate paths one by one, from shallowest to deepest
+                for (int i = 0; i < pathSegments.Length - 1; i++)
+                {
+                    var ensurePathRequest = new UpdateItemRequest
+                    {
+                        TableName = GetTableName(tableName, key),
+                        Key = new Dictionary<string, AttributeValue>
+                        {
+                            [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
+                        },
+                        ExpressionAttributeNames = new Dictionary<string, string>(),
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>()
+                    };
+
+                    var pathAttrIndex = 0;
+                    var partialPath = string.Join(".", pathSegments.Take(i + 1));
+                    var pathExpression = BuildNestedAttributeExpression(partialPath, ensurePathRequest.ExpressionAttributeNames, ref pathAttrIndex);
+                    var emptyObjPlaceholder = ":empty_obj";
+
+                    ensurePathRequest.ExpressionAttributeValues[emptyObjPlaceholder] = new AttributeValue { M = new Dictionary<string, AttributeValue>() };
+                    ensurePathRequest.UpdateExpression = $"SET {pathExpression} = if_not_exists({pathExpression}, {emptyObjPlaceholder})";
+
+                    try
+                    {
+                        await _dynamoDbClient.UpdateItemAsync(ensurePathRequest, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        return OperationResult<JObject?>.Failure($"Failed to create intermediate path '{partialPath}': {ex.Message}", HttpStatusCode.InternalServerError);
+                    }
+                }
+            }
+
             var request = new UpdateItemRequest
             {
                 TableName = GetTableName(tableName, key),
@@ -665,7 +702,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 [":empty_list"] = new() { L = [] }
             };
 
-            BuildConditionExpression(conditions, request);
+            // Build condition expression with proper index to avoid conflicts
+            var conditionIndex = index;
+            BuildConditionExpression(conditions, request, ref conditionIndex);
 
             var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
             if (!isCalledFromPostInsert)
@@ -821,6 +860,45 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 return OperationResult<double>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
             }
 
+            // For nested paths, ensure intermediate parent objects exist first
+            // We need to create them one at a time from shallowest to deepest to avoid path overlap
+            var pathSegments = ParseAttributePath(numericAttributeName);
+            if (pathSegments.Length > 1)
+            {
+                // Create intermediate paths one by one, from shallowest to deepest
+                for (int i = 0; i < pathSegments.Length - 1; i++)
+                {
+                    var ensurePathRequest = new UpdateItemRequest
+                    {
+                        TableName = GetTableName(tableName, key),
+                        Key = new Dictionary<string, AttributeValue>
+                        {
+                            [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
+                        },
+                        ExpressionAttributeNames = new Dictionary<string, string>(),
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>()
+                    };
+
+                    var pathAttrIndex = 0;
+                    var partialPath = string.Join(".", pathSegments.Take(i + 1));
+                    var pathExpression = BuildNestedAttributeExpression(partialPath, ensurePathRequest.ExpressionAttributeNames, ref pathAttrIndex);
+                    var emptyObjPlaceholder = ":empty_obj";
+
+                    ensurePathRequest.ExpressionAttributeValues[emptyObjPlaceholder] = new AttributeValue { M = new Dictionary<string, AttributeValue>() };
+                    ensurePathRequest.UpdateExpression = $"SET {pathExpression} = if_not_exists({pathExpression}, {emptyObjPlaceholder})";
+
+                    try
+                    {
+                        await _dynamoDbClient.UpdateItemAsync(ensurePathRequest, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        return OperationResult<double>.Failure($"Failed to create intermediate path '{partialPath}': {ex.Message}", HttpStatusCode.InternalServerError);
+                    }
+                }
+            }
+
+            // Now perform the increment operation
             var request = new UpdateItemRequest
             {
                 TableName = GetTableName(tableName, key),
@@ -842,7 +920,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             var numericAttrExpression = BuildNestedAttributeExpression(numericAttributeName, request.ExpressionAttributeNames, ref attrIndex);
             request.UpdateExpression = $"SET {numericAttrExpression} = if_not_exists({numericAttrExpression}, :start) + :incr";
 
-            BuildConditionExpression(conditions, request);
+            // Build condition expression - use existing index to avoid placeholder conflicts
+            BuildConditionExpression(conditions, request, ref attrIndex);
 
             var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
 
@@ -1458,30 +1537,27 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     private static bool EvaluateSingleCondition(JObject jsonObject, Condition condition)
     {
         // Handle size() function specially
-        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(")"))
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(')'))
         {
             var innerAttribute = condition.AttributeName[5..^1]; // Remove "size(" and ")"
-            var token = NavigateToNestedProperty(jsonObject, innerAttribute);
 
-            if (token is JArray array)
+            var token = NavigateToNestedProperty(jsonObject, innerAttribute);
+            if (token is not JArray array) return false;
+
+            var arraySize = array.Count;
+            if (condition is not ValueCondition valueCondition) return false;
+
+            var expectedSize = valueCondition.Value.AsInteger;
+            return condition.ConditionType switch
             {
-                var arraySize = array.Count;
-                if (condition is ValueCondition valueCondition)
-                {
-                    var expectedSize = valueCondition.Value.AsInteger;
-                    return condition.ConditionType switch
-                    {
-                        ConditionType.AttributeEquals => arraySize == expectedSize,
-                        ConditionType.AttributeNotEquals => arraySize != expectedSize,
-                        ConditionType.AttributeGreater => arraySize > expectedSize,
-                        ConditionType.AttributeGreaterOrEqual => arraySize >= expectedSize,
-                        ConditionType.AttributeLess => arraySize < expectedSize,
-                        ConditionType.AttributeLessOrEqual => arraySize <= expectedSize,
-                        _ => false
-                    };
-                }
-            }
-            return false;
+                ConditionType.AttributeEquals => arraySize == expectedSize,
+                ConditionType.AttributeNotEquals => arraySize != expectedSize,
+                ConditionType.AttributeGreater => arraySize > expectedSize,
+                ConditionType.AttributeGreaterOrEqual => arraySize >= expectedSize,
+                ConditionType.AttributeLess => arraySize < expectedSize,
+                ConditionType.AttributeLessOrEqual => arraySize <= expectedSize,
+                _ => false
+            };
         }
 
         return condition.ConditionType switch
@@ -1494,16 +1570,14 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         };
     }
 
-    private static void BuildConditionExpression(ConditionCoupling? conditions, UpdateItemRequest request)
+    private static void BuildConditionExpression(ConditionCoupling? conditions, UpdateItemRequest request, ref int startIndex)
     {
         if (conditions == null) return;
 
-        // Start index from a base to avoid conflicts with other placeholders
-        var index = 1000; // Use high starting number to avoid conflicts
         request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
         request.ExpressionAttributeNames ??= new Dictionary<string, string>();
 
-        var conditionExpression = BuildConditionExpressionRecursive(conditions, request, ref index);
+        var conditionExpression = BuildConditionExpressionRecursive(conditions, request, ref startIndex);
 
         if (!string.IsNullOrEmpty(conditionExpression))
         {
@@ -1694,7 +1768,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             return string.Empty;
 
         // Handle DynamoDB function syntax (e.g., size(attributeName))
-        if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(')'))
         {
             // Extract the inner attribute name from size(attributeName)
             var innerAttribute = attributePath[5..^1]; // Remove "size(" and ")"
@@ -1741,9 +1815,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
         {
             var innerAttribute = attributePath[5..^1]; // Remove "size(" and ")"
-            if (string.IsNullOrWhiteSpace(innerAttribute))
-                return false;
-            return IsValidAttributePath(innerAttribute); // Recursively validate the inner attribute
+            return !string.IsNullOrWhiteSpace(innerAttribute) && IsValidAttributePath(innerAttribute); // Recursively validate the inner attribute
         }
 
         // Basic format checks
@@ -1844,7 +1916,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         // Ensure ExpressionAttributeNames is initialized
         finalExpression.ExpressionAttributeNames ??= new Dictionary<string, string>();
 
-        // Build nested attribute expression with proper DynamoDB syntax
+        // Build a nested attribute expression with proper DynamoDB syntax
         var attrExpression = BuildNestedAttributeExpression(condition.AttributeName, finalExpression.ExpressionAttributeNames, ref index);
 
         if (string.IsNullOrEmpty(attrExpression))
@@ -1871,7 +1943,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             };
         }
 
-        string? expressionStatement = condition.ConditionType switch
+        var expressionStatement = condition.ConditionType switch
         {
             ConditionType.AttributeExists => $"attribute_exists({attrExpression})",
             ConditionType.AttributeNotExists => $"attribute_not_exists({attrExpression})",
@@ -2077,7 +2149,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Builds proper nested update structure for array operations with nested paths
+    /// Builds a proper nested update structure for array operations with nested paths
     /// </summary>
     private static JObject BuildNestedUpdateStructure(string arrayAttributeName, JArray updatedArray)
     {
@@ -2094,9 +2166,9 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
         // Build nested structure
         var result = new JObject();
-        JObject current = result;
+        var current = result;
 
-        for (int i = 0; i < pathSegments.Length - 1; i++)
+        for (var i = 0; i < pathSegments.Length - 1; i++)
         {
             var nestedObj = new JObject();
             current[pathSegments[i]] = nestedObj;
@@ -2184,36 +2256,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Creates a condition that checks if an array attribute has a specific size.
-    /// Uses DynamoDB's size() function which is supported for arrays and other types.
-    /// </summary>
-    public Condition ArrayHasSize(string attributeName, int expectedSize)
-    {
-        ValidateAttributeName(attributeName);
-        if (expectedSize < 0)
-            throw new ArgumentException("Array size must be non-negative", nameof(expectedSize));
-        return new ValueCondition(ConditionType.AttributeEquals, $"size({attributeName})", new Utilities.Common.Primitive(expectedSize));
-    }
-
-    /// <summary>
-    /// Creates a condition that checks if an array attribute is empty (size = 0).
-    /// </summary>
-    public Condition ArrayIsEmpty(string attributeName)
-    {
-        ValidateAttributeName(attributeName);
-        return ArrayHasSize(attributeName, 0);
-    }
-
-    /// <summary>
-    /// Creates a condition that checks if an array attribute is not empty (size > 0).
-    /// </summary>
-    public Condition ArrayIsNotEmpty(string attributeName)
-    {
-        ValidateAttributeName(attributeName);
-        return new ValueCondition(ConditionType.AttributeGreater, $"size({attributeName})", new Utilities.Common.Primitive(0));
-    }
-
-    /// <summary>
     /// Validates an attribute name for use in conditions and operations.
     /// Throws ArgumentException if the attribute name is invalid.
     /// </summary>
@@ -2224,7 +2266,7 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             throw new ArgumentException($"Invalid attribute name: '{attributeName}'. " +
                 "Attribute names must be well-formed paths for nested objects or DynamoDB functions like size(). " +
                 "Examples: 'Name', 'User.Email', 'User.Address.Street', 'size(Tags)'. " +
-                "For arrays, use ArrayElementExists() or ArrayElementNotExists() conditions instead of array[index] syntax.",
+                "For arrays, use ArrayElementExists or ArrayElementNotExists conditions instead of array[index] syntax.",
                 nameof(attributeName));
         }
     }

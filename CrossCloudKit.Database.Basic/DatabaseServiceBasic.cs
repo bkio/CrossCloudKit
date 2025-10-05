@@ -153,6 +153,148 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Parses an attribute path into segments for nested object navigation.
+    /// Supports dot notation like "User.Name" or "Account.Settings.Theme"
+    /// </summary>
+    private static string[] ParseAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return [];
+
+        // Validate that path doesn't contain array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+        {
+            throw new ArgumentException(
+                $"Array indexing syntax (e.g., 'array[0]') is not supported. " +
+                $"Use ArrayElementExists() or ArrayElementNotExists() conditions instead. Path: '{attributePath}'");
+        }
+
+        // Split on dots and validate each segment
+        var segments = attributePath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (string.IsNullOrWhiteSpace(segment))
+                throw new ArgumentException($"Empty segment in attribute path: '{attributePath}'");
+
+            // Validate segment contains only valid characters
+            if (segment.Any(c => char.IsControl(c) || c == '"' || c == '\'' || c == '`'))
+                throw new ArgumentException($"Invalid characters in attribute segment '{segment}' in path: '{attributePath}'");
+        }
+
+        return segments;
+    }
+
+    /// <summary>
+    /// Navigates to a nested property in a JSON object using dot notation.
+    /// Examples: "User.Name", "Account.Settings.Theme"
+    /// </summary>
+    private static JToken? NavigateToNestedProperty(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return null;
+
+        try
+        {
+            var pathSegments = ParseAttributePath(attributePath);
+            JToken current = jsonObject;
+
+            foreach (var segment in pathSegments)
+            {
+                if (current is JObject currentObj)
+                {
+                    if (!currentObj.TryGetValue(segment, out var next))
+                        return null;
+                    current = next;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a nested property exists in a JSON object
+    /// </summary>
+    private static bool NestedPropertyExists(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        return NavigateToNestedProperty(jsonObject, attributePath) != null;
+    }
+
+    /// <summary>
+    /// Validates an attribute name for use in conditions and operations
+    /// </summary>
+    private static bool IsValidAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        // Handle size() function syntax
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
+        {
+            var innerAttribute = attributePath[5..^1];
+            return !string.IsNullOrWhiteSpace(innerAttribute) && IsValidAttributePath(innerAttribute);
+        }
+
+        // Basic format checks
+        if (attributePath.StartsWith('.') || attributePath.EndsWith('.') || attributePath.Contains(".."))
+            return false;
+
+        // Reject array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+            return false;
+
+        // Check for invalid characters
+        if (attributePath.Any(c => char.IsControl(c) || c == '\n' || c == '\r' || c == '\t'))
+            return false;
+
+        try
+        {
+            var segments = ParseAttributePath(attributePath);
+            if (segments.Length == 0)
+                return false;
+
+            foreach (var segment in segments)
+            {
+                if (string.IsNullOrWhiteSpace(segment) || segment.Length > 255)
+                    return false;
+            }
+
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Validates an attribute name and throws if invalid
+    /// </summary>
+    private static void ValidateAttributeName(string attributeName)
+    {
+        if (!IsValidAttributePath(attributeName))
+        {
+            throw new ArgumentException($"Invalid attribute name: '{attributeName}'. " +
+                "Attribute names must be well-formed paths for nested objects. " +
+                "Examples: 'Name', 'User.Email', 'User.Address.Street', 'size(Tags)'. " +
+                "For arrays, use ArrayElementExists or ArrayElementNotExists conditions.",
+                nameof(attributeName));
+        }
+    }
+
     private static bool EvaluateCondition(JObject item, ConditionCoupling condition)
     {
         return condition.CouplingType switch
@@ -169,10 +311,33 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
     private static bool EvaluateSingleCondition(JObject item, Condition condition)
     {
+        // Handle size() function specially
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(')'))
+        {
+            var innerAttribute = condition.AttributeName[5..^1];
+            var token = NavigateToNestedProperty(item, innerAttribute);
+            if (token is not JArray array) return false;
+
+            var arraySize = array.Count;
+            if (condition is not ValueCondition valueCondition) return false;
+
+            var expectedSize = valueCondition.Value.AsInteger;
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals => arraySize == expectedSize,
+                ConditionType.AttributeNotEquals => arraySize != expectedSize,
+                ConditionType.AttributeGreater => arraySize > expectedSize,
+                ConditionType.AttributeGreaterOrEqual => arraySize >= expectedSize,
+                ConditionType.AttributeLess => arraySize < expectedSize,
+                ConditionType.AttributeLessOrEqual => arraySize <= expectedSize,
+                _ => false
+            };
+        }
+
         return condition.ConditionType switch
         {
-            ConditionType.AttributeExists => item.ContainsKey(condition.AttributeName),
-            ConditionType.AttributeNotExists => !item.ContainsKey(condition.AttributeName),
+            ConditionType.AttributeExists => NestedPropertyExists(item, condition.AttributeName),
+            ConditionType.AttributeNotExists => !NestedPropertyExists(item, condition.AttributeName),
             _ when condition is ValueCondition valueCondition => EvaluateValueCondition(item, valueCondition),
             _ when condition is ArrayCondition arrayCondition => EvaluateArrayElementCondition(item, arrayCondition),
             _ => false
@@ -181,7 +346,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
     private static bool EvaluateValueCondition(JObject item, ValueCondition condition)
     {
-        if (!item.TryGetValue(condition.AttributeName, out var token))
+        var token = NavigateToNestedProperty(item, condition.AttributeName);
+        if (token == null)
         {
             return false;
         }
@@ -203,7 +369,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
     private static bool EvaluateArrayElementCondition(JObject item, ArrayCondition condition)
     {
-        if (!item.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
+        var token = NavigateToNestedProperty(item, condition.AttributeName);
+        if (token is not JArray array)
         {
             return condition.ConditionType == ConditionType.ArrayElementNotExists;
         }
@@ -484,10 +651,34 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             var noExistingItem = existingItem == null;
             existingItem ??= new JObject();
 
-            if (!existingItem.TryGetValue(arrayAttributeName, out var arrayToken))
+            // Handle nested paths
+            var pathSegments = ParseAttributePath(arrayAttributeName);
+            JToken current = existingItem;
+
+            // Navigate/create intermediate objects
+            for (var i = 0; i < pathSegments.Length - 1; i++)
+            {
+                var segment = pathSegments[i];
+                if (current is not JObject currentObj)
+                    return OperationResult<JObject?>.Failure($"Path segment '{segment}' is not an object", HttpStatusCode.BadRequest);
+
+                if (!currentObj.TryGetValue(segment, out var next) || next.Type == JTokenType.Null)
+                {
+                    next = new JObject();
+                    currentObj[segment] = next;
+                }
+                current = next;
+            }
+
+            // Get or create the array at the final segment
+            var finalSegment = pathSegments[^1];
+            if (current is not JObject finalObj)
+                return OperationResult<JObject?>.Failure($"Cannot access property '{finalSegment}'", HttpStatusCode.BadRequest);
+
+            if (!finalObj.TryGetValue(finalSegment, out var arrayToken) || arrayToken.Type == JTokenType.Null)
             {
                 arrayToken = new JArray();
-                existingItem[arrayAttributeName] = arrayToken;
+                finalObj[finalSegment] = arrayToken;
             }
 
             if (arrayToken is JArray array)
@@ -497,6 +688,10 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                     var jToken = PrimitiveToJToken(element);
                     array.Add(jToken);
                 }
+            }
+            else
+            {
+                return OperationResult<JObject?>.Failure($"Attribute '{arrayAttributeName}' exists but is not an array", HttpStatusCode.BadRequest);
             }
 
             var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
@@ -577,7 +772,9 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 ApplyOptions(returnItem);
             }
 
-            if (existingItem.TryGetValue(arrayAttributeName, out var arrayToken) && arrayToken is JArray array)
+            // Handle nested paths
+            var arrayToken = NavigateToNestedProperty(existingItem, arrayAttributeName);
+            if (arrayToken is JArray array)
             {
                 foreach (var element in elementsToRemove)
                 {
@@ -639,8 +836,32 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             var noExistingItem = existingItem == null;
             existingItem ??= new JObject();
 
+            // Handle nested paths
+            var pathSegments = ParseAttributePath(numericAttributeName);
+            JToken current = existingItem;
+
+            // Navigate/create intermediate objects
+            for (var i = 0; i < pathSegments.Length - 1; i++)
+            {
+                var segment = pathSegments[i];
+                if (current is not JObject currentObj)
+                    return OperationResult<double>.Failure($"Path segment '{segment}' is not an object", HttpStatusCode.BadRequest);
+
+                if (!currentObj.TryGetValue(segment, out var next))
+                {
+                    next = new JObject();
+                    currentObj[segment] = next;
+                }
+                current = next;
+            }
+
+            // Get current value and increment
+            var finalSegment = pathSegments[^1];
+            if (current is not JObject finalObj)
+                return OperationResult<double>.Failure($"Cannot access property '{finalSegment}'", HttpStatusCode.BadRequest);
+
             var currentValue = 0.0;
-            if (existingItem.TryGetValue(numericAttributeName, out var token))
+            if (finalObj.TryGetValue(finalSegment, out var token))
             {
                 currentValue = token.Type switch
                 {
@@ -651,7 +872,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             }
 
             var newValue = currentValue + incrementValue;
-            existingItem[numericAttributeName] = newValue;
+            finalObj[finalSegment] = newValue;
 
             var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
             if (noExistingItem)
@@ -1126,44 +1347,74 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     #region Condition Builders
 
     /// <inheritdoc />
-    public override Condition AttributeExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    }
 
     #endregion
 

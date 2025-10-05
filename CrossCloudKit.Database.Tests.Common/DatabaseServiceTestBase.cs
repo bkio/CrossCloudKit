@@ -4759,18 +4759,12 @@ public abstract class DatabaseServiceTestBase
                 .And(service.AttributeExists("Details.Config")) // nested exists
                 .And(service.AttributeIsLessOrEqual("Details.Config.RetryCount", new Primitive(5L))); // deep nested comparison
 
-            var updateData = new JObject
-            {
-                ["Status"] = "processing",
-                ["CompletedAt"] = DateTime.UtcNow.ToString("O"),
-                ["Details"] = new JObject
-                {
-                    ["ProcessedBy"] = "worker-1"
-                }
-            };
+            item["Status"] = "processing";
+            item["CompletedAt"] = DateTime.UtcNow.ToString("O");
+            item["Details"]!["ProcessedBy"] = "worker-1";
 
             var updateResult = await service.UpdateItemAsync(
-                tableName, new DbKey(keyName, keyValue), updateData,
+                tableName, new DbKey(keyName, keyValue), item,
                 DbReturnItemBehavior.ReturnNewValues, updateCondition);
 
             updateResult.IsSuccessful.Should().BeTrue("Should update when mixed conditions are satisfied");
@@ -4787,11 +4781,365 @@ public abstract class DatabaseServiceTestBase
                 .And(service.AttributeExists("CompletedAt")) // flat (added)
                 .And(service.AttributeExists("Details.ProcessedBy")); // nested exists (more lenient)
 
-            var incrementResult = await service.IncrementAttributeAsync(
-                tableName, new DbKey(keyName, keyValue), "Details.Config.RetryCount", 2.0, incrementCondition);
+            var incrementResult1 = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Details.Config.RetryCount", 5.0, incrementCondition);
 
-            incrementResult.IsSuccessful.Should().BeTrue("Should increment when mixed conditions after update are satisfied");
-            incrementResult.Data.Should().Be(5.0);
+            incrementResult1.IsSuccessful.Should().BeTrue("Should increment when mixed conditions after update are satisfied");
+            incrementResult1.Data.Should().Be(8.0);
+
+            //Just a custom test to ensure if a nested attribute does not exist it creates and assignes.
+            var incrementResult2 = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Details.ConfigTest.CustomTest", 2.0, incrementCondition);
+
+            incrementResult2.IsSuccessful.Should().BeTrue("Should increment when mixed conditions after update are satisfied");
+            incrementResult2.Data.Should().Be(2.0);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task NestedConditions_WithScanOperations_ShouldFilterCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        const string keyName = "Id";
+
+        try
+        {
+            var items = new[]
+            {
+                new JObject
+                {
+                    ["Key"] = "nested-scan-1",
+                    ["Name"] = "Alice",
+                    ["Profile"] = new JObject
+                    {
+                        ["Tier"] = "premium",
+                        ["Account"] = new JObject
+                        {
+                            ["Balance"] = 1500.0,
+                            ["Status"] = "active"
+                        }
+                    }
+                },
+                new JObject
+                {
+                    ["Key"] = "nested-scan-2",
+                    ["Name"] = "Bob",
+                    ["Profile"] = new JObject
+                    {
+                        ["Tier"] = "standard",
+                        ["Account"] = new JObject
+                        {
+                            ["Balance"] = 500.0,
+                            ["Status"] = "active"
+                        }
+                    }
+                },
+                new JObject
+                {
+                    ["Key"] = "nested-scan-3",
+                    ["Name"] = "Charlie",
+                    ["Profile"] = new JObject
+                    {
+                        ["Tier"] = "premium",
+                        ["Account"] = new JObject
+                        {
+                            ["Balance"] = 2000.0,
+                            ["Status"] = "inactive"
+                        }
+                    }
+                },
+                new JObject
+                {
+                    ["Key"] = "nested-scan-4",
+                    ["Name"] = "Diana",
+                    ["Profile"] = new JObject
+                    {
+                        ["Tier"] = "premium",
+                        ["Account"] = new JObject
+                        {
+                            ["Balance"] = 1000.0,
+                            ["Status"] = "active"
+                        }
+                    }
+                },
+                new JObject
+                {
+                    ["Key"] = "nested-scan-5",
+                    ["Name"] = "Eve",
+                    ["Profile"] = new JObject
+                    {
+                        ["Tier"] = "standard",
+                        ["Account"] = new JObject
+                        {
+                            ["Balance"] = 300.0,
+                            ["Status"] = "active"
+                        }
+                    }
+                }
+            };
+
+            foreach (var item in items)
+            {
+                var key = item["Key"]!.ToString();
+                await service.PutItemAsync(
+                    tableName,
+                    new DbKey(keyName, new Primitive(key)),
+                    item
+                );
+            }
+
+            // Test 1: Scan with simple nested condition
+            var premiumFilter = service.AttributeEquals("Profile.Tier", new Primitive("premium"));
+            var premiumResult = await service.ScanTableWithFilterAsync(tableName, premiumFilter);
+
+            premiumResult.IsSuccessful.Should().BeTrue("Should scan with simple nested condition");
+            premiumResult.Data.Items.Count.Should().Be(3, "Should find 3 premium users");
+
+            foreach (var item in premiumResult.Data.Items)
+            {
+                item["Profile"]!["Tier"]?.ToString().Should().Be("premium", "All returned items should be premium tier");
+            }
+
+            // Test 2: Scan with deep nested condition
+            var activeAccountFilter = service.AttributeEquals("Profile.Account.Status", new Primitive("active"));
+            var activeAccountResult = await service.ScanTableWithFilterAsync(tableName, activeAccountFilter);
+
+            activeAccountResult.IsSuccessful.Should().BeTrue("Should scan with deep nested condition");
+            activeAccountResult.Data.Items.Count.Should().Be(4, "Should find 4 users with active accounts");
+
+            foreach (var item in activeAccountResult.Data.Items)
+            {
+                item["Profile"]!["Account"]!["Status"]?.ToString().Should().Be("active", "All returned accounts should be active");
+            }
+
+            // Test 3: Scan with combined nested conditions (premium AND active)
+            var premiumActiveFilter = service.AttributeEquals("Profile.Tier", new Primitive("premium"))
+                .And(service.AttributeEquals("Profile.Account.Status", new Primitive("active")));
+            var premiumActiveResult = await service.ScanTableWithFilterAsync(tableName, premiumActiveFilter);
+
+            premiumActiveResult.IsSuccessful.Should().BeTrue("Should scan with combined nested conditions");
+            premiumActiveResult.Data.Items.Count.Should().Be(2, "Should find 2 premium users with active accounts");
+
+            foreach (var item in premiumActiveResult.Data.Items)
+            {
+                item["Profile"]!["Tier"]?.ToString().Should().Be("premium", "Should be premium tier");
+                item["Profile"]!["Account"]!["Status"]?.ToString().Should().Be("active", "Should have active account");
+            }
+
+            // Test 4: Scan with nested numeric condition
+            var highBalanceFilter = service.AttributeIsGreaterThan("Profile.Account.Balance", new Primitive(1000.0));
+            var highBalanceResult = await service.ScanTableWithFilterAsync(tableName, highBalanceFilter);
+
+            highBalanceResult.IsSuccessful.Should().BeTrue("Should scan with nested numeric condition");
+            highBalanceResult.Data.Items.Count.Should().Be(2, "Should find 2 users with balance > 1000 (Alice: 1500, Charlie: 2000; Diana: 1000 does not match)");
+
+            foreach (var item in highBalanceResult.Data.Items)
+            {
+                var balance = item["Profile"]!["Account"]!["Balance"]?.ToObject<double>();
+                balance.Should().BeGreaterThan(1000.0, "All balances should be greater than 1000");
+            }
+
+            // Test 5: Scan with complex nested condition (premium OR high balance) AND active
+            var complexFilter = service.AttributeEquals("Profile.Tier", new Primitive("premium"))
+                .Or(service.AttributeIsGreaterOrEqual("Profile.Account.Balance", new Primitive(1500.0)))
+                .And(service.AttributeEquals("Profile.Account.Status", new Primitive("active")));
+            var complexResult = await service.ScanTableWithFilterAsync(tableName, complexFilter);
+
+            complexResult.IsSuccessful.Should().BeTrue("Should scan with complex nested conditions");
+            complexResult.Data.Items.Count.Should().BeGreaterOrEqualTo(2, "Should find users matching complex criteria");
+
+            // Test 6: Verify scan returns proper nested structure
+            foreach (var item in complexResult.Data.Items)
+            {
+                item.Should().ContainKey("Profile", "Items should have Profile structure");
+                item["Profile"].Should().BeOfType<JObject>("Profile should be a nested object");
+                ((JObject)item["Profile"]!).ContainsKey("Account").Should().BeTrue("Profile should contain Account");
+                item["Profile"]!["Account"].Should().BeOfType<JObject>("Account should be a nested object");
+            }
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task NestedConditions_NullAndUndefinedHandling_ShouldWorkCorrectly()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = new Primitive($"null-undefined-test-{Guid.NewGuid():N}");
+
+        try
+        {
+            // Create test item with partial nested structure
+            var item = new JObject
+            {
+                ["Name"] = "NullUndefinedTest",
+                ["ExistingField"] = "value",
+                ["PartialNest"] = new JObject
+                {
+                    ["Level1"] = "exists",
+                    ["Level2"] = new JObject
+                    {
+                        ["Exists"] = true
+                        // Note: Level2.DoesNotExist is missing
+                        // Note: Level2.DeepNest is missing
+                    }
+                    // Note: PartialNest.MissingLevel is missing
+                }
+                // Note: CompletelyMissing is not in the object at all
+            };
+            await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item);
+
+            // Test 1: AttributeExists on existing nested path - should pass
+            var existsCondition1 = service.AttributeExists("PartialNest.Level1");
+            var existsResult1 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), existsCondition1);
+            existsResult1.IsSuccessful.Should().BeTrue("Should find existing nested attribute");
+            existsResult1.Data.Should().BeTrue();
+
+            // Test 2: AttributeExists on non-existent nested path (missing final property) - should fail
+            var existsCondition2 = service.AttributeExists("PartialNest.MissingLevel");
+            var existsResult2 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), existsCondition2);
+            existsResult2.IsSuccessful.Should().BeFalse("Should not find non-existent nested attribute");
+            existsResult2.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Test 3: AttributeNotExists on non-existent nested path - should pass
+            var notExistsCondition1 = service.AttributeNotExists("PartialNest.MissingLevel");
+            var notExistsResult1 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), notExistsCondition1);
+            notExistsResult1.IsSuccessful.Should().BeTrue("Should confirm nested attribute does not exist");
+            notExistsResult1.Data.Should().BeTrue();
+
+            // Test 4: AttributeNotExists on existing nested path - should fail
+            var notExistsCondition2 = service.AttributeNotExists("PartialNest.Level1");
+            var notExistsResult2 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), notExistsCondition2);
+            notExistsResult2.IsSuccessful.Should().BeFalse("Should fail because nested attribute exists");
+            notExistsResult2.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Test 5: AttributeExists on deep missing path (intermediate object missing)
+            var existsCondition3 = service.AttributeExists("CompletelyMissing.Level1.Level2");
+            var existsResult3 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), existsCondition3);
+            existsResult3.IsSuccessful.Should().BeFalse("Should not find deep missing nested path");
+            existsResult3.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Test 6: AttributeNotExists on deep missing path - should pass
+            var notExistsCondition3 = service.AttributeNotExists("CompletelyMissing.Level1.Level2");
+            var notExistsResult3 = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), notExistsCondition3);
+            notExistsResult3.IsSuccessful.Should().BeTrue("Should confirm deep missing nested path does not exist");
+            notExistsResult3.Data.Should().BeTrue();
+
+            // Test 7: Equality condition on non-existent nested path - should fail
+            var equalityCondition = service.AttributeEquals("PartialNest.MissingLevel", new Primitive("value"));
+            var equalityResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), equalityCondition);
+            equalityResult.IsSuccessful.Should().BeFalse("Should fail equality check on non-existent nested path");
+            equalityResult.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+
+            // Test 8: Update creating missing nested levels
+            var updateData = new JObject
+            {
+                ["NewTopLevel"] = new JObject
+                {
+                    ["NewMidLevel"] = new JObject
+                    {
+                        ["NewDeepLevel"] = "created"
+                    }
+                }
+            };
+
+            var updateResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), updateData,
+                DbReturnItemBehavior.ReturnNewValues);
+
+            updateResult.IsSuccessful.Should().BeTrue("Should create nested structure in update");
+            updateResult.Data!["NewTopLevel"]!["NewMidLevel"]!["NewDeepLevel"]?.ToString().Should().Be("created");
+
+            // Test 9: Increment on non-existent nested path (should create structure)
+            var incrementResult = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Stats.Score", 100.0);
+
+            incrementResult.IsSuccessful.Should().BeTrue("Should create nested structure for increment");
+            incrementResult.Data.Should().Be(100.0);
+
+            // Verify the structure was created
+            var afterIncrement = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            afterIncrement.Data!["Stats"]!["Score"]?.ToObject<double>().Should().Be(100.0);
+
+            // Test 10: Increment on deeply missing nested path
+            var deepIncrementResult = await service.IncrementAttributeAsync(
+                tableName, new DbKey(keyName, keyValue), "Game.Player.Level", 5.0);
+
+            deepIncrementResult.IsSuccessful.Should().BeTrue("Should create deep nested structure for increment");
+            deepIncrementResult.Data.Should().Be(5.0);
+
+            var afterDeepIncrement = await service.GetItemAsync(tableName, new DbKey(keyName, keyValue));
+            afterDeepIncrement.Data!["Game"]!["Player"]!["Level"]?.ToObject<double>().Should().Be(5.0);
+
+            // Test 11: Array operations on non-existent nested path (should create structure)
+            var elementsToAdd = new[] { new Primitive("tag1"), new Primitive("tag2") };
+            var arrayAddResult = await service.AddElementsToArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Metadata.Tags", elementsToAdd,
+                DbReturnItemBehavior.ReturnNewValues);
+
+            arrayAddResult.IsSuccessful.Should().BeTrue("Should create nested structure for array operation");
+            var tags = arrayAddResult.Data!["Metadata"]!["Tags"] as JArray;
+            tags!.Count.Should().Be(2);
+            tags.Should().Contain(t => t.ToString() == "tag1");
+
+            // Test 12: Deep array operations
+            var deepArrayAdd = new[] { new Primitive("item1") };
+            var deepArrayResult = await service.AddElementsToArrayAsync(
+                tableName, new DbKey(keyName, keyValue), "Deep.Nested.Array", deepArrayAdd,
+                DbReturnItemBehavior.ReturnNewValues);
+
+            deepArrayResult.IsSuccessful.Should().BeTrue("Should create deep nested structure for array");
+            var deepArray = deepArrayResult.Data!["Deep"]!["Nested"]!["Array"] as JArray;
+            deepArray!.Count.Should().Be(1);
+
+            // Test 13: Condition with mixed existing and non-existing nested paths
+            var mixedCondition = service.AttributeExists("PartialNest.Level1") // exists
+                .And(service.AttributeNotExists("PartialNest.MissingLevel")) // doesn't exist
+                .And(service.AttributeExists("ExistingField")); // exists
+
+            var mixedResult = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue), mixedCondition);
+            mixedResult.IsSuccessful.Should().BeTrue("Should satisfy mixed existing/non-existing conditions");
+            mixedResult.Data.Should().BeTrue();
+
+            // Test 14: Update with condition on non-existent path
+            var updateCondition = service.AttributeNotExists("NonExistent.Path");
+            var conditionalUpdate = new JObject { ["UpdatedField"] = "value" };
+
+            var conditionalUpdateResult = await service.UpdateItemAsync(
+                tableName, new DbKey(keyName, keyValue), conditionalUpdate,
+                DbReturnItemBehavior.ReturnNewValues, updateCondition);
+
+            conditionalUpdateResult.IsSuccessful.Should().BeTrue("Should update when non-existent path condition is satisfied");
+            conditionalUpdateResult.Data!["UpdatedField"]?.ToString().Should().Be("value");
+
+            // Test 15: Delete with condition on partially missing nested paths
+            var deleteCondition = service.AttributeExists("PartialNest.Level1")
+                .And(service.AttributeNotExists("PartialNest.Level2.DeepNest"));
+
+            var deleteResult = await service.DeleteItemAsync(
+                tableName, new DbKey(keyName, keyValue),
+                DbReturnItemBehavior.ReturnOldValues, deleteCondition);
+
+            deleteResult.IsSuccessful.Should().BeTrue("Should delete when mixed nested path conditions are satisfied");
+            deleteResult.Data.Should().NotBeNull();
+
+            // Verify deletion
+            var existsAfterDelete = await service.ItemExistsAsync(tableName, new DbKey(keyName, keyValue));
+            existsAfterDelete.IsSuccessful.Should().BeFalse("Item should not exist after deletion");
+            existsAfterDelete.StatusCode.Should().Be(HttpStatusCode.NotFound);
         }
         finally
         {

@@ -25,6 +25,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 - **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
+  - Nested conditioning support for complex queries (Like: user.config.status)
   - Automatic backup and restore with scheduled backups and manual backups, all atomically
   - Atomic database migration between different providers
   - File operations with signed URLs, metadata, notifications, and streaming
@@ -312,7 +313,12 @@ await pubSubService.SubscribeAsync("user-events", async (topic, message) =>
 ## 🔧 Advanced Features
 ### Database Operations
 
-#### Conditional Operations
+#### Advanced Conditioning System
+
+CrossCloudKit provides a powerful, composable conditioning system that works consistently across all database providers. The system supports nested object structures, complex logical operations, and backwards compatibility with simple attribute names.
+
+##### Basic Conditions
+
 ```csharp
 // Conditional update
 var updateData = new JObject { ["LastLogin"] = DateTime.UtcNow };
@@ -331,27 +337,104 @@ var result = await dbService.UpdateItemAsync(
 var exists = await dbService.ItemExistsAsync("Users", "Id", keyValue, condition);
 ```
 
-#### Array Operations
+##### Existence Conditions
+
 ```csharp
-// Add elements to array
-var elementsToAdd = new[]
-{
-    new Primitive("admin"),
-    new Primitive("editor")
-};
+// Check if attribute exists
+var condition = dbService.AttributeExists("Email");
+var exists = await dbService.ItemExistsAsync(tableName, key, condition);
 
-var key = new DbKey("id", new Primitive("user-123"));
-
-await dbService.AddElementsToArrayAsync(
-    "Users", key, "Roles", elementsToAdd
-);
-
-// Remove elements from array
-var elementsToRemove = new[] { new Primitive("editor") };
-await dbService.RemoveElementsFromArrayAsync(
-    "Users", "Id", keyValue, "Roles", elementsToRemove
-);
+// Check if attribute does not exist
+var notExistsCondition = dbService.AttributeNotExists("MiddleName");
 ```
+
+##### Value Comparisons
+
+```csharp
+// Equality checks
+var equalsCondition = dbService.AttributeEquals("Status", new Primitive("active"));
+var notEqualsCondition = dbService.AttributeNotEquals("Role", new Primitive("guest"));
+
+// Numeric comparisons
+var greaterCondition = dbService.AttributeIsGreaterThan("Age", new Primitive(18L));
+var lessOrEqualCondition = dbService.AttributeIsLessOrEqual("Score", new Primitive(100.0));
+```
+
+##### Array Element Conditions
+
+```csharp
+// Check if array contains element
+var hasPermission = dbService.ArrayElementExists("Permissions", new Primitive("admin"));
+
+// Check if array does not contain element
+var noBlockedTag = dbService.ArrayElementNotExists("Tags", new Primitive("blocked"));
+```
+
+##### Nested Object Support
+Access deeply nested properties using dot notation:
+```csharp
+// Simple nested access
+var nestedCondition = dbService.AttributeEquals("User.Email", new Primitive("john@example.com"));
+
+// Deep nesting (multiple levels)
+var deepCondition = dbService.AttributeIsGreaterThan("Account.Settings.Security.Level", new Primitive(5L));
+
+// Nested arrays
+var nestedArrayCondition = dbService.ArrayElementExists("Profile.Certifications", new Primitive("AWS"));
+
+// Nested with all operations
+await dbService.UpdateItemAsync(tableName, key, updateData,
+    conditions: dbService.AttributeEquals("User.Status", new Primitive("verified"))
+        .And(dbService.AttributeIsGreaterOrEqual("User.Account.Balance", new Primitive(100.0))));
+```
+
+##### Logical Operators
+Combine conditions using And() and Or():
+```csharp
+// AND logic - all conditions must be true
+var adminCondition = dbService.AttributeEquals("Role", new Primitive("admin"))
+    .And(dbService.AttributeEquals("Status", new Primitive("active")));
+
+// OR logic - at least one condition must be true
+var accessCondition = dbService.AttributeEquals("Role", new Primitive("admin"))
+    .Or(dbService.AttributeEquals("Role", new Primitive("moderator")));
+
+// Complex nested logic
+var complexCondition = dbService.AttributeEquals("Department", new Primitive("IT"))
+    .And(
+        dbService.AttributeIsGreaterThan("Experience", new Primitive(5L))
+        .Or(dbService.ArrayElementExists("Certifications", new Primitive("Senior")))
+    );
+```
+
+##### Size function
+```csharp
+// Check array size
+var minItemsCondition = dbService.AttributeIsGreaterOrEqual("size(Items)", new Primitive(3L));
+
+// Nested array size check
+var nestedSizeCondition = dbService.AttributeEquals("size(Project.Team.Members)", new Primitive(5L));
+```
+
+#### Important Notes:
+
+##### Array Element Access
+Array indexing syntax (e.g., array[0]) is not supported. Instead, use the dedicated array element condition methods:
+
+```csharp
+// ❌ INCORRECT - This will throw an ArgumentException
+var wrongCondition = dbService.AttributeEquals("Tags[0]", new Primitive("admin"));
+var wrongNestedCondition = dbService.AttributeEquals("User.Permissions[0]", new Primitive("read"));
+
+// ✅ CORRECT - Use ArrayElementExists for checking array contents
+var correctCondition = dbService.ArrayElementExists("Tags", new Primitive("admin"));
+var correctNestedCondition = dbService.ArrayElementExists("User.Permissions", new Primitive("read"));
+```
+
+##### Why this design?
+CrossCloudKit is designed to work consistently across all database providers (AWS DynamoDB, MongoDB, Google Cloud Datastore, and file-based storage). Array indexing semantics vary significantly across these platforms, and direct index access doesn't align with the distributed nature of NoSQL databases.
+
+
 #### Atomic Increment
 ```csharp
 var key = new DbKey("id", new Primitive("user-123"));

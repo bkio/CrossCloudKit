@@ -633,6 +633,43 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
             }
 
+            // For nested paths, ensure intermediate parent objects exist first
+            var pathSegments = ParseAttributePath(arrayAttributeName);
+            if (pathSegments.Length > 1)
+            {
+                // Create intermediate paths one by one, from shallowest to deepest
+                for (int i = 0; i < pathSegments.Length - 1; i++)
+                {
+                    var ensurePathRequest = new UpdateItemRequest
+                    {
+                        TableName = GetTableName(tableName, key),
+                        Key = new Dictionary<string, AttributeValue>
+                        {
+                            [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
+                        },
+                        ExpressionAttributeNames = new Dictionary<string, string>(),
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>()
+                    };
+
+                    var pathAttrIndex = 0;
+                    var partialPath = string.Join(".", pathSegments.Take(i + 1));
+                    var pathExpression = BuildNestedAttributeExpression(partialPath, ensurePathRequest.ExpressionAttributeNames, ref pathAttrIndex);
+                    var emptyObjPlaceholder = ":empty_obj";
+
+                    ensurePathRequest.ExpressionAttributeValues[emptyObjPlaceholder] = new AttributeValue { M = new Dictionary<string, AttributeValue>() };
+                    ensurePathRequest.UpdateExpression = $"SET {pathExpression} = if_not_exists({pathExpression}, {emptyObjPlaceholder})";
+
+                    try
+                    {
+                        await _dynamoDbClient.UpdateItemAsync(ensurePathRequest, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        return OperationResult<JObject?>.Failure($"Failed to create intermediate path '{partialPath}': {ex.Message}", HttpStatusCode.InternalServerError);
+                    }
+                }
+            }
+
             var request = new UpdateItemRequest
             {
                 TableName = GetTableName(tableName, key),
@@ -652,20 +689,22 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             // Build list of elements to add
             var elementsAsAttributes = elementsToAdd.Select(ConvertPrimitiveToConditionAttributeValue).ToList();
 
-            request.ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                ["#attr"] = arrayAttributeName
-            };
+            // Build nested attribute expression for the array attribute
+            var index = 0;
+            request.ExpressionAttributeNames = new Dictionary<string, string>();
+            var arrayAttrExpression = BuildNestedAttributeExpression(arrayAttributeName, request.ExpressionAttributeNames, ref index);
 
             // Use SET with list_append to add elements to an existing list or create a new list
-            request.UpdateExpression = "SET #attr = list_append(if_not_exists(#attr, :empty_list), :vals)";
+            request.UpdateExpression = $"SET {arrayAttrExpression} = list_append(if_not_exists({arrayAttrExpression}, :empty_list), :vals)";
             request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 [":vals"] = new() { L = elementsAsAttributes },
                 [":empty_list"] = new() { L = [] }
             };
 
-            BuildConditionExpression(conditions, request);
+            // Build condition expression with proper index to avoid conflicts
+            var conditionIndex = index;
+            BuildConditionExpression(conditions, request, ref conditionIndex);
 
             var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
             if (!isCalledFromPostInsert)
@@ -736,7 +775,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             }
 
             var currentItem = getResult.Data;
-            if (!currentItem.TryGetValue(arrayAttributeName, out var arrayToken) || arrayToken is not JArray currentArray)
+            var arrayToken = NavigateToNestedProperty(currentItem, arrayAttributeName);
+            if (arrayToken is not JArray currentArray)
             {
                 return OperationResult<JObject?>.Failure($"Attribute {arrayAttributeName} is not an array", HttpStatusCode.PreconditionFailed);
             }
@@ -762,11 +802,8 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 currentArray.Remove(item);
             }
 
-            // Update the item with the modified array
-            var updateData = new JObject
-            {
-                [arrayAttributeName] = currentArray
-            };
+            // Build proper nested update structure
+            var updateData = BuildNestedUpdateStructure(arrayAttributeName, currentArray);
 
             var updateResult = await UpdateItemCoreAsync(tableName, key, updateData,
                 DbReturnItemBehavior.ReturnNewValues, conditions, cancellationToken);
@@ -823,6 +860,45 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 return OperationResult<double>.Failure("DynamoDB client not initialized", HttpStatusCode.ServiceUnavailable);
             }
 
+            // For nested paths, ensure intermediate parent objects exist first
+            // We need to create them one at a time from shallowest to deepest to avoid path overlap
+            var pathSegments = ParseAttributePath(numericAttributeName);
+            if (pathSegments.Length > 1)
+            {
+                // Create intermediate paths one by one, from shallowest to deepest
+                for (int i = 0; i < pathSegments.Length - 1; i++)
+                {
+                    var ensurePathRequest = new UpdateItemRequest
+                    {
+                        TableName = GetTableName(tableName, key),
+                        Key = new Dictionary<string, AttributeValue>
+                        {
+                            [key.Name] = ConvertPrimitiveToConditionAttributeValue(key.Value)
+                        },
+                        ExpressionAttributeNames = new Dictionary<string, string>(),
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>()
+                    };
+
+                    var pathAttrIndex = 0;
+                    var partialPath = string.Join(".", pathSegments.Take(i + 1));
+                    var pathExpression = BuildNestedAttributeExpression(partialPath, ensurePathRequest.ExpressionAttributeNames, ref pathAttrIndex);
+                    var emptyObjPlaceholder = ":empty_obj";
+
+                    ensurePathRequest.ExpressionAttributeValues[emptyObjPlaceholder] = new AttributeValue { M = new Dictionary<string, AttributeValue>() };
+                    ensurePathRequest.UpdateExpression = $"SET {pathExpression} = if_not_exists({pathExpression}, {emptyObjPlaceholder})";
+
+                    try
+                    {
+                        await _dynamoDbClient.UpdateItemAsync(ensurePathRequest, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        return OperationResult<double>.Failure($"Failed to create intermediate path '{partialPath}': {ex.Message}", HttpStatusCode.InternalServerError);
+                    }
+                }
+            }
+
+            // Now perform the increment operation
             var request = new UpdateItemRequest
             {
                 TableName = GetTableName(tableName, key),
@@ -836,34 +912,53 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     [":incr"] = new() { N = incrementValue.ToString(CultureInfo.InvariantCulture) },
                     [":start"] = new() { N = "0" }
                 },
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    ["#V"] = numericAttributeName
-                },
-                UpdateExpression = "SET #V = if_not_exists(#V, :start) + :incr"
+                ExpressionAttributeNames = new Dictionary<string, string>()
             };
 
-            BuildConditionExpression(conditions, request);
+            // Build nested attribute expression for the numeric attribute
+            var attrIndex = 0;
+            var numericAttrExpression = BuildNestedAttributeExpression(numericAttributeName, request.ExpressionAttributeNames, ref attrIndex);
+            request.UpdateExpression = $"SET {numericAttrExpression} = if_not_exists({numericAttrExpression}, :start) + :incr";
+
+            // Build condition expression - use existing index to avoid placeholder conflicts
+            BuildConditionExpression(conditions, request, ref attrIndex);
 
             var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
+
+            // Only call PostInsertItemAsync if this is not already called from PostInsert context
             var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-            await Task.WhenAll(responseTask, postInsertTask);
-
-            var postInsertResult = await postInsertTask;
-            if (!postInsertResult.IsSuccessful)
+            try
             {
-                return OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
-            }
+                await Task.WhenAll(responseTask, postInsertTask);
 
-            var response = await responseTask;
-            if (response.Attributes?.TryGetValue(numericAttributeName, out var value) == true &&
-                double.TryParse(value.N, out var newValue))
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+
+                var response = await responseTask;
+
+                // For nested attributes, we need to extract the value from the response differently
+                if (response.Attributes?.Count > 0)
+                {
+                    var document = Document.FromAttributeMap(response.Attributes);
+                    var jsonObject = JObject.Parse(document.ToJson());
+
+                    var valueToken = NavigateToNestedProperty(jsonObject, numericAttributeName);
+                    if (valueToken != null && double.TryParse(valueToken.ToString(), out var newValue))
+                    {
+                        return OperationResult<double>.Success(newValue);
+                    }
+                }
+
+                return OperationResult<double>.Failure("Failed to get updated value from DynamoDB response", HttpStatusCode.InternalServerError);
+            }
+            catch (ConditionalCheckFailedException e)
             {
-                return OperationResult<double>.Success(newValue);
+                return OperationResult<double>.Failure($"Condition check failed: {e.Message}", HttpStatusCode.PreconditionFailed);
             }
-
-            return OperationResult<double>.Failure("Failed to get updated value from DynamoDB response", HttpStatusCode.InternalServerError);
         }
         catch (ConditionalCheckFailedException e)
         {
@@ -1437,29 +1532,52 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Evaluates a single database condition against a JSON object
+    /// Evaluates a single database condition against a JSON object with nested path support
     /// </summary>
     private static bool EvaluateSingleCondition(JObject jsonObject, Condition condition)
     {
+        // Handle size() function specially
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(')'))
+        {
+            var innerAttribute = condition.AttributeName[5..^1]; // Remove "size(" and ")"
+
+            var token = NavigateToNestedProperty(jsonObject, innerAttribute);
+            if (token is not JArray array) return false;
+
+            var arraySize = array.Count;
+            if (condition is not ValueCondition valueCondition) return false;
+
+            var expectedSize = valueCondition.Value.AsInteger;
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals => arraySize == expectedSize,
+                ConditionType.AttributeNotEquals => arraySize != expectedSize,
+                ConditionType.AttributeGreater => arraySize > expectedSize,
+                ConditionType.AttributeGreaterOrEqual => arraySize >= expectedSize,
+                ConditionType.AttributeLess => arraySize < expectedSize,
+                ConditionType.AttributeLessOrEqual => arraySize <= expectedSize,
+                _ => false
+            };
+        }
+
         return condition.ConditionType switch
         {
-            ConditionType.AttributeExists => jsonObject.ContainsKey(condition.AttributeName),
-            ConditionType.AttributeNotExists => !jsonObject.ContainsKey(condition.AttributeName),
+            ConditionType.AttributeExists => NestedPropertyExists(jsonObject, condition.AttributeName),
+            ConditionType.AttributeNotExists => !NestedPropertyExists(jsonObject, condition.AttributeName),
             _ when condition is ValueCondition valueCondition => EvaluateValueCondition(jsonObject, valueCondition),
             _ when condition is ArrayCondition arrayCondition => EvaluateArrayElementCondition(jsonObject, arrayCondition),
             _ => false
         };
     }
 
-    private static void BuildConditionExpression(ConditionCoupling? conditions, UpdateItemRequest request)
+    private static void BuildConditionExpression(ConditionCoupling? conditions, UpdateItemRequest request, ref int startIndex)
     {
         if (conditions == null) return;
 
-        var index = 0;
         request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
         request.ExpressionAttributeNames ??= new Dictionary<string, string>();
 
-        var conditionExpression = BuildConditionExpressionRecursive(conditions, request, ref index);
+        var conditionExpression = BuildConditionExpressionRecursive(conditions, request, ref startIndex);
 
         if (!string.IsNullOrEmpty(conditionExpression))
         {
@@ -1499,13 +1617,45 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
     private static string? BuildSingleConditionExpression(Condition condition, UpdateItemRequest request, ref int index)
     {
-        var condValPlaceholder = $":cond_val{index}";
-        var condAttrPlaceholder = $"#cond_attr{index}";
-        index++;
+        var baseIndex = index;
+        var condValPlaceholder = $":cond_val{baseIndex}";
+        index++; // Reserve the value placeholder index
 
-        var conditionExpr = BuildDynamoConditionExpression(condition, condValPlaceholder);
+        // Ensure dictionaries exist
+        request.ExpressionAttributeNames ??= new Dictionary<string, string>();
+        request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
+
+        // Build nested attribute expression for DynamoDB with proper syntax
+        var attrExpression = BuildNestedAttributeExpression(condition.AttributeName, request.ExpressionAttributeNames, ref index);
+
+        if (string.IsNullOrEmpty(attrExpression))
+            return null;
+
+        // Handle size() function conditions specially for UpdateItem operations
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(")"))
+        {
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, "=", condValPlaceholder, valueCondition.Value, request),
+                ConditionType.AttributeNotEquals when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, "<>", condValPlaceholder, valueCondition.Value, request),
+                ConditionType.AttributeGreater when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, ">", condValPlaceholder, valueCondition.Value, request),
+                ConditionType.AttributeGreaterOrEqual when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, ">=", condValPlaceholder, valueCondition.Value, request),
+                ConditionType.AttributeLess when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, "<", condValPlaceholder, valueCondition.Value, request),
+                ConditionType.AttributeLessOrEqual when condition is ValueCondition valueCondition =>
+                    BuildSizeFunctionCondition(attrExpression, "<=", condValPlaceholder, valueCondition.Value, request),
+                _ => null
+            };
+        }
+
+        var conditionExpr = BuildDynamoConditionExpressionNested(condition, condValPlaceholder, attrExpression);
         if (string.IsNullOrEmpty(conditionExpr)) return null;
 
+        // Add condition value to expression attribute values only for conditions that need them
         switch (condition)
         {
             case ValueCondition valueCondition:
@@ -1516,27 +1666,197 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 break;
         }
 
-        // Add expression attribute names for conditions that need them
-        if (NeedsAttributeNamePlaceholder(condition.ConditionType))
-        {
-            request.ExpressionAttributeNames[condAttrPlaceholder] = condition.AttributeName;
-            conditionExpr = conditionExpr.Replace(condition.AttributeName, condAttrPlaceholder);
-        }
-
         return conditionExpr;
     }
 
-    private static bool NeedsAttributeNamePlaceholder(ConditionType conditionType)
+
+    /// <summary>
+    /// Parses an attribute path into DynamoDB-compatible segments.
+    /// Supports nested object navigation without direct array indexing.
+    /// Examples: "User.Name", "User.Address.Street", "Settings.Preferences.Theme"
+    /// Note: Array operations use contains() function instead of direct indexing
+    /// </summary>
+    private static string[] ParseAttributePath(string attributePath)
     {
-        return conditionType is
-            ConditionType.AttributeEquals or
-            ConditionType.AttributeNotEquals or
-            ConditionType.AttributeGreater or
-            ConditionType.AttributeGreaterOrEqual or
-            ConditionType.AttributeLess or
-            ConditionType.AttributeLessOrEqual or
-            ConditionType.ArrayElementExists or
-            ConditionType.ArrayElementNotExists;
+        if (string.IsNullOrEmpty(attributePath))
+            return [];
+
+        // Validate that path doesn't contain array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+        {
+            throw new ArgumentException(
+                $"Array indexing syntax (e.g., 'array[0]') is not supported in DynamoDB expressions. " +
+                $"Use ArrayElementExists() or ArrayElementNotExists() conditions instead. Path: '{attributePath}'");
+        }
+
+        // Split on dots and validate each segment
+        var segments = attributePath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (string.IsNullOrWhiteSpace(segment))
+                throw new ArgumentException($"Empty segment in attribute path: '{attributePath}'");
+
+            // Validate segment contains only valid characters
+            if (segment.Any(c => char.IsControl(c) || c == '"' || c == '\'' || c == '`'))
+                throw new ArgumentException($"Invalid characters in attribute segment '{segment}' in path: '{attributePath}'");
+        }
+
+        return segments;
+    }
+
+    /// <summary>
+    /// Navigates to a nested property in a JSON object using DynamoDB-compatible path navigation.
+    /// Supports nested objects but not direct array indexing.
+    /// Examples: "User.Name", "User.Address.Street", "Settings.Theme.Color"
+    /// For arrays, use ArrayElementExists/ArrayElementNotExists conditions instead.
+    /// </summary>
+    private static JToken? NavigateToNestedProperty(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return null;
+
+        try
+        {
+            var pathSegments = ParseAttributePath(attributePath);
+            JToken current = jsonObject;
+
+            foreach (var segment in pathSegments)
+            {
+                if (current is JObject currentObj)
+                {
+                    if (!currentObj.TryGetValue(segment, out var next))
+                        return null;
+                    current = next;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+        catch (ArgumentException)
+        {
+            // Invalid path format
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a nested property exists in a JSON object using robust path navigation.
+    /// Handles all nested scenarios including complex array and object combinations.
+    /// </summary>
+    private static bool NestedPropertyExists(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        return NavigateToNestedProperty(jsonObject, attributePath) != null;
+    }
+
+    /// <summary>
+    /// Builds a DynamoDB-compliant nested attribute expression with proper placeholders.
+    /// Handles nested object paths and DynamoDB functions like size().
+    /// Examples: "User.Name" -> "#attr0.#attr1", "size(Tags)" -> handled specially
+    /// For array operations, use contains() function instead of direct indexing.
+    /// </summary>
+    private static string BuildNestedAttributeExpression(string attributePath, Dictionary<string, string> attributeNames, ref int index)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return string.Empty;
+
+        // Handle DynamoDB function syntax (e.g., size(attributeName))
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(')'))
+        {
+            // Extract the inner attribute name from size(attributeName)
+            var innerAttribute = attributePath[5..^1]; // Remove "size(" and ")"
+
+            // Build expression for the inner attribute - this could be nested like "Project.Tasks"
+            var innerExpression = BuildNestedAttributeExpression(innerAttribute, attributeNames, ref index);
+
+            // Return size() function with the inner expression
+            return $"size({innerExpression})";
+        }
+
+        try
+        {
+            var pathSegments = ParseAttributePath(attributePath);
+            var expressionParts = new List<string>();
+
+            foreach (var segment in pathSegments)
+            {
+                // Create placeholder for the property name
+                var placeholder = $"#attr{index++}";
+                attributeNames[placeholder] = segment;
+                expressionParts.Add(placeholder);
+            }
+
+            return string.Join(".", expressionParts);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArgumentException($"Invalid attribute path '{attributePath}': {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Validates that an attribute path is well-formed and DynamoDB-compliant.
+    /// Supports nested objects, DynamoDB functions like size(), but rejects array indexing syntax.
+    /// Examples: "User.Name" (valid), "size(Tags)" (valid), "size(Project.Tasks)" (valid), "User.Tags[0]" (invalid - use ArrayElementExists instead)
+    /// </summary>
+    private static bool IsValidAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        // Handle DynamoDB function syntax (e.g., size(attributeName))
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
+        {
+            var innerAttribute = attributePath[5..^1]; // Remove "size(" and ")"
+            return !string.IsNullOrWhiteSpace(innerAttribute) && IsValidAttributePath(innerAttribute); // Recursively validate the inner attribute
+        }
+
+        // Basic format checks
+        if (attributePath.StartsWith('.') || attributePath.EndsWith('.') || attributePath.Contains(".."))
+            return false;
+
+        // Reject array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+            return false;
+
+        // Check for invalid characters
+        if (attributePath.Any(c => char.IsControl(c) || c == '\n' || c == '\r' || c == '\t'))
+            return false;
+
+        try
+        {
+            // Parse the path to validate structure
+            var segments = ParseAttributePath(attributePath);
+
+            // Must have at least one segment
+            if (segments.Length == 0)
+                return false;
+
+            // Validate each segment
+            foreach (var segment in segments)
+            {
+                // Property name cannot be empty
+                if (string.IsNullOrWhiteSpace(segment))
+                    return false;
+
+                // Check length limits (DynamoDB has a 255 character limit for attribute names)
+                if (segment.Length > 255)
+                    return false;
+            }
+
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static Expression? BuildConditionalExpression(ConditionCoupling? conditions)
@@ -1588,52 +1908,105 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
     private static string? BuildSingleConditionalExpression(Condition condition, Expression finalExpression, ref int index)
     {
-        var attrPlaceholder = $"#attr{index}";
-        var valPlaceholder = $":val{index}";
-        var condValPlaceholder = $":cond_val{index}";
-        index++;
+        var baseIndex = index;
+        var valPlaceholder = $":val{baseIndex}";
+        var condValPlaceholder = $":cond_val{baseIndex}";
+        index++; // Reserve the value placeholder index
 
-        string? expressionStatement = condition.ConditionType switch
+        // Ensure ExpressionAttributeNames is initialized
+        finalExpression.ExpressionAttributeNames ??= new Dictionary<string, string>();
+
+        // Build a nested attribute expression with proper DynamoDB syntax
+        var attrExpression = BuildNestedAttributeExpression(condition.AttributeName, finalExpression.ExpressionAttributeNames, ref index);
+
+        if (string.IsNullOrEmpty(attrExpression))
+            return null;
+
+        // Handle size() function conditions differently
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(")"))
         {
-            ConditionType.AttributeExists => $"attribute_exists({attrPlaceholder})",
-            ConditionType.AttributeNotExists => $"attribute_not_exists({attrPlaceholder})",
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} = {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                ConditionType.AttributeNotEquals when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} <> {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                ConditionType.AttributeGreater when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} > {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                ConditionType.AttributeGreaterOrEqual when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} >= {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                ConditionType.AttributeLess when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} < {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                ConditionType.AttributeLessOrEqual when condition is ValueCondition valueCondition =>
+                    $"{attrExpression} <= {BuildValuePlaceholderAndAddToExpression(valPlaceholder, valueCondition.Value, finalExpression)}",
+                _ => null
+            };
+        }
+
+        var expressionStatement = condition.ConditionType switch
+        {
+            ConditionType.AttributeExists => $"attribute_exists({attrExpression})",
+            ConditionType.AttributeNotExists => $"attribute_not_exists({attrExpression})",
             ConditionType.AttributeEquals when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, "=", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, "=", valueCondition, finalExpression),
             ConditionType.AttributeNotEquals when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, "<>", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, "<>", valueCondition, finalExpression),
             ConditionType.AttributeGreater when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, ">", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, ">", valueCondition, finalExpression),
             ConditionType.AttributeGreaterOrEqual when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, ">=", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, ">=", valueCondition, finalExpression),
             ConditionType.AttributeLess when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, "<", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, "<", valueCondition, finalExpression),
             ConditionType.AttributeLessOrEqual when condition is ValueCondition valueCondition =>
-                BuildValueConditionExpression(attrPlaceholder, valPlaceholder, "<=", valueCondition, finalExpression),
+                BuildValueConditionExpressionNested(attrExpression, valPlaceholder, "<=", valueCondition, finalExpression),
             ConditionType.ArrayElementExists when condition is ArrayCondition arrayCondition =>
-                BuildArrayConditionExpression(attrPlaceholder, condValPlaceholder, "contains", arrayCondition, finalExpression),
+                BuildArrayConditionExpressionNested(attrExpression, condValPlaceholder, "contains", arrayCondition, finalExpression),
             ConditionType.ArrayElementNotExists when condition is ArrayCondition arrayCondition =>
-                BuildArrayConditionExpression(attrPlaceholder, condValPlaceholder, "NOT contains", arrayCondition, finalExpression),
+                BuildArrayConditionExpressionNested(attrExpression, condValPlaceholder, "NOT contains", arrayCondition, finalExpression),
             _ => null
         };
-
-        if (expressionStatement != null)
-        {
-            finalExpression.ExpressionAttributeNames[attrPlaceholder] = condition.AttributeName;
-        }
 
         return expressionStatement;
     }
 
-    private static string BuildValueConditionExpression(string attrPlaceholder, string valPlaceholder, string operation, ValueCondition valueCondition, Expression finalExpression)
+    private static string BuildValueConditionExpressionNested(string attrExpression, string valPlaceholder, string operation, ValueCondition valueCondition, Expression finalExpression)
     {
         AddValueToExpression(finalExpression, valPlaceholder, valueCondition.Value);
-        return $"{attrPlaceholder} {operation} {valPlaceholder}";
+        return $"{attrExpression} {operation} {valPlaceholder}";
     }
 
-    private static string BuildArrayConditionExpression(string attrPlaceholder, string condValPlaceholder, string operation, ArrayCondition arrayCondition, Expression finalExpression)
+    private static string BuildArrayConditionExpressionNested(string attrExpression, string condValPlaceholder, string operation, ArrayCondition arrayCondition, Expression finalExpression)
     {
         AddValueToExpression(finalExpression, condValPlaceholder, arrayCondition.ElementValue);
-        return $"{operation}({attrPlaceholder}, {condValPlaceholder})";
+        return $"{operation}({attrExpression}, {condValPlaceholder})";
+    }
+
+    /// <summary>
+    /// Builds a DynamoDB condition expression string with nested attribute support for UpdateItem operations.
+    /// Handles DynamoDB functions like size() and contains() properly.
+    /// </summary>
+    private static string? BuildDynamoConditionExpressionNested(Condition condition, string condVal, string attrExpression)
+    {
+        // Handle special DynamoDB function syntax (e.g., size(attributeName)) - but this is now handled upstream
+        // This method should just build standard expressions since size() is handled in BuildSingleConditionExpression
+
+        // Standard attribute expressions
+        var expression = condition.ConditionType switch
+        {
+            ConditionType.AttributeExists => $"attribute_exists({attrExpression})",
+            ConditionType.AttributeNotExists => $"attribute_not_exists({attrExpression})",
+            ConditionType.AttributeEquals => $"{attrExpression} = {condVal}",
+            ConditionType.AttributeNotEquals => $"{attrExpression} <> {condVal}",
+            ConditionType.AttributeGreater => $"{attrExpression} > {condVal}",
+            ConditionType.AttributeGreaterOrEqual => $"{attrExpression} >= {condVal}",
+            ConditionType.AttributeLess => $"{attrExpression} < {condVal}",
+            ConditionType.AttributeLessOrEqual => $"{attrExpression} <= {condVal}",
+            ConditionType.ArrayElementExists => $"contains({attrExpression}, {condVal})",
+            ConditionType.ArrayElementNotExists => $"NOT contains({attrExpression}, {condVal})",
+            _ => null
+        };
+
+        return expression;
     }
 
     private static void AddValueToExpression(Expression expression, string placeholder, Utilities.Common.Primitive value)
@@ -1658,27 +2031,16 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Builds a DynamoDB condition expression string for use in UpdateItem operations
-    /// </summary>
-    private static string? BuildDynamoConditionExpression(Condition condition, string condVal)
+    private static string BuildValuePlaceholderAndAddToExpression(string placeholder, Utilities.Common.Primitive value, Expression expression)
     {
-        var expression = condition.ConditionType switch
-        {
-            ConditionType.AttributeExists => $"attribute_exists({condition.AttributeName})",
-            ConditionType.AttributeNotExists => $"attribute_not_exists({condition.AttributeName})",
-            ConditionType.AttributeEquals => $"{condition.AttributeName} = {condVal}",
-            ConditionType.AttributeNotEquals => $"{condition.AttributeName} <> {condVal}",
-            ConditionType.AttributeGreater => $"{condition.AttributeName} > {condVal}",
-            ConditionType.AttributeGreaterOrEqual => $"{condition.AttributeName} >= {condVal}",
-            ConditionType.AttributeLess => $"{condition.AttributeName} < {condVal}",
-            ConditionType.AttributeLessOrEqual => $"{condition.AttributeName} <= {condVal}",
-            ConditionType.ArrayElementExists => $"contains({condition.AttributeName}, {condVal})",
-            ConditionType.ArrayElementNotExists => $"NOT contains({condition.AttributeName}, {condVal})",
-            _ => null
-        };
+        AddValueToExpression(expression, placeholder, value);
+        return placeholder;
+    }
 
-        return expression;
+    private static string BuildSizeFunctionCondition(string attrExpression, string operation, string valuePlaceholder, Utilities.Common.Primitive value, UpdateItemRequest request)
+    {
+        request.ExpressionAttributeValues[valuePlaceholder] = ConvertPrimitiveToConditionAttributeValue(value);
+        return $"{attrExpression} {operation} {valuePlaceholder}";
     }
 
     private void ApplyOptions(JObject jsonObject)
@@ -1694,11 +2056,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Evaluates a value-based condition against a JSON object
+    /// Evaluates a value-based condition against a JSON object with nested path support
     /// </summary>
     private static bool EvaluateValueCondition(JObject jsonObject, ValueCondition condition)
     {
-        if (!jsonObject.TryGetValue(condition.AttributeName, out var token))
+        var token = NavigateToNestedProperty(jsonObject, condition.AttributeName);
+        if (token == null)
             return false;
 
         try
@@ -1721,11 +2084,12 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
     }
 
     /// <summary>
-    /// Evaluates an array element condition against a JSON object
+    /// Evaluates an array element condition against a JSON object with nested path support
     /// </summary>
     private static bool EvaluateArrayElementCondition(JObject jsonObject, ArrayCondition condition)
     {
-        if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
+        var token = NavigateToNestedProperty(jsonObject, condition.AttributeName);
+        if (token is not JArray array)
             return condition.ConditionType == ConditionType.ArrayElementNotExists;
 
         var elementExists = array.Any(item => CompareValues(item, condition.ElementValue) == 0);
@@ -1784,50 +2148,128 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Builds a proper nested update structure for array operations with nested paths
+    /// </summary>
+    private static JObject BuildNestedUpdateStructure(string arrayAttributeName, JArray updatedArray)
+    {
+        var pathSegments = ParseAttributePath(arrayAttributeName);
+
+        if (pathSegments.Length == 1)
+        {
+            // Simple case - not nested
+            return new JObject
+            {
+                [pathSegments[0]] = updatedArray
+            };
+        }
+
+        // Build nested structure
+        var result = new JObject();
+        var current = result;
+
+        for (var i = 0; i < pathSegments.Length - 1; i++)
+        {
+            var nestedObj = new JObject();
+            current[pathSegments[i]] = nestedObj;
+            current = nestedObj;
+        }
+
+        // Set the final array value
+        current[pathSegments[^1]] = updatedArray;
+
+        return result;
+    }
+
     #endregion
 
     #region Condition Builders
 
+    /// <inheritdoc />
+    public override Condition AttributeEquals(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, Utilities.Common.Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, Utilities.Common.Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    public override Condition ArrayElementExists(string attributeName, Utilities.Common.Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, Utilities.Common.Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, Utilities.Common.Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    }
 
-    /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, Utilities.Common.Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    /// <summary>
+    /// Validates an attribute name for use in conditions and operations.
+    /// Throws ArgumentException if the attribute name is invalid.
+    /// </summary>
+    private static void ValidateAttributeName(string attributeName)
+    {
+        if (!IsValidAttributePath(attributeName))
+        {
+            throw new ArgumentException($"Invalid attribute name: '{attributeName}'. " +
+                "Attribute names must be well-formed paths for nested objects or DynamoDB functions like size(). " +
+                "Examples: 'Name', 'User.Email', 'User.Address.Street', 'size(Tags)'. " +
+                "For arrays, use ArrayElementExists or ArrayElementNotExists conditions instead of array[index] syntax.",
+                nameof(attributeName));
+        }
+    }
 
     #endregion
 

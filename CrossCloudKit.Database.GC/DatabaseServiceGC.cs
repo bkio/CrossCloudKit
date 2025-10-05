@@ -100,7 +100,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
         try
         {
-            string? jsonContent = serviceAccountJsonContent;
+            var jsonContent = serviceAccountJsonContent;
 
             if (isBase64Encoded)
             {
@@ -249,31 +249,26 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         }
         lock (_loadedKindKeyFactoriesDictionaryLock)
         {
-            if (!_loadedKindKeyFactories.TryGetValue(kind, out resultKeyFactory))
+            if (_loadedKindKeyFactories.TryGetValue(kind, out resultKeyFactory)) return true;
+
+            try
             {
-                try
+                resultKeyFactory = _dsdb.CreateKeyFactory(kind);
+                if (resultKeyFactory != null)
                 {
-                    resultKeyFactory = _dsdb.CreateKeyFactory(kind);
-                    if (resultKeyFactory != null)
-                    {
-                        _loadedKindKeyFactories[kind] = resultKeyFactory;
-                        return true;
-                    }
-                    else
-                    {
-                        errorMessageAction?.Invoke("DatabaseServiceGC->LoadStoreAndGetKindKeyFactory: CreateKeyFactory returned null.");
-                        return false;
-                    }
+                    _loadedKindKeyFactories[kind] = resultKeyFactory;
+                    return true;
                 }
-                catch (Exception e)
-                {
-                    resultKeyFactory = null;
-                    errorMessageAction?.Invoke($"DatabaseServiceGC->LoadStoreAndGetKindKeyFactory: Exception: {e.Message}");
-                    return false;
-                }
+                errorMessageAction?.Invoke("DatabaseServiceGC->LoadStoreAndGetKindKeyFactory: CreateKeyFactory returned null.");
+                return false;
+            }
+            catch (Exception e)
+            {
+                resultKeyFactory = null;
+                errorMessageAction?.Invoke($"DatabaseServiceGC->LoadStoreAndGetKindKeyFactory: Exception: {e.Message}");
+                return false;
             }
         }
-        return true;
     }
 
     private static void ChangeExcludeFromIndexes(Value value)
@@ -417,18 +412,16 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 return OperationResult<bool>.Failure("Item not found", HttpStatusCode.NotFound);
             }
 
-            if (conditions != null)
-            {
-                var entityJson = FromEntityToJson(entity);
-                if (entityJson != null)
-                {
-                    AddKeyToJson(entityJson, key.Name, key.Value);
-                    ApplyOptions(entityJson);
+            if (conditions == null) return OperationResult<bool>.Success(true);
 
-                    if (!ConditionCheck(entityJson, conditions))
-                        return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
-                }
-            }
+            var entityJson = FromEntityToJson(entity);
+            if (entityJson == null) return OperationResult<bool>.Success(true);
+
+            AddKeyToJson(entityJson, key.Name, key.Value);
+            ApplyOptions(entityJson);
+
+            if (!ConditionCheck(entityJson, conditions))
+                return OperationResult<bool>.Failure("Conditions are not satisfied.", HttpStatusCode.PreconditionFailed);
 
             return OperationResult<bool>.Success(true);
         }
@@ -465,11 +458,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
             }
 
             var result = FromEntityToJson(entity);
-            if (result != null)
-            {
-                AddKeyToJson(result, key.Name, key.Value);
-                ApplyOptions(result);
-            }
+            if (result == null) return OperationResult<JObject?>.Success(result);
+
+            AddKeyToJson(result, key.Name, key.Value);
+            ApplyOptions(result);
 
             return OperationResult<JObject?>.Success(result);
         }
@@ -564,7 +556,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         const int maxRetryNumber = 5;
-        int retryCount = 0;
+        var retryCount = 0;
 
         if (_dsdb == null)
         {
@@ -808,7 +800,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         }
 
         const int maxRetryNumber = 5;
-        int retryCount = 0;
+        var retryCount = 0;
 
         while (++retryCount <= maxRetryNumber)
         {
@@ -842,25 +834,56 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 if (entity != null)
                 {
                     var entityJson = FromEntityToJson(entity);
-                    if (entityJson != null)
+                    if (entityJson == null)
+                        return OperationResult<JObject?>.Failure("Failed to process array update",
+                            HttpStatusCode.InternalServerError);
+
+                    AddKeyToJson(entityJson, key.Name, key.Value);
+                    ApplyOptions(entityJson);
+
+                    // ReSharper disable once PossibleMultipleEnumeration
+                    if (conditions != null && !ConditionCheck(entityJson, conditions))
                     {
-                        AddKeyToJson(entityJson, key.Name, key.Value);
-                        ApplyOptions(entityJson);
+                        return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
+                    }
 
-                        // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && !ConditionCheck(entityJson, conditions))
+                    if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
+                    {
+                        returnItem = (JObject)entityJson.DeepClone();
+                    }
+
+                    // Handle nested paths
+                    var pathSegments = ParseAttributePath(arrayAttributeName);
+                    JToken current = entityJson;
+
+                    // Navigate/create intermediate objects
+                    for (var i = 0; i < pathSegments.Length - 1; i++)
+                    {
+                        var segment = pathSegments[i];
+                        if (current is not JObject currentObj)
+                            return OperationResult<JObject?>.Failure($"Path segment '{segment}' is not an object", HttpStatusCode.BadRequest);
+
+                        if (!currentObj.TryGetValue(segment, out var next) || next.Type == JTokenType.Null)
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
+                            next = new JObject();
+                            currentObj[segment] = next;
                         }
+                        current = next;
+                    }
 
-                        if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
-                        {
-                            returnItem = (JObject)entityJson.DeepClone();
-                        }
+                    // Get or create the array at the final segment
+                    var finalSegment = pathSegments[^1];
+                    if (current is not JObject finalObj)
+                        return OperationResult<JObject?>.Failure($"Cannot access property '{finalSegment}'", HttpStatusCode.BadRequest);
 
-                        // Get existing array or create new one
-                        var existingArray = entityJson[arrayAttributeName] as JArray ?? [];
+                    if (!finalObj.TryGetValue(finalSegment, out var arrayToken) || arrayToken.Type == JTokenType.Null)
+                    {
+                        arrayToken = new JArray();
+                        finalObj[finalSegment] = arrayToken;
+                    }
 
+                    if (arrayToken is JArray existingArray)
+                    {
                         // Add new elements
                         foreach (var element in elementsToAdd)
                         {
@@ -875,25 +898,26 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                             };
                             existingArray.Add(jToken);
                         }
-
-                        entityJson[arrayAttributeName] = existingArray;
-
-                        // Convert back to entity and update
-                        var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
-                        if (updatedEntity != null)
-                        {
-                            transaction.Upsert(updatedEntity);
-                            await transaction.CommitAsync();
-
-                            if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
-                            {
-                                var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
-                                return getResult;
-                            }
-
-                            return OperationResult<JObject?>.Success(returnItem);
-                        }
                     }
+                    else
+                    {
+                        return OperationResult<JObject?>.Failure($"Attribute '{arrayAttributeName}' exists but is not an array", HttpStatusCode.BadRequest);
+                    }
+
+                    // Convert back to entity and update
+                    var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
+                    if (updatedEntity == null)
+                        return OperationResult<JObject?>.Failure("Failed to process array update",
+                            HttpStatusCode.InternalServerError);
+
+                    transaction.Upsert(updatedEntity);
+                    await transaction.CommitAsync();
+
+                    if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
+                        return OperationResult<JObject?>.Success(returnItem);
+
+                    var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
+                    return getResult;
                 }
                 else
                 {
@@ -915,41 +939,51 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         newArray.Add(jToken);
                     }
 
-                    newJson[arrayAttributeName] = newArray;
+                    // Handle nested paths when creating new structure
+                    var pathSegments = ParseAttributePath(arrayAttributeName);
+                    JToken current = newJson;
+
+                    // Create intermediate objects
+                    for (var i = 0; i < pathSegments.Length - 1; i++)
+                    {
+                        var segment = pathSegments[i];
+                        var nextObj = new JObject();
+                        ((JObject)current)[segment] = nextObj;
+                        current = nextObj;
+                    }
+
+                    // Set the array at the final segment
+                    ((JObject)current)[pathSegments[^1]] = newArray;
 
                     var newEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, newJson);
-                    if (newEntity != null)
+                    if (newEntity == null)
+                        return OperationResult<JObject?>.Failure("Failed to process array update",
+                            HttpStatusCode.InternalServerError);
+
+                    transaction.Upsert(newEntity);
+
+                    var commitTask = transaction.CommitAsync();
+                    if (!isCalledFromPostInsert)
                     {
-                        transaction.Upsert(newEntity);
+                        var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-                        var commitTask = transaction.CommitAsync();
-                        if (!isCalledFromPostInsert)
+                        await Task.WhenAll(commitTask, postInsertTask);
+
+                        var postInsertResult = await postInsertTask;
+                        if (!postInsertResult.IsSuccessful)
                         {
-                            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                            await Task.WhenAll(commitTask, postInsertTask);
-
-                            var postInsertResult = await postInsertTask;
-                            if (!postInsertResult.IsSuccessful)
-                            {
-                                return OperationResult<JObject?>.Failure(
-                                    $"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}",
-                                    postInsertResult.StatusCode);
-                            }
+                            return OperationResult<JObject?>.Failure(
+                                $"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}",
+                                postInsertResult.StatusCode);
                         }
-                        else await commitTask;
-
-                        if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
-                        {
-                            var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
-                            return getResult;
-                        }
-
-                        return OperationResult<JObject?>.Success(returnItem);
                     }
-                }
+                    else await commitTask;
 
-                return OperationResult<JObject?>.Failure("Failed to process array update", HttpStatusCode.InternalServerError);
+                    if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
+                        return OperationResult<JObject?>.Success(returnItem);
+
+                    return await GetItemCoreAsync(tableName, key, null, cancellationToken);
+                }
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -980,7 +1014,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         }
 
         const int maxRetryNumber = 5;
-        int retryCount = 0;
+        var retryCount = 0;
 
         while (++retryCount <= maxRetryNumber)
         {
@@ -1002,74 +1036,69 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 JObject? returnItem = null;
                 var entity = await transaction.LookupAsync(gKey);
 
-                if (entity != null)
+                if (entity == null) return OperationResult<JObject?>.Success(returnItem);
+
+                var entityJson = FromEntityToJson(entity);
+                if (entityJson == null) return OperationResult<JObject?>.Success(returnItem);
+
+                AddKeyToJson(entityJson, key.Name, key.Value);
+                ApplyOptions(entityJson);
+
+                // ReSharper disable once PossibleMultipleEnumeration
+                if (conditions != null && !ConditionCheck(entityJson, conditions))
                 {
-                    var entityJson = FromEntityToJson(entity);
-                    if (entityJson != null)
+                    return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
+                }
+
+                if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
+                {
+                    returnItem = (JObject)entityJson.DeepClone();
+                }
+
+                // Handle nested paths
+                var arrayToken = NavigateToNestedProperty(entityJson, arrayAttributeName);
+                if (arrayToken is JArray existingArray)
+                {
+                    // Remove elements
+                    var elementsToRemoveStrings = elementsToRemove.Select(element => element.Kind switch
                     {
-                        AddKeyToJson(entityJson, key.Name, key.Value);
-                        ApplyOptions(entityJson);
+                        PrimitiveKind.String => element.AsString,
+                        PrimitiveKind.Integer => element.AsInteger.ToString(CultureInfo.InvariantCulture),
+                        PrimitiveKind.Boolean => element.AsBoolean.ToString(CultureInfo.InvariantCulture),
+                        PrimitiveKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
+                        PrimitiveKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
+                        _ => element.ToString()
+                    }).ToHashSet();
 
-                        // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && !ConditionCheck(entityJson, conditions))
+                    var itemsToRemove = new List<JToken>();
+                    foreach (var item in existingArray)
+                    {
+                        var itemString = item.ToString();
+                        if (elementsToRemoveStrings.Contains(itemString))
                         {
-                            return OperationResult<JObject?>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
+                            itemsToRemove.Add(item);
                         }
+                    }
 
-                        if (returnBehavior == DbReturnItemBehavior.ReturnOldValues)
-                        {
-                            returnItem = (JObject)entityJson.DeepClone();
-                        }
-
-                        // Get existing array
-                        if (entityJson[arrayAttributeName] is JArray existingArray)
-                        {
-                            // Remove elements
-                            var elementsToRemoveStrings = elementsToRemove.Select(element => element.Kind switch
-                            {
-                                PrimitiveKind.String => element.AsString,
-                                PrimitiveKind.Integer => element.AsInteger.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveKind.Boolean => element.AsBoolean.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveKind.Double => element.AsDouble.ToString(CultureInfo.InvariantCulture),
-                                PrimitiveKind.ByteArray => Convert.ToBase64String(element.AsByteArray),
-                                _ => element.ToString()
-                            }).ToHashSet();
-
-                            var itemsToRemove = new List<JToken>();
-                            foreach (var item in existingArray)
-                            {
-                                var itemString = item.ToString();
-                                if (elementsToRemoveStrings.Contains(itemString))
-                                {
-                                    itemsToRemove.Add(item);
-                                }
-                            }
-
-                            foreach (var item in itemsToRemove)
-                            {
-                                existingArray.Remove(item);
-                            }
-
-                            // Convert back to entity and update
-                            var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
-                            if (updatedEntity != null)
-                            {
-                                transaction.Upsert(updatedEntity);
-                                await transaction.CommitAsync();
-
-                                if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
-                                {
-                                    var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
-                                    return getResult;
-                                }
-
-                                return OperationResult<JObject?>.Success(returnItem);
-                            }
-                        }
+                    foreach (var item in itemsToRemove)
+                    {
+                        existingArray.Remove(item);
                     }
                 }
 
-                return OperationResult<JObject?>.Success(returnItem);
+                // Convert back to entity and update
+                var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
+                if (updatedEntity == null) return OperationResult<JObject?>.Success(returnItem);
+
+                transaction.Upsert(updatedEntity);
+                await transaction.CommitAsync();
+
+                if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
+                    return OperationResult<JObject?>.Success(returnItem);
+
+                var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
+                return getResult;
+
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1120,74 +1149,111 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 var gKey = factory.NotNull().CreateKey(GetFinalKeyFromNameValue(key.Name, key.Value));
 
                 var entity = await transaction.LookupAsync(gKey);
-                double newValue = incrementValue; // Default if entity doesn't exist
+                var newValue = incrementValue; // Default if the entity doesn't exist
 
                 if (entity != null)
                 {
                     var entityJson = FromEntityToJson(entity);
-                    if (entityJson != null)
+                    if (entityJson == null)
+                        return OperationResult<double>.Failure("Failed to increment attribute",
+                            HttpStatusCode.InternalServerError);
+
+                    AddKeyToJson(entityJson, key.Name, key.Value);
+                    ApplyOptions(entityJson);
+
+                    // ReSharper disable once PossibleMultipleEnumeration
+                    if (conditions != null && !ConditionCheck(entityJson, conditions))
                     {
-                        AddKeyToJson(entityJson, key.Name, key.Value);
-                        ApplyOptions(entityJson);
-
-                        // ReSharper disable once PossibleMultipleEnumeration
-                        if (conditions != null && !ConditionCheck(entityJson, conditions))
-                        {
-                            return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
-                        }
-
-                        // Get current value and increment
-                        var currentValue = 0.0;
-                        if (entityJson.TryGetValue(numericAttributeName, out var currentToken))
-                        {
-                            currentValue = currentToken.Type switch
-                            {
-                                JTokenType.Integer => (long)currentToken,
-                                JTokenType.Float => (double)currentToken,
-                                _ => 0.0
-                            };
-                        }
-
-                        newValue = currentValue + incrementValue;
-                        entityJson[numericAttributeName] = newValue;
-
-                        // Convert back to entity and update
-                        var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
-                        if (updatedEntity != null)
-                        {
-                            transaction.Upsert(updatedEntity);
-                            await transaction.CommitAsync();
-
-                            return OperationResult<double>.Success(newValue);
-                        }
+                        return OperationResult<double>.Failure("Condition not satisfied", HttpStatusCode.PreconditionFailed);
                     }
+
+                    // Handle nested paths
+                    var pathSegments = ParseAttributePath(numericAttributeName);
+                    JToken current = entityJson;
+
+                    // Navigate/create intermediate objects
+                    for (var i = 0; i < pathSegments.Length - 1; i++)
+                    {
+                        var segment = pathSegments[i];
+                        if (current is not JObject currentObj)
+                            return OperationResult<double>.Failure($"Path segment '{segment}' is not an object", HttpStatusCode.BadRequest);
+
+                        if (!currentObj.TryGetValue(segment, out var next))
+                        {
+                            next = new JObject();
+                            currentObj[segment] = next;
+                        }
+                        current = next;
+                    }
+
+                    // Get current value and increment
+                    var finalSegment = pathSegments[^1];
+                    if (current is not JObject finalObj)
+                        return OperationResult<double>.Failure($"Cannot access property '{finalSegment}'", HttpStatusCode.BadRequest);
+
+                    var currentValue = 0.0;
+                    if (finalObj.TryGetValue(finalSegment, out var token))
+                    {
+                        currentValue = token.Type switch
+                        {
+                            JTokenType.Integer => token.Value<long>(),
+                            JTokenType.Float => token.Value<double>(),
+                            _ => currentValue
+                        };
+                    }
+
+                    newValue = currentValue + incrementValue;
+                    finalObj[finalSegment] = newValue;
+
+                    // Convert back to entity and update
+                    var updatedEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, entityJson);
+                    if (updatedEntity == null)
+                        return OperationResult<double>.Failure("Failed to increment attribute",
+                            HttpStatusCode.InternalServerError);
+
+                    transaction.Upsert(updatedEntity);
+                    await transaction.CommitAsync();
+
+                    return OperationResult<double>.Success(newValue);
                 }
                 else
                 {
-                    // Create new entity with the incremented value
-                    var newJson = new JObject
+                    // Create a new entity with the incremented value
+                    var newJson = new JObject();
+
+                    // Handle nested paths when creating new structure
+                    var pathSegments = ParseAttributePath(numericAttributeName);
+                    JToken current = newJson;
+
+                    // Create intermediate objects
+                    for (var i = 0; i < pathSegments.Length - 1; i++)
                     {
-                        [numericAttributeName] = newValue
-                    };
+                        var segment = pathSegments[i];
+                        var nextObj = new JObject();
+                        ((JObject)current)[segment] = nextObj;
+                        current = nextObj;
+                    }
+
+                    // Set the value at the final segment
+                    ((JObject)current)[pathSegments[^1]] = newValue;
 
                     var newEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, newJson);
-                    if (newEntity != null)
-                    {
-                        transaction.Upsert(newEntity);
+                    if (newEntity == null)
+                        return OperationResult<double>.Failure("Failed to increment attribute",
+                            HttpStatusCode.InternalServerError);
 
-                        var commitTask = transaction.CommitAsync();
-                        var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+                    transaction.Upsert(newEntity);
 
-                        await Task.WhenAll(commitTask, postInsertTask);
+                    var commitTask = transaction.CommitAsync();
+                    var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-                        var postInsertResult = await postInsertTask;
-                        return !postInsertResult.IsSuccessful
-                            ? OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode)
-                            : OperationResult<double>.Success(newValue);
-                    }
+                    await Task.WhenAll(commitTask, postInsertTask);
+
+                    var postInsertResult = await postInsertTask;
+                    return !postInsertResult.IsSuccessful
+                        ? OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode)
+                        : OperationResult<double>.Success(newValue);
                 }
-
-                return OperationResult<double>.Failure("Failed to increment attribute", HttpStatusCode.InternalServerError);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1275,7 +1341,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         return deleteResult;
                     }
 
-                    // Move to next page
+                    // Move to the next page
                     pageToken = nextPageToken;
                 }
                 while (pageToken != null);
@@ -1494,38 +1560,34 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 }
 
                 var itemAsEntity = FromJsonToEntity(factory.NotNull(), key.Name, key.Value, newItemCopy);
-                if (itemAsEntity != null)
+                if (itemAsEntity == null)
+                    return OperationResult<JObject?>.Failure("Failed to convert JSON to entity",
+                        HttpStatusCode.InternalServerError);
+
+                transaction.Upsert(itemAsEntity);
+                var commitTask = transaction.CommitAsync();
+
+                if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
                 {
-                    transaction.Upsert(itemAsEntity);
-                    var commitTask = transaction.CommitAsync();
+                    var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-                    if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
+                    await Task.WhenAll(commitTask, postInsertTask);
+
+                    var postInsertResult = await postInsertTask;
+                    if (!postInsertResult.IsSuccessful)
                     {
-                        var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                        await Task.WhenAll(commitTask, postInsertTask);
-
-                        var postInsertResult = await postInsertTask;
-                        if (!postInsertResult.IsSuccessful)
-                        {
-                            return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
-                        }
+                        return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                     }
-                    else
-                    {
-                        await commitTask;
-                    }
-
-                    if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
-                    {
-                        var getResult = await GetItemCoreAsync(tableName, key, null, cancellationToken);
-                        return getResult;
-                    }
-
-                    return OperationResult<JObject?>.Success(returnItem);
+                }
+                else
+                {
+                    await commitTask;
                 }
 
-                return OperationResult<JObject?>.Failure("Failed to convert JSON to entity", HttpStatusCode.InternalServerError);
+                if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
+                    return OperationResult<JObject?>.Success(returnItem);
+
+                return await GetItemCoreAsync(tableName, key, null, cancellationToken);
             }
             catch (Exception e) when (CheckForRetriability(e))
             {
@@ -1594,6 +1656,141 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
         return false;
     }
 
+    /// <summary>
+    /// Parses an attribute path into segments for nested object navigation.
+    /// Supports dot notation like "User.Name" or "Account.Settings.Theme"
+    /// </summary>
+    private static string[] ParseAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return [];
+
+        // Validate that path doesn't contain array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+        {
+            throw new ArgumentException(
+                $"Array indexing syntax (e.g., 'array[0]') is not supported. " +
+                $"Use ArrayElementExists() or ArrayElementNotExists() conditions instead. Path: '{attributePath}'");
+        }
+
+        // Split on dots and validate each segment
+        var segments = attributePath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (string.IsNullOrWhiteSpace(segment))
+                throw new ArgumentException($"Empty segment in attribute path: '{attributePath}'");
+
+            // Validate segment contains only valid characters
+            if (segment.Any(c => char.IsControl(c) || c == '"' || c == '\'' || c == '`'))
+                throw new ArgumentException($"Invalid characters in attribute segment '{segment}' in path: '{attributePath}'");
+        }
+
+        return segments;
+    }
+
+    /// <summary>
+    /// Navigates to a nested property in a JSON object using dot notation.
+    /// Examples: "User.Name", "Account.Settings.Theme"
+    /// </summary>
+    private static JToken? NavigateToNestedProperty(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return null;
+
+        try
+        {
+            var pathSegments = ParseAttributePath(attributePath);
+            JToken current = jsonObject;
+
+            foreach (var segment in pathSegments)
+            {
+                if (current is JObject currentObj)
+                {
+                    if (!currentObj.TryGetValue(segment, out var next))
+                        return null;
+                    current = next;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a nested property exists in a JSON object
+    /// </summary>
+    private static bool NestedPropertyExists(JObject jsonObject, string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        return NavigateToNestedProperty(jsonObject, attributePath) != null;
+    }
+
+    /// <summary>
+    /// Validates an attribute name for use in conditions and operations
+    /// </summary>
+    private static bool IsValidAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        // Handle size() function syntax
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
+        {
+            var innerAttribute = attributePath[5..^1];
+            return !string.IsNullOrWhiteSpace(innerAttribute) && IsValidAttributePath(innerAttribute);
+        }
+
+        // Basic format checks
+        if (attributePath.StartsWith('.') || attributePath.EndsWith('.') || attributePath.Contains(".."))
+            return false;
+
+        // Reject array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+            return false;
+
+        // Check for invalid characters
+        if (attributePath.Any(c => char.IsControl(c) || c == '\n' || c == '\r' || c == '\t'))
+            return false;
+
+        try
+        {
+            var segments = ParseAttributePath(attributePath);
+            return segments.Length != 0
+                   && segments.All(segment => !string.IsNullOrWhiteSpace(segment)
+                                              && segment.Length <= 255);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Validates an attribute name and throws if invalid
+    /// </summary>
+    private static void ValidateAttributeName(string attributeName)
+    {
+        if (!IsValidAttributePath(attributeName))
+        {
+            throw new ArgumentException($"Invalid attribute name: '{attributeName}'. " +
+                "Attribute names must be well-formed paths for nested objects. " +
+                "Examples: 'Name', 'User.Email', 'User.Address.Street', 'size(Tags)'. " +
+                "For arrays, use ArrayElementExists or ArrayElementNotExists conditions.",
+                nameof(attributeName));
+        }
+    }
+
     private static bool ConditionCheck(JObject? jsonObjectToCheck, ConditionCoupling? conditionExpression)
     {
         if (jsonObjectToCheck == null || conditionExpression == null)
@@ -1614,10 +1811,33 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
     private static bool CheckSingleCondition(JObject jsonObjectToCheck, Condition condition)
     {
+        // Handle size() function specially
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(')'))
+        {
+            var innerAttribute = condition.AttributeName[5..^1];
+            var token = NavigateToNestedProperty(jsonObjectToCheck, innerAttribute);
+            if (token is not JArray array) return false;
+
+            var arraySize = array.Count;
+            if (condition is not ValueCondition valueCondition) return false;
+
+            var expectedSize = valueCondition.Value.AsInteger;
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals => arraySize == expectedSize,
+                ConditionType.AttributeNotEquals => arraySize != expectedSize,
+                ConditionType.AttributeGreater => arraySize > expectedSize,
+                ConditionType.AttributeGreaterOrEqual => arraySize >= expectedSize,
+                ConditionType.AttributeLess => arraySize < expectedSize,
+                ConditionType.AttributeLessOrEqual => arraySize <= expectedSize,
+                _ => false
+            };
+        }
+
         return condition.ConditionType switch
         {
-            ConditionType.AttributeExists => jsonObjectToCheck.ContainsKey(condition.AttributeName),
-            ConditionType.AttributeNotExists => !jsonObjectToCheck.ContainsKey(condition.AttributeName),
+            ConditionType.AttributeExists => NestedPropertyExists(jsonObjectToCheck, condition.AttributeName),
+            ConditionType.AttributeNotExists => !NestedPropertyExists(jsonObjectToCheck, condition.AttributeName),
             _ when condition is ValueCondition valueCondition => CheckValueCondition(jsonObjectToCheck, valueCondition),
             _ when condition is ArrayCondition arrayCondition => CheckArrayElementCondition(jsonObjectToCheck, arrayCondition),
             _ => true
@@ -1626,7 +1846,8 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
     private static bool CheckValueCondition(JObject jsonObject, ValueCondition condition)
     {
-        if (!jsonObject.TryGetValue(condition.AttributeName, out var token))
+        var token = NavigateToNestedProperty(jsonObject, condition.AttributeName);
+        if (token == null)
             return false;
 
         return condition.ConditionType switch
@@ -1643,8 +1864,9 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
     private static bool CheckArrayElementCondition(JObject jsonObject, ArrayCondition condition)
     {
-        if (!jsonObject.TryGetValue(condition.AttributeName, out var token) || token is not JArray array)
-            return false;
+        var token = NavigateToNestedProperty(jsonObject, condition.AttributeName);
+        if (token is not JArray array)
+            return condition.ConditionType == ConditionType.ArrayElementNotExists;
 
         var elementExists = array.Any(item => CompareJTokenWithPrimitive(item, condition.ElementValue));
 
@@ -1714,44 +1936,74 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public override Condition AttributeExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    }
 
     public async ValueTask DisposeAsync()
     {

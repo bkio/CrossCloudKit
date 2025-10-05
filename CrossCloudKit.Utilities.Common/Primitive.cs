@@ -87,7 +87,7 @@ public sealed class Primitive : IEquatable<Primitive>
     public Primitive(int value)
     {
         Kind = PrimitiveKind.Integer;
-        _value = value;
+        _value = (long)value;
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public sealed class Primitive : IEquatable<Primitive>
     public Primitive(float value)
     {
         Kind = PrimitiveKind.Double;
-        _value = value;
+        _value = (double)value;
     }
 
     /// <summary>

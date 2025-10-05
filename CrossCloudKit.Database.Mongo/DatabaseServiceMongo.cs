@@ -599,7 +599,102 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
         }
     }
 
-   private static bool BuildConditionsFilter(
+    /// <summary>
+    /// Parses an attribute path into segments for validation.
+    /// Supports dot notation like "User.Name" or "Account.Settings.Theme"
+    /// </summary>
+    private static string[] ParseAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return [];
+
+        // Validate that path doesn't contain array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+        {
+            throw new ArgumentException(
+                $"Array indexing syntax (e.g., 'array[0]') is not supported. " +
+                $"Use ArrayElementExists() or ArrayElementNotExists() conditions instead. Path: '{attributePath}'");
+        }
+
+        // Split on dots and validate each segment
+        var segments = attributePath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (string.IsNullOrWhiteSpace(segment))
+                throw new ArgumentException($"Empty segment in attribute path: '{attributePath}'");
+
+            // Validate segment contains only valid characters
+            if (segment.Any(c => char.IsControl(c) || c == '"' || c == '\'' || c == '`'))
+                throw new ArgumentException($"Invalid characters in attribute segment '{segment}' in path: '{attributePath}'");
+        }
+
+        return segments;
+    }
+
+    /// <summary>
+    /// Validates an attribute name for use in conditions and operations
+    /// </summary>
+    private static bool IsValidAttributePath(string attributePath)
+    {
+        if (string.IsNullOrEmpty(attributePath))
+            return false;
+
+        // Handle size() function syntax
+        if (attributePath.StartsWith("size(") && attributePath.EndsWith(")"))
+        {
+            var innerAttribute = attributePath[5..^1];
+            return !string.IsNullOrWhiteSpace(innerAttribute) && IsValidAttributePath(innerAttribute);
+        }
+
+        // Basic format checks
+        if (attributePath.StartsWith('.') || attributePath.EndsWith('.') || attributePath.Contains(".."))
+            return false;
+
+        // Reject array indexing syntax
+        if (attributePath.Contains('[') || attributePath.Contains(']'))
+            return false;
+
+        // Check for invalid characters
+        if (attributePath.Any(c => char.IsControl(c) || c == '\n' || c == '\r' || c == '\t'))
+            return false;
+
+        try
+        {
+            var segments = ParseAttributePath(attributePath);
+            if (segments.Length == 0)
+                return false;
+
+            foreach (var segment in segments)
+            {
+                if (string.IsNullOrWhiteSpace(segment) || segment.Length > 255)
+                    return false;
+            }
+
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Validates an attribute name and throws if invalid
+    /// </summary>
+    private static void ValidateAttributeName(string attributeName)
+    {
+        if (!IsValidAttributePath(attributeName))
+        {
+            throw new ArgumentException($"Invalid attribute name: '{attributeName}'. " +
+                "Attribute names must be well-formed paths for nested objects. " +
+                "Examples: 'Name', 'User.Email', 'User.Address.Street', 'size(Tags)'. " +
+                "For arrays, use ArrayElementExists or ArrayElementNotExists conditions.",
+                nameof(attributeName));
+        }
+    }
+
+    private static bool BuildConditionsFilter(
         out FilterDefinition<BsonDocument> finalFilter,
         ConditionCoupling conditions,
         FilterDefinition<BsonDocument>? baseFilter = null)
@@ -779,6 +874,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             if (!existenceAndConditionCheckResult.IsSuccessful && existenceAndConditionCheckResult.StatusCode != HttpStatusCode.NotFound)
                 return OperationResult<double>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
 
+            // MongoDB supports nested paths directly in field names using dot notation
             var update = Builders<BsonDocument>.Update.Inc(numericAttributeName, incrementValue);
             var options = new FindOneAndUpdateOptions<BsonDocument>
             {
@@ -798,9 +894,28 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
 
             var document = await findUpdateTask;
-            if (document != null && document.TryGetValue(numericAttributeName, out var value))
+            if (document != null)
             {
-                return OperationResult<double>.Success(value.AsDouble);
+                // For nested paths, we need to navigate to get the value
+                var pathSegments = numericAttributeName.Split('.');
+                BsonValue current = document;
+
+                foreach (var segment in pathSegments)
+                {
+                    if (current is BsonDocument doc && doc.TryGetValue(segment, out var next))
+                    {
+                        current = next;
+                    }
+                    else
+                    {
+                        return OperationResult<double>.Failure($"Failed to navigate to '{numericAttributeName}' in result", HttpStatusCode.InternalServerError);
+                    }
+                }
+
+                if (current.IsNumeric)
+                {
+                    return OperationResult<double>.Success(current.AsDouble);
+                }
             }
 
             return OperationResult<double>.Failure("Failed to get updated value", HttpStatusCode.InternalServerError);
@@ -1292,6 +1407,31 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
     private static FilterDefinition<BsonDocument>? BuildFilterFromCondition(Condition condition)
     {
+        // Handle size() function specially
+        if (condition.AttributeName.StartsWith("size(") && condition.AttributeName.EndsWith(')'))
+        {
+            var innerAttribute = condition.AttributeName[5..^1];
+            if (condition is not ValueCondition valueCondition) return null;
+
+            var expectedSize = valueCondition.Value.AsInteger;
+            return condition.ConditionType switch
+            {
+                ConditionType.AttributeEquals =>
+                    Builders<BsonDocument>.Filter.Size(innerAttribute, (int)expectedSize),
+                ConditionType.AttributeNotEquals =>
+                    Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Size(innerAttribute, (int)expectedSize)),
+                ConditionType.AttributeGreater =>
+                    Builders<BsonDocument>.Filter.SizeGt(innerAttribute, (int)expectedSize),
+                ConditionType.AttributeGreaterOrEqual =>
+                    Builders<BsonDocument>.Filter.SizeGte(innerAttribute, (int)expectedSize),
+                ConditionType.AttributeLess =>
+                    Builders<BsonDocument>.Filter.SizeLt(innerAttribute, (int)expectedSize),
+                ConditionType.AttributeLessOrEqual =>
+                    Builders<BsonDocument>.Filter.SizeLte(innerAttribute, (int)expectedSize),
+                _ => null
+            };
+        }
+
         return condition.ConditionType switch
         {
             ConditionType.AttributeExists =>
@@ -1397,44 +1537,74 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     #region Condition Builders
 
     /// <inheritdoc />
-    public override Condition AttributeExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    public override Condition AttributeExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotExists(string attributeName) =>
-        new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    public override Condition AttributeNotExists(string attributeName)
+    {
+        ValidateAttributeName(attributeName);
+        return new ExistenceCondition(ConditionType.AttributeNotExists, attributeName);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    public override Condition AttributeEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeNotEquals(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    public override Condition AttributeNotEquals(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeNotEquals, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    public override Condition AttributeIsGreaterThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreater, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    public override Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeGreaterOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessThan(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    public override Condition AttributeIsLessThan(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLess, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value) =>
-        new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    public override Condition AttributeIsLessOrEqual(string attributeName, Primitive value)
+    {
+        ValidateAttributeName(attributeName);
+        return new ValueCondition(ConditionType.AttributeLessOrEqual, attributeName, value);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    public override Condition ArrayElementExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementExists, attributeName, elementValue);
+    }
 
     /// <inheritdoc />
-    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue) =>
-        new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    public override Condition ArrayElementNotExists(string attributeName, Primitive elementValue)
+    {
+        ValidateAttributeName(attributeName);
+        return new ArrayCondition(ConditionType.ArrayElementNotExists, attributeName, elementValue);
+    }
 
     #endregion
 

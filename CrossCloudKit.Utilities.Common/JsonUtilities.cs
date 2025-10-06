@@ -171,13 +171,21 @@ public static class JsonUtilities
 
         var doubleValue = token.Value<double>();
 
-        // Check if it's a whole number within the safe range for long
-        if (!(Math.Abs(doubleValue - Math.Round(doubleValue)) < double.Epsilon) ||
-            !(doubleValue >= long.MinValue) ||
-            !(doubleValue <= long.MaxValue)) return false;
-        intValue = new JValue((long)Math.Round(doubleValue));
-        return true;
+        // Check if it's effectively an integer
+        const double tolerance = 1e-10;
+        if (Math.Abs(doubleValue - Math.Round(doubleValue)) > tolerance)
+            return false;
 
+        // Clamp explicitly before casting
+        var safeValue = doubleValue switch
+        {
+            >= long.MaxValue => long.MaxValue,
+            <= long.MinValue => long.MinValue,
+            _ => (long)Math.Round(doubleValue)
+        };
+
+        intValue = new JValue(safeValue);
+        return true;
     }
 
     /// <summary>

@@ -25,7 +25,7 @@ public class FileServiceFileProvider(
     private readonly string _bucketName = bucketName ?? throw new ArgumentNullException(nameof(bucketName));
     private readonly string _rootPath = $"{NormalizePath(rootPath ?? throw new ArgumentNullException(nameof(rootPath)))}/";
     private readonly Dictionary<string, FileServiceChangeToken> _activeTokens = new();
-    private readonly Lock _tokensLock = new();
+    private readonly object _tokensLock = new();
     private bool _disposed;
 
     /// <summary>

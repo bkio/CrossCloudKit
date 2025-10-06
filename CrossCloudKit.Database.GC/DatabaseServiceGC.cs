@@ -231,7 +231,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
     /// Map that holds loaded kind definition instances
     /// </summary>
     private readonly Dictionary<string, KeyFactory> _loadedKindKeyFactories = [];
-    private readonly Lock _loadedKindKeyFactoriesDictionaryLock = new();
+    private readonly object _loadedKindKeyFactoriesDictionaryLock = new();
 
     /// <summary>
     /// Searches kind key factories in LoadedKindKeyFactories, if not loaded, loads, stores and returns

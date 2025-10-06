@@ -38,7 +38,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
     private readonly MongoClient? _mongoClient;
 
     private readonly Dictionary<string, IMongoCollection<BsonDocument>> _tableMap = [];
-    private readonly Lock _tableMapDictionaryLock = new();
+    private readonly object _tableMapDictionaryLock = new();
 
     /// <summary>
     /// DatabaseServiceMongoDB: Constructor for MongoDB connection using host and port

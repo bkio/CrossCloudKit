@@ -338,7 +338,7 @@ public sealed class Primitive : IEquatable<Primitive>
         Action<bool>? onBoolean = null,
         Action<long>? onInteger = null,
         Action<double>? onDouble = null,
-        Action<ReadOnlySpan<byte>>? onByteArray = null)
+        Action<byte[]>? onByteArray = null)
     {
         switch (Kind)
         {
@@ -355,7 +355,7 @@ public sealed class Primitive : IEquatable<Primitive>
                 onDouble?.Invoke((double)_value);
                 break;
             case PrimitiveKind.ByteArray:
-                onByteArray?.Invoke(((byte[])_value).AsSpan());
+                onByteArray?.Invoke((byte[])_value);
                 break;
         }
     }
@@ -375,7 +375,7 @@ public sealed class Primitive : IEquatable<Primitive>
         Func<bool, T> onBoolean,
         Func<long, T> onInteger,
         Func<double, T> onDouble,
-        Func<ReadOnlySpan<byte>, T> onByteArray)
+        Func<byte[], T> onByteArray)
     {
         return Kind switch
         {
@@ -383,7 +383,7 @@ public sealed class Primitive : IEquatable<Primitive>
             PrimitiveKind.Boolean => onBoolean((bool)_value),
             PrimitiveKind.Integer => onInteger((long)_value),
             PrimitiveKind.Double => onDouble((double)_value),
-            PrimitiveKind.ByteArray => onByteArray(((byte[])_value).AsSpan()),
+            PrimitiveKind.ByteArray => onByteArray((byte[])_value),
             _ => throw new InvalidOperationException($"Unknown primitive type kind: {Kind}")
         };
     }

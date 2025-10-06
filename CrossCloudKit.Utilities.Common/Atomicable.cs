@@ -34,8 +34,7 @@ public enum ThreadSafetyMode
 public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyMode = ThreadSafetyMode.SingleProducer)
 {
     private T _value = initialValue;
-    private readonly ThreadSafetyMode _threadSafetyMode = threadSafetyMode;
-    private readonly Lock _lockObject = new();
+    private readonly object _lockObject = new();
 
     /// <summary>
     /// Gets or sets the atomic value
@@ -52,7 +51,7 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     /// <returns>The current value</returns>
     public T GetValue()
     {
-        if (_threadSafetyMode != ThreadSafetyMode.MultipleProducers) return _value;
+        if (threadSafetyMode != ThreadSafetyMode.MultipleProducers) return _value;
         lock (_lockObject)
         {
             return _value;
@@ -66,7 +65,7 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     /// <param name="newValue">The new value to set</param>
     public void SetValue(T newValue)
     {
-        if (_threadSafetyMode == ThreadSafetyMode.MultipleProducers)
+        if (threadSafetyMode == ThreadSafetyMode.MultipleProducers)
         {
             lock (_lockObject)
             {
@@ -88,7 +87,7 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     /// <returns>true if the value was exchanged; otherwise, false</returns>
     public bool CompareAndSet(T expectedValue, T newValue)
     {
-        if (_threadSafetyMode == ThreadSafetyMode.MultipleProducers)
+        if (threadSafetyMode == ThreadSafetyMode.MultipleProducers)
         {
             lock (_lockObject)
             {
@@ -110,7 +109,7 @@ public sealed class Atomicable<T>(T initialValue, ThreadSafetyMode threadSafetyM
     /// <returns>The original value before the exchange</returns>
     public T Exchange(T newValue)
     {
-        if (_threadSafetyMode == ThreadSafetyMode.MultipleProducers)
+        if (threadSafetyMode == ThreadSafetyMode.MultipleProducers)
         {
             lock (_lockObject)
             {

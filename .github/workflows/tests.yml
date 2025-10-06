@@ -35,8 +35,9 @@ jobs:
 
     - name: Run tests and generate report
       id: test
+      timeout-minutes: 45
       run: |
-        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults --collect:"XPlat Code Coverage" -- RunConfiguration.MaxParallelThreads=1
+        dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults -- RunConfiguration.MaxParallelThreads=1
       env:
         # AWS Configuration
         AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
@@ -65,7 +66,11 @@ jobs:
         S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
         S3_REGION: ${{ secrets.S3_REGION }}
         S3_SERVER_ADDRESS: ${{ secrets.S3_SERVER_ADDRESS }}
-      continue-on-error: true
+
+        # .NET 8 stability improvements
+        DOTNET_CLI_TELEMETRY_OPTOUT: 1
+        VSTEST_CONNECTION_TIMEOUT: 180
+      continue-on-error: false
 
     - name: Parse test results and create badge
       run: |

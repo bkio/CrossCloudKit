@@ -459,7 +459,7 @@ public class MonitorBasedPubSub : IAsyncDisposable
     private async Task<IAsyncDisposable> ObserveFileServiceAndDispatchEventsMutex(CancellationToken cancellationToken)
     {
         if (MemoryService == null) return new NoopAsyncDisposable();
-        return await MemoryScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateEntityScopeAsync(
             MemoryService,
             ObserveFileServiceAndDispatchEventsMemoryServiceScope,
             "lock",

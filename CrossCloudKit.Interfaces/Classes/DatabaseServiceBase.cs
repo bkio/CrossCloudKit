@@ -51,7 +51,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await ItemExistsCoreAsync(tableName, key, conditions, cancellationToken);
     }
 
@@ -70,7 +70,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await GetItemCoreAsync(tableName, key, attributesToRetrieve, cancellationToken);
     }
 
@@ -89,7 +89,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexesAsync(tableName, keys, cancellationToken);
         return await GetItemsCoreAsync(tableName, keys, attributesToRetrieve, cancellationToken);
     }
 
@@ -110,7 +110,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await PutItemCoreAsync(tableName, key, item, returnBehavior, overwriteIfExists, cancellationToken);
     }
 
@@ -133,7 +133,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await UpdateItemCoreAsync(tableName, key, updateData, returnBehavior, conditions, cancellationToken);
     }
 
@@ -155,7 +155,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await DeleteItemCoreAsync(tableName, key, returnBehavior, conditions, cancellationToken);
     }
 
@@ -178,7 +178,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await AddElementsToArrayCoreAsync(tableName, key, arrayAttributeName, elementsToAdd, returnBehavior, conditions, false, cancellationToken);
     }
 
@@ -204,7 +204,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await RemoveElementsFromArrayCoreAsync(tableName, key, arrayAttributeName, elementsToRemove, returnBehavior, conditions, cancellationToken);
     }
 
@@ -228,7 +228,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateEntityMutexAsync(tableName, key, cancellationToken);
         return await IncrementAttributeCoreAsync(tableName, key, numericAttributeName, incrementValue, conditions, cancellationToken);
     }
 
@@ -247,7 +247,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMasterMutexAsync(tableName, cancellationToken);
         return await ScanTableCoreAsync(tableName, cancellationToken);
     }
 
@@ -264,7 +264,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMasterMutexAsync(tableName, cancellationToken);
         return await ScanTablePaginatedCoreAsync(tableName, pageSize, pageToken, cancellationToken);
     }
 
@@ -282,7 +282,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMasterMutexAsync(tableName, cancellationToken);
         return await ScanTableWithFilterCoreAsync(tableName, filterConditions, cancellationToken);
     }
 
@@ -301,7 +301,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMasterMutexAsync(tableName, cancellationToken);
         return await ScanTableWithFilterPaginatedCoreAsync(tableName, filterConditions, pageSize, pageToken, cancellationToken);
     }
 
@@ -327,7 +327,7 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     public async Task<OperationResult<bool>> DropTableAsync(string tableName, CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
+        await using var mutex = await CreateMasterMutexAsync(tableName, cancellationToken);
         return await DropTableCoreAsync(tableName, cancellationToken);
     }
 
@@ -370,7 +370,6 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         CancellationToken cancellationToken = default)
     {
         await EnsureReadyForOperation();
-        await using var mutex = await CreateMutexScopeAsync(tableName, cancellationToken);
         return await GetTableKeysCoreAsync(tableName, cancellationToken);
     }
 
@@ -379,11 +378,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         string tableName,
         CancellationToken cancellationToken = default)
     {
-        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+        var systemKey = new DbKey(SystemTableKeyName, tableName);
+
+        await using var mutex = await CreateEntityMutexAsync(SystemTableName, systemKey, cancellationToken); //System table lock
 
         var getResult = await GetItemCoreAsync(
             SystemTableName,
-            new DbKey(SystemTableKeyName, tableName),
+            systemKey,
             [SystemTableKeysAttributeName],
             cancellationToken);
         if (!getResult.IsSuccessful)
@@ -401,11 +402,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (tableName == SystemTableName)
             return OperationResult<bool>.Success(true);
 
-        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+        var systemKey = new DbKey(SystemTableKeyName, tableName);
+
+        await using var mutex = await CreateEntityMutexAsync(SystemTableName, systemKey, cancellationToken); //System table lock
 
         var addElementResult = await AddElementsToArrayCoreAsync(
             SystemTableName,
-            new DbKey(SystemTableKeyName, tableName),
+            systemKey,
             SystemTableKeysAttributeName,
             [new Primitive(key.Name)],
             DbReturnItemBehavior.DoNotReturn,
@@ -426,11 +429,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (tableName == SystemTableName)
             return OperationResult<bool>.Success(true);
 
-        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+        var systemKey = new DbKey(SystemTableKeyName, tableName);
+
+        await using var mutex = await CreateEntityMutexAsync(SystemTableName, systemKey, cancellationToken); //System table lock
 
         var deleteResult = await DeleteItemCoreAsync(
             SystemTableName,
-            new DbKey(SystemTableKeyName, tableName),
+            systemKey,
             DbReturnItemBehavior.ReturnNewValues,
             null,
             cancellationToken);
@@ -468,11 +473,13 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
         if (conditionNo == 0)
             return OperationResult<bool>.Success(true);
 
-        await using var mutex = await CreateMutexScopeAsync(SystemTableName, cancellationToken); //System table lock
+        var systemKey = new DbKey(SystemTableKeyName, tableName);
+
+        await using var mutex = await CreateEntityMutexAsync(SystemTableName, systemKey, cancellationToken); //System table lock
 
         var ifKeyAttrUsedSanityCheckResult = await ItemExistsCoreAsync(
             SystemTableName,
-            new DbKey(SystemTableKeyName, tableName),
+            systemKey,
             conditions,
             cancellationToken);
 
@@ -553,17 +560,72 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
     }
     private readonly Atomicable<bool> _backupInActionMemoryService = new(false, ThreadSafetyMode.MultipleProducers);
 
-    private async Task<MemoryScopeMutex> CreateMutexScopeAsync(
+    private async Task<MemoryScopeMutex> CreateMasterMutexAsync(
         string tableName,
         CancellationToken cancellationToken)
     {
-        return await MemoryScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateMasterScopeAsync(
             MemoryService,
-            MemoryScope,
-            $"{_mutexScopePrefix}{tableName}",
+            new MemoryScopeLambda($"{MutexScopeConst}{_mutexScopePrefix}{tableName}"),
             TimeSpan.FromMinutes(1),
             cancellationToken);
     }
-    private static readonly MemoryScopeLambda MemoryScope = new("CrossCloudKit.Interfaces.Classes.DatabaseServiceBase:MutexScope");
+    private async Task<MemoryScopeMutex> CreateEntityMutexAsync(
+        string tableName,
+        DbKey key,
+        CancellationToken cancellationToken)
+    {
+        return await MemoryScopeMutex.CreateEntityScopeAsync(
+            MemoryService,
+            new MemoryScopeLambda($"{MutexScopeConst}{_mutexScopePrefix}{tableName}"),
+            $"{key.Name}:{key.Value}",
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    }
+    private async Task<CompositeAsyncDisposable> CreateEntityMutexesAsync(
+        string tableName,
+        DbKey[] keys,
+        CancellationToken cancellationToken)
+    {
+        var orderedKeys = keys
+            .OrderBy(k => k.Name.ToString(), StringComparer.Ordinal)
+            .ThenBy(k => k.Value.ToString(), StringComparer.Ordinal)
+            .ToArray();
+        var acquiredLocks = new List<MemoryScopeMutex>();
+
+        try
+        {
+            foreach (var key in orderedKeys)
+            {
+                var mutex = await MemoryScopeMutex.CreateEntityScopeAsync(
+                    MemoryService,
+                    new MemoryScopeLambda($"{MutexScopeConst}{_mutexScopePrefix}{tableName}"),
+                    $"{key.Name}:{key.Value}",
+                    TimeSpan.FromMinutes(1),
+                    cancellationToken);
+
+                acquiredLocks.Add(mutex);
+            }
+
+            // Return a composite disposable that releases all acquired locks
+            return new CompositeAsyncDisposable(acquiredLocks);
+        }
+        catch
+        {
+            foreach (var mutex in acquiredLocks)
+                await mutex.DisposeAsync();
+            throw;
+        }
+    }
+    private const string MutexScopeConst = "CrossCloudKit.Interfaces.Classes.DatabaseServiceBase:";
     private readonly string _mutexScopePrefix = databaseNameIfApplicable != null ? $"{databaseNameIfApplicable}:" : "";
+
+    private sealed class CompositeAsyncDisposable(IReadOnlyList<IAsyncDisposable> resources) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            foreach (var resource in resources)
+                await resource.DisposeAsync();
+        }
+    }
 }

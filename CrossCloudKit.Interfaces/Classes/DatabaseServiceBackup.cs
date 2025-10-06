@@ -392,7 +392,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
     /// </remarks>
     internal static async Task<MemoryScopeMutex> CreateBackupMutexScopeAsync(IMemoryService memoryService)
     {
-        return await MemoryScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateEntityScopeAsync(
             memoryService,
             BackupMemoryMutexScope,
             BackupMemoryMutexKeyName,

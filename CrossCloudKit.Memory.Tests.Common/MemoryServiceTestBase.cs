@@ -526,7 +526,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var lockDuration = TimeSpan.FromSeconds(10);
 
             // Act & Assert - Acquire lock
-            await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var mutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // The fact that we got here means the lock was acquired successfully
@@ -552,7 +552,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var secondLockBlocked = false;
 
             // Act - First lock
-            await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var firstMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
             firstLockAcquired = true;
 
@@ -562,7 +562,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 try
                 {
-                    await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
+                    await using var secondMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                         MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
                     secondLockAcquired = true;
                     secondLockBlocked = false;
@@ -601,7 +601,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - First lock and release
             {
-                await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
+                await using var firstMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration);
 
                 // Simulate some work
@@ -610,7 +610,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             } // First mutex is disposed here, releasing the lock
 
             // Second lock should now be able to acquire
-            await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var secondMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
             secondLockAcquired = true;
 
@@ -642,7 +642,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
                 var taskId = i;
                 var task = Task.Run(async () =>
                 {
-                    await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
+                    await using var mutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                         MemoryService, TestScope, mutexKey, lockDuration);
 
                     // Critical section - increment counter
@@ -687,7 +687,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act - Try to acquire two different mutex keys concurrently
             var task1 = Task.Run(async () =>
             {
-                await using var mutex1 = await MemoryScopeMutex.CreateScopeAsync(
+                await using var mutex1 = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey1, lockDuration);
                 lock1Acquired = true;
                 await Task.Delay(200); // Hold lock for a bit
@@ -695,7 +695,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             var task2 = Task.Run(async () =>
             {
-                await using var mutex2 = await MemoryScopeMutex.CreateScopeAsync(
+                await using var mutex2 = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey2, lockDuration);
                 lock2Acquired = true;
                 await Task.Delay(200); // Hold lock for a bit
@@ -726,7 +726,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - Use synchronous creation method
             // ReSharper disable once MethodHasAsyncOverload
-            using var mutex = MemoryScopeMutex.CreateScope(
+            using var mutex = MemoryScopeMutex.CreateEntityScope(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // Assert
@@ -739,7 +739,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             try
             {
-                await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
+                await using var secondMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
                 // If we get here, the second lock was acquired (which shouldn't happen)
                 secondLockBlocked = false;
@@ -772,7 +772,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
 
             // Act - Acquire lock with short TTL and let it expire
             {
-                await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
+                await using var firstMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey, shortLockDuration);
                 firstLockAcquired = true;
 
@@ -781,7 +781,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             }
 
             // The lock should have expired, so we should be able to acquire it again
-            await using var secondMutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var secondMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, TimeSpan.FromSeconds(5));
             secondLockAcquired = true;
 
@@ -806,13 +806,13 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             var lockDuration = TimeSpan.FromSeconds(10);
 
             // First, acquire the lock
-            await using var firstMutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var firstMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration);
 
             // Act & Assert - Try to acquire the same lock with cancellation
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
 
-            var act = async () => await MemoryScopeMutex.CreateScopeAsync(
+            var act = async () => await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
 
             await act.Should().ThrowAsync<OperationCanceledException>(
@@ -838,7 +838,7 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // Act - Simulate exception in critical section
             try
             {
-                await using var mutex = await MemoryScopeMutex.CreateScopeAsync(
+                await using var mutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                     MemoryService, TestScope, mutexKey, lockDuration);
 
                 // Simulate work that throws an exception
@@ -852,13 +852,132 @@ public abstract class MemoryServiceTestBase(ITestOutputHelper testOutputHelper) 
             // The lock should be released even though an exception occurred
             // Try to acquire it again - should succeed immediately
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-            await using var newMutex = await MemoryScopeMutex.CreateScopeAsync(
+            await using var newMutex = await MemoryScopeMutex.CreateEntityScopeAsync(
                 MemoryService, TestScope, mutexKey, lockDuration, cts.Token);
             lockReleasedAfterException = true;
 
             // Assert
             lockReleasedAfterException.Should().BeTrue(
                 "Lock should be released even when exception occurs in critical section");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_MasterLockBlocksEntityLocks_ShouldPreventEntityLockAcquisition()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey1 = "test-entity-mutex-1";
+            var mutexKey2 = "test-entity-mutex-2";
+            var lockDuration = TimeSpan.FromSeconds(5);
+            var masterLockAcquired = false;
+            var entityLock1Blocked = false;
+            var entityLock2Blocked = false;
+
+            // Act - Acquire master lock
+            await using var masterMutex = await MemoryScopeMutex.CreateMasterScopeAsync(
+                MemoryService, TestScope, lockDuration);
+            masterLockAcquired = true;
+
+            // Try to acquire entity locks (both should be blocked by master lock)
+            var entityLock1Task = Task.Run(async () =>
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await using var entityMutex1 = await MemoryScopeMutex.CreateEntityScopeAsync(
+                        MemoryService, TestScope, mutexKey1, lockDuration, cts.Token);
+                    entityLock1Blocked = false;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected - entity lock should be blocked by master lock
+                    entityLock1Blocked = true;
+                }
+            });
+
+            var entityLock2Task = Task.Run(async () =>
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await using var entityMutex2 = await MemoryScopeMutex.CreateEntityScopeAsync(
+                        MemoryService, TestScope, mutexKey2, lockDuration, cts.Token);
+                    entityLock2Blocked = false;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected - entity lock should be blocked by master lock
+                    entityLock2Blocked = true;
+                }
+            });
+
+            await Task.WhenAll(entityLock1Task, entityLock2Task);
+
+            // Assert
+            masterLockAcquired.Should().BeTrue("Master lock should be acquired");
+            entityLock1Blocked.Should().BeTrue("Entity lock 1 should be blocked by master lock");
+            entityLock2Blocked.Should().BeTrue("Entity lock 2 should be blocked by master lock");
+        }
+        finally
+        {
+            await SafeCleanupAsync();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    [SuppressMessage("ReSharper", "RedundantAssignment")]
+    public async Task Mutex_EntityLocksAfterMasterLockRelease_ShouldAcquireSuccessfully()
+    {
+        try
+        {
+            // Arrange
+            var mutexKey1 = "test-entity-after-master-1";
+            var mutexKey2 = "test-entity-after-master-2";
+            var lockDuration = TimeSpan.FromSeconds(10);
+            var masterLockCompleted = false;
+            var entityLock1Acquired = false;
+            var entityLock2Acquired = false;
+
+            // Act - Acquire and release master lock
+            {
+                await using var masterMutex = await MemoryScopeMutex.CreateMasterScopeAsync(
+                    MemoryService, TestScope, lockDuration);
+
+                // Simulate some work under master lock
+                await Task.Delay(100);
+                masterLockCompleted = true;
+            } // Master mutex is disposed here, releasing the lock
+
+            // Now entity locks should be able to acquire
+            var entityLock1Task = Task.Run(async () =>
+            {
+                await using var entityMutex1 = await MemoryScopeMutex.CreateEntityScopeAsync(
+                    MemoryService, TestScope, mutexKey1, lockDuration);
+                entityLock1Acquired = true;
+                await Task.Delay(100); // Hold lock for a bit
+            });
+
+            var entityLock2Task = Task.Run(async () =>
+            {
+                await using var entityMutex2 = await MemoryScopeMutex.CreateEntityScopeAsync(
+                    MemoryService, TestScope, mutexKey2, lockDuration);
+                entityLock2Acquired = true;
+                await Task.Delay(100); // Hold lock for a bit
+            });
+
+            await Task.WhenAll(entityLock1Task, entityLock2Task);
+
+            // Assert
+            masterLockCompleted.Should().BeTrue("Master lock should complete");
+            entityLock1Acquired.Should().BeTrue("Entity lock 1 should be acquired after master lock is released");
+            entityLock2Acquired.Should().BeTrue("Entity lock 2 should be acquired after master lock is released");
         }
         finally
         {

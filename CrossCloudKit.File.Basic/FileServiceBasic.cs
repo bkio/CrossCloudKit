@@ -948,7 +948,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     {
         var memoryService = _monitorBasedPubSub.NotNull().MemoryService;
         if (memoryService == null) return new NoopAsyncDisposable();
-        return await MemoryScopeMutex.CreateScopeAsync(
+        return await MemoryScopeMutex.CreateEntityScopeAsync(
             memoryService,
             FileMutexScope,
             bucketName,

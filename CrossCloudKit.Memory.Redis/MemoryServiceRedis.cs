@@ -30,11 +30,51 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
 
     public bool IsInitialized => Initialized;
 
+    private const string MutexMasterLockScript = """
+        local ok = redis.call("SET", KEYS[2], ARGV[1], "PX", ARGV[2], "NX")
+        if ok then
+            return ARGV[1]
+        else
+            local current = redis.call("GET", KEYS[2])
+            if current == ARGV[1] then
+               redis.call("PEXPIRE", KEYS[2], ARGV[2])
+               return ARGV[1]
+            else
+               return nil
+            end
+        end
+        """;
+    private const string MutexEntityLockScript = $"""
+         if redis.call("EXISTS", KEYS[1]) == 1 then
+             return nil
+         end
+         {MutexMasterLockScript}
+         """;
+    private const string MutexUnlockScript = """
+        return redis.call("GET", KEYS[1]) == ARGV[1] and redis.call("DEL", KEYS[1]) or 0
+        """;
+
     /// <inheritdoc />
     public async Task<OperationResult<string?>> MemoryMutexLock(
         IMemoryScope memoryScope,
         string mutexValue,
         TimeSpan timeToLive,
+        CancellationToken cancellationToken = default)
+    {
+        return await InternalMemoryMutexLock(memoryScope, mutexValue, timeToLive, false, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<string?>> MemoryMutexMasterLock(IMemoryScope memoryScope, TimeSpan timeToLive, CancellationToken cancellationToken = default)
+    {
+        return await InternalMemoryMutexLock(memoryScope, "master", timeToLive, true, cancellationToken);
+    }
+
+    private async Task<OperationResult<string?>> InternalMemoryMutexLock(
+        IMemoryScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        bool isCalledFromMasterLock,
         CancellationToken cancellationToken = default)
     {
         if (!IsInitialized)
@@ -43,38 +83,26 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         if (string.IsNullOrEmpty(mutexValue))
             return OperationResult<string?>.Failure("Mutex value is empty", HttpStatusCode.BadRequest);
 
+        if (!isCalledFromMasterLock && mutexValue.Equals("master", StringComparison.CurrentCultureIgnoreCase))
+            return OperationResult<string?>.Failure("Mutex value cannot be 'master'", HttpStatusCode.BadRequest);
+
         if (timeToLive <= TimeSpan.Zero)
             return OperationResult<string?>.Failure("Time to live must be positive", HttpStatusCode.BadRequest);
 
         // Use a prefixed key to avoid conflicts with regular memory operations
-        var lockKey = $"CrossCloudKit.Memory.Redis.MemoryServiceRedis.Mutex:{mutexValue}";
+        var compiledScope = memoryScope.Compile();
+        var masterKey = $"{compiledScope}:master";
+        var entityKey = $"{compiledScope}:{mutexValue}";
 
         // Generate a unique lock ID to identify the lock holder
         var lockId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
 
         return await ExecuteRedisOperationAsync(async database =>
         {
-            // Use Lua script for atomic hash field set with expiry
-            const string lockScript = """
-                local current = redis.call('hget', KEYS[1], ARGV[1])
-                if not current then
-                    redis.call('hset', KEYS[1], ARGV[1], ARGV[2])
-                    redis.call('expire', KEYS[1], ARGV[3])
-                    return ARGV[2]
-                elseif current == ARGV[2] then
-                    redis.call('expire', KEYS[1], ARGV[3])
-                    return ARGV[2]
-                else
-                    return nil
-                end
-                """;
-
-            var compiled = memoryScope.Compile();
-
             var result = await database.ScriptEvaluateAsync(
-                lockScript,
-                [compiled],
-                [lockKey, lockId, (int)timeToLive.TotalSeconds]);
+                isCalledFromMasterLock ? MutexMasterLockScript : MutexEntityLockScript,
+                [masterKey, entityKey],
+                [lockId, (int)timeToLive.TotalMilliseconds]);
 
             // Return the lock ID if acquired, null if not acquired
             return result.IsNull ? null : ((string?)result).NotNull();
@@ -88,39 +116,48 @@ public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryServ
         string lockId,
         CancellationToken cancellationToken = default)
     {
+        return await InternalMemoryMutexUnlock(memoryScope, mutexValue, lockId, false, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<OperationResult<bool>> MemoryMutexMasterUnlock(IMemoryScope memoryScope, string lockId, CancellationToken cancellationToken = default)
+    {
+        return await InternalMemoryMutexUnlock(memoryScope, "master", lockId, true, cancellationToken);
+    }
+
+    private async Task<OperationResult<bool>> InternalMemoryMutexUnlock(
+        IMemoryScope memoryScope,
+        string mutexValue,
+        string lockId,
+        bool isCalledFromMasterUnlock,
+        CancellationToken cancellationToken = default)
+    {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Redis connection is not initialized", HttpStatusCode.ServiceUnavailable);
 
         if (string.IsNullOrEmpty(mutexValue))
             return OperationResult<bool>.Failure("Mutex value is empty", HttpStatusCode.BadRequest);
 
+        if (!isCalledFromMasterUnlock && mutexValue.Equals("master", StringComparison.CurrentCultureIgnoreCase))
+            return OperationResult<bool>.Failure("Mutex value cannot be 'master'", HttpStatusCode.BadRequest);
+
         if (string.IsNullOrEmpty(lockId))
             return OperationResult<bool>.Failure("Lock ID is required", HttpStatusCode.BadRequest);
 
         // Use the same prefixed key format as in lock
-        var lockKey = $"CrossCloudKit.Memory.Redis.MemoryServiceRedis.Mutex:{mutexValue}";
-
-        // Use Lua script to ensure atomic check-and-delete operation on hash field
-        // This verifies the lock ID matches before deleting, ensuring only the lock holder can unlock
-        const string unlockScript = """
-            if redis.call("hget", KEYS[1], ARGV[1]) == ARGV[2] then
-                redis.call("hdel", KEYS[1], ARGV[1])
-                return 1
-            else
-                return 0
-            end
-            """;
+        var compiledScope = memoryScope.Compile();
+        var key = $"{compiledScope}:{mutexValue}";
 
         return await ExecuteRedisOperationAsync(async database =>
         {
             var result = await database.ScriptEvaluateAsync(
-                unlockScript,
-                [memoryScope.Compile()],
-                [lockKey, lockId]);
+                MutexUnlockScript,
+                [key],
+                [lockId]);
 
             // Return true if the hash field was deleted (lock was released by the correct holder)
             // Return false if the field didn't exist or had a different value (not our lock)
-            return (bool)result;
+            return (int)result > 0;
         }, cancellationToken);
     }
 

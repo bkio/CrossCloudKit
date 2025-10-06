@@ -52,43 +52,68 @@ public sealed class MemoryServiceBasic : IMemoryService
         TimeSpan timeToLive,
         CancellationToken cancellationToken = default)
     {
+        return InternalMemoryMutexLock(memoryScope, mutexValue, timeToLive, false);
+    }
+
+    /// <inheritdoc />
+    public Task<OperationResult<string?>> MemoryMutexMasterLock(IMemoryScope memoryScope, TimeSpan timeToLive,
+        CancellationToken cancellationToken = default)
+    {
+        return InternalMemoryMutexLock(memoryScope, "master", timeToLive, true);
+    }
+
+    private Task<OperationResult<string?>> InternalMemoryMutexLock(
+        IMemoryScope memoryScope,
+        string mutexValue,
+        TimeSpan timeToLive,
+        bool isCalledFromMasterLock)
+    {
         if (!IsInitialized)
             return Task.FromResult(OperationResult<string?>.Failure("Service connection is not initialized", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(mutexValue))
             return Task.FromResult(OperationResult<string?>.Failure("Mutex value is empty", HttpStatusCode.BadRequest));
 
+        if (!isCalledFromMasterLock && mutexValue.Equals("master", StringComparison.CurrentCultureIgnoreCase))
+            return Task.FromResult(OperationResult<string?>.Failure("Mutex value cannot be 'master'", HttpStatusCode.BadRequest));
+
         if (timeToLive <= TimeSpan.Zero)
             return Task.FromResult(OperationResult<string?>.Failure("Time to live must be positive", HttpStatusCode.BadRequest));
 
         // Use a prefixed key similar to Redis implementation
-        var lockKey = $"CrossCloudKit.Memory.Basic.MemoryServiceBasic.Mutex:{mutexValue}";
+        var compiledScope = memoryScope.Compile();
+        var key = $"{compiledScope}:{mutexValue}";
 
         // Generate a unique lock ID to identify the lock holder
         var lockId = Environment.MachineName + ":" + Environment.ProcessId + ":" + Guid.NewGuid().ToString("N");
 
         try
         {
-            var scopeKey = memoryScope.Compile();
-            var mutexWrapper = CreateMutex(scopeKey);
+            var mutexWrapper = CreateMutex(compiledScope);
             if (!mutexWrapper.IsSuccessful)
                 return Task.FromResult(OperationResult<string?>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", HttpStatusCode.InternalServerError));
             using var mutex = mutexWrapper.Data;
 
-            var mutexData = GetOrCreateMutexData(scopeKey);
+            var mutexData = GetOrCreateMutexData(compiledScope);
+
+            // If the master lock is acquired, return immediately
+            if (!isCalledFromMasterLock && mutexData.ContainsKey("master"))
+            {
+                return Task.FromResult(OperationResult<string?>.Success(null));
+            }
 
             // Check if mutex already exists and is not expired
-            if (mutexData.TryGetValue(lockKey, out var existingMutex))
+            if (mutexData.TryGetValue(mutexValue, out var existingMutex))
             {
                 var isExistingMutexSameOwner = existingMutex.LockId == lockId;
                 if (existingMutex.ExpiryTime <= DateTime.UtcNow
                     || isExistingMutexSameOwner)
                 {
                     // Remove the expired lock
-                    mutexData.Remove(lockKey);
+                    mutexData.Remove(mutexValue);
 
                     // Cancel expiration timer
-                    if (_expirationTimers.TryRemove(lockKey, out var expiredTimer))
+                    if (_expirationTimers.TryRemove(key, out var expiredTimer))
                         expiredTimer.Dispose();
                 }
                 else if (!isExistingMutexSameOwner)
@@ -99,27 +124,27 @@ public sealed class MemoryServiceBasic : IMemoryService
 
             // Acquire the lock
             var expiryTime = DateTime.UtcNow.Add(timeToLive);
-            mutexData[lockKey] = new MutexLockData { LockId = lockId, ExpiryTime = expiryTime };
+            mutexData[mutexValue] = new MutexLockData { LockId = lockId, ExpiryTime = expiryTime };
 
             // Set up the expiration timer
             var timer = new Timer(_ =>
             {
                 try
                 {
-                    var timerMutexWrapper = CreateMutex(scopeKey);
+                    var timerMutexWrapper = CreateMutex(compiledScope);
                     if (!timerMutexWrapper.IsSuccessful)
                         return;
 
                     using var timerMutex = timerMutexWrapper.Data;
 
-                    var currentData = GetOrCreateMutexData(scopeKey);
-                    if (currentData.TryGetValue(lockKey, out var value) && value.LockId == lockId)
+                    var currentData = GetOrCreateMutexData(compiledScope);
+                    if (currentData.TryGetValue(mutexValue, out var value) && value.LockId == lockId)
                     {
-                        currentData.Remove(lockKey);
-                        SaveMutexData(scopeKey, currentData);
+                        currentData.Remove(mutexValue);
+                        SaveMutexData(compiledScope, currentData);
                     }
 
-                    _expirationTimers.TryRemove(lockKey, out var _);
+                    _expirationTimers.TryRemove(key, out var _);
                 }
                 catch (Exception)
                 {
@@ -127,8 +152,8 @@ public sealed class MemoryServiceBasic : IMemoryService
                 }
             }, null, timeToLive, Timeout.InfiniteTimeSpan);
 
-            _expirationTimers[lockKey] = timer;
-            SaveMutexData(scopeKey, mutexData);
+            _expirationTimers[key] = timer;
+            SaveMutexData(compiledScope, mutexData);
 
             return Task.FromResult(OperationResult<string?>.Success(lockId));
         }
@@ -145,41 +170,58 @@ public sealed class MemoryServiceBasic : IMemoryService
         string lockId,
         CancellationToken cancellationToken = default)
     {
+        return InternalMemoryMutexUnlock(memoryScope, mutexValue, lockId, false);
+    }
+
+    /// <inheritdoc />
+    public Task<OperationResult<bool>> MemoryMutexMasterUnlock(IMemoryScope memoryScope, string lockId, CancellationToken cancellationToken = default)
+    {
+        return InternalMemoryMutexUnlock(memoryScope, "master", lockId, true);
+    }
+
+    private Task<OperationResult<bool>> InternalMemoryMutexUnlock(
+        IMemoryScope memoryScope,
+        string mutexValue,
+        string lockId,
+        bool isCalledFromMasterUnlock)
+    {
         if (!IsInitialized)
             return Task.FromResult(OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
         if (string.IsNullOrEmpty(mutexValue))
             return Task.FromResult(OperationResult<bool>.Failure("Mutex value is empty", HttpStatusCode.BadRequest));
 
+        if (!isCalledFromMasterUnlock && mutexValue.Equals("master", StringComparison.CurrentCultureIgnoreCase))
+            return Task.FromResult(OperationResult<bool>.Failure("Mutex value cannot be 'master'", HttpStatusCode.BadRequest));
+
         if (string.IsNullOrEmpty(lockId))
             return Task.FromResult(OperationResult<bool>.Failure("Lock ID is required", HttpStatusCode.BadRequest));
 
-        // Use the same prefixed key format as in lock
-        var lockKey = $"CrossCloudKit.Memory.Basic.MemoryServiceBasic.Mutex:{mutexValue}";
+        var compiledScope = memoryScope.Compile();
+        var key = $"{compiledScope}:{mutexValue}";
 
         try
         {
-            var scopeKey = memoryScope.Compile();
-            var mutexWrapper = CreateMutex(scopeKey);
+            var mutexWrapper = CreateMutex(compiledScope);
             if (!mutexWrapper.IsSuccessful)
                 return Task.FromResult(OperationResult<bool>.Failure($"Failed to create mutex: {mutexWrapper.ErrorMessage}", mutexWrapper.StatusCode));
             using var mutex = mutexWrapper.Data;
 
-            var mutexData = GetOrCreateMutexData(scopeKey);
+            var mutexData = GetOrCreateMutexData(compiledScope);
 
             // Check if the lock exists and matches the provided lock ID
-            if (!mutexData.TryGetValue(lockKey, out var existingLock))
+            if (!mutexData.TryGetValue(mutexValue, out var existingLock))
                 return Task.FromResult(OperationResult<bool>.Success(false));
 
             if (existingLock.LockId != lockId)
                 return Task.FromResult(OperationResult<bool>.Success(false));
 
             // Remove the lock
-            mutexData.Remove(lockKey);
-            SaveMutexData(scopeKey, mutexData);
+            mutexData.Remove(mutexValue);
+            SaveMutexData(compiledScope, mutexData);
 
             // Cancel expiration timer
-            if (!_expirationTimers.TryRemove(lockKey, out var timer))
+            if (!_expirationTimers.TryRemove(key, out var timer))
                 return Task.FromResult(OperationResult<bool>.Success(true));
 
             timer.Dispose();

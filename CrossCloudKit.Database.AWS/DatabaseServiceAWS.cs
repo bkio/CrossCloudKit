@@ -1253,7 +1253,6 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     };
                 }
 
-
                 var putItemTask = table.PutItemAsync(itemAsDocument, config, cancellationToken);
                 var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 

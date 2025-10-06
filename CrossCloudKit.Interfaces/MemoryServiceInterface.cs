@@ -32,6 +32,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="mutexValue">
     /// The unique identifier for the mutex lock. This value should be consistent across
     /// all processes that need to coordinate access to the same resource.
+    /// <b>Note: mutexValue cannot be "master". This word is reserved for the master mutex.</b>
     /// </param>
     /// <param name="timeToLive">
     /// NOTE: timeToLive will affect entire <paramref name="memoryScope"/>!
@@ -58,6 +59,36 @@ public interface IMemoryService : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Method for acquiring a distributed mutex lock on the entire memory scope.
+    /// This lock prevents any other locks (resource-specific or whole-scope) within the
+    /// same <paramref name="memoryScope"/> from being acquired by other processes or instances
+    /// while the lock is held.
+    /// </summary>
+    /// <param name="memoryScope">
+    /// The memory scope key for the operation. The lock will cover all resources within this scope.
+    /// </param>
+    /// <param name="timeToLive">
+    /// The maximum duration of the lock should be held before automatically expiring.
+    /// Ensures that a crash or failure of the lock holder does not cause a permanent block.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancellation token to allow early termination of the lock acquisition attempt.
+    /// </param>
+    /// <returns>
+    /// An <see cref="OperationResult{T}"/> containing a string value:
+    /// - Non-null string: the unique lock ID if the scope-wide lock was successfully acquired
+    /// - Null: if the scope is already locked by another process
+    /// - Failure result: if an error occurred during the operation
+    ///
+    /// The returned lock ID must be used to release the lock, ensuring only the lock holder
+    /// can unlock the entire scope.
+    /// </returns>
+    Task<OperationResult<string?>> MemoryMutexMasterLock(
+        IMemoryScope memoryScope,
+        TimeSpan timeToLive,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Method for releasing a previously acquired distributed mutex lock.
     /// Note: Consider using <see cref="MemoryScopeMutex"/> which is a wrapper for lock/unlock based on the scope.
     /// This method is used internally by MemoryScopeMutex to clean up locks
@@ -68,6 +99,7 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="mutexValue">
     /// The unique identifier for the mutex lock that was previously acquired.
     /// This must match the mutexValue used in the corresponding MemoryMutexLock call.
+    /// <b>Note: mutexValue cannot be "master". This word is reserved for the master mutex.</b>
     /// </param>
     /// <param name="lockId">
     /// The unique lock ID that was returned by MemoryMutexLock when the lock was acquired.
@@ -85,6 +117,32 @@ public interface IMemoryService : IAsyncDisposable
     Task<OperationResult<bool>> MemoryMutexUnlock(
         IMemoryScope memoryScope,
         string mutexValue,
+        string lockId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Releases a previously acquired master lock on the entire memory scope.
+    /// This unlocks the entire <paramref name="memoryScope"/> allowing other processes
+    /// to acquire either scope-wide or resource-specific locks.
+    /// </summary>
+    /// <param name="memoryScope">
+    /// The memory scope key for the operation. The lock being released must belong to this scope.
+    /// </param>
+    /// <param name="lockId">
+    /// The unique lock ID that was returned by <see cref="MemoryMutexMasterLock"/> when the lock
+    /// was acquired. Ensures that only the process that acquired the lock can release it.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancellation token to allow early termination of the unlock operation.
+    /// </param>
+    /// <returns>
+    /// An <see cref="OperationResult{T}"/> containing a boolean value:
+    /// - True if the master lock was successfully released by the correct lock holder.
+    /// - False if the lock was not found, already expired, or held by a different process.
+    /// - Failure result if an error occurred during the unlock operation.
+    /// </returns>
+    Task<OperationResult<bool>> MemoryMutexMasterUnlock(
+        IMemoryScope memoryScope,
         string lockId,
         CancellationToken cancellationToken = default);
 

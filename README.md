@@ -1,6 +1,6 @@
 # CrossCloudKit
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![.NET 8](https://img.shields.io/badge/.NET-8-blue.svg)](https://dotnet.microsoft.com/download)
+[![.NET 9](https://img.shields.io/badge/.NET-9-blue.svg)](https://dotnet.microsoft.com/download)
 ![Tests](https://img.shields.io/badge/Tests-1520%2F1520%20passing-brightgreen)
 
 CrossCloudKit is a comprehensive .NET library that provides unified interfaces and implementations for working with multiple cloud services. It enables developers to write cloud-agnostic code that can seamlessly work across AWS, Google Cloud, MongoDB, Redis, and S3-compatible storage providers with consistent APIs and behavior.
@@ -35,7 +35,6 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **ASP.NET Core Integration**: `IDistributedCache` adapter (`MemoryServiceDistributedCache`) and `IFileProvider` (`FileServiceFileProvider`) bridge for seamless framework integration
 - **Cloud-Agnostic Design**: Write once, deploy anywhere across cloud providers
 - **Comprehensive Testing**: Extensive integration test suites for all services
-- **.NET 8 Ready**: Built for the latest LTS .NET platform with nullable reference types
 
 ## 📦 Packages
 | Package | Description                             |

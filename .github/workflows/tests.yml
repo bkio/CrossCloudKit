@@ -17,7 +17,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '9.0.x'
 
     - name: Cache NuGet packages
       uses: actions/cache@v4
@@ -35,7 +35,7 @@ jobs:
 
     - name: Run tests and generate report
       id: test
-      timeout-minutes: 45
+      timeout-minutes: 60
       run: |
         dotnet test CrossCloudKit.sln --no-build --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults -- RunConfiguration.MaxParallelThreads=1
       env:
@@ -67,7 +67,6 @@ jobs:
         S3_REGION: ${{ secrets.S3_REGION }}
         S3_SERVER_ADDRESS: ${{ secrets.S3_SERVER_ADDRESS }}
 
-        # .NET 8 stability improvements
         DOTNET_CLI_TELEMETRY_OPTOUT: 1
         VSTEST_CONNECTION_TIMEOUT: 180
       continue-on-error: false
@@ -171,7 +170,7 @@ jobs:
 
         # Add the new test badge after the .NET badge line - escape the URL properly
         escaped_url=$(printf '%s\n' "$BADGE_URL" | sed 's/[[\.*^$(){}?+|]/\\&/g')
-        sed -i '/!\[\.NET 10\]/a ![Tests]('"$escaped_url"')' README.md
+        sed -i '/!\[\.NET 9\]/a ![Tests]('"$escaped_url"')' README.md
 
         # Create test results section
         current_date=$(date -u +"%Y-%m-%d %H:%M:%S UTC")

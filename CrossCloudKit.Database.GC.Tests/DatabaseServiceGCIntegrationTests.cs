@@ -8,6 +8,8 @@ using FluentAssertions;
 using xRetry;
 using Xunit;
 
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
+
 namespace CrossCloudKit.Database.GC.Tests;
 
 /// <summary>

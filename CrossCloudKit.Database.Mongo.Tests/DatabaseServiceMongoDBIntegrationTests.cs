@@ -6,6 +6,9 @@ using CrossCloudKit.Interfaces;
 using CrossCloudKit.Memory.Basic;
 using FluentAssertions;
 using xRetry;
+using Xunit;
+
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
 
 namespace CrossCloudKit.Database.Mongo.Tests;
 

@@ -9,6 +9,8 @@ using xRetry;
 using Xunit;
 using Xunit.Abstractions;
 
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
+
 namespace CrossCloudKit.File.GC.Tests;
 
 /// <summary>

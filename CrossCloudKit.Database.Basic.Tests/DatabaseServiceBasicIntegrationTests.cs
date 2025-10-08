@@ -4,6 +4,9 @@
 using CrossCloudKit.Database.Tests.Common;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Memory.Basic;
+using Xunit;
+
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
 
 namespace CrossCloudKit.Database.Basic.Tests;
 

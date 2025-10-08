@@ -1,7 +1,10 @@
 using CrossCloudKit.File.Tests.Common;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.PubSub.AWS;
+using Xunit;
 using Xunit.Abstractions;
+
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
 
 namespace CrossCloudKit.File.AWS.Tests;
 

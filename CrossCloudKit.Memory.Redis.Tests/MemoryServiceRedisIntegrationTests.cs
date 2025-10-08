@@ -5,7 +5,10 @@ using CrossCloudKit.Interfaces;
 using CrossCloudKit.Memory.Redis.Common;
 using CrossCloudKit.Memory.Tests.Common;
 using CrossCloudKit.PubSub.Redis;
+using Xunit;
 using Xunit.Abstractions;
+
+[assembly: CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 8)]
 
 namespace CrossCloudKit.Memory.Redis.Tests;
 

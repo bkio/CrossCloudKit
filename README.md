@@ -758,9 +758,7 @@ AWS_REGION=us-east-1
 
 **MongoDB:**
 ```shell script
-MONGODB_HOST=your-host
-MONGODB_USER=your-user
-MONGODB_PASSWORD=your-password
+MONGODB_CONNECTION_STRING=mongodb+srv://user:password@your-host/
 ```
 
 
@@ -774,10 +772,12 @@ GOOGLE_CLOUD_TEST_BUCKET=test-bucket-name
 
 **Redis (Memory & PubSub):**
 ```shell script
-REDIS_ENDPOINT=localhost
+REDIS_HOST=localhost
 REDIS_PORT=6379
+# Optional:
 REDIS_USER=your-redis-user
 REDIS_PASSWORD=your-redis-password
+REDIS_ENABLE_SSL=true
 ```
 
 

@@ -19,10 +19,7 @@ public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 {
     private static string GetConnectionString()
     {
-        var host = Environment.GetEnvironmentVariable("MONGODB_HOST") ?? "127.0.0.1";
-        var user = Environment.GetEnvironmentVariable("MONGODB_USER") ?? "test";
-        var pwd = Environment.GetEnvironmentVariable("MONGODB_PASSWORD") ?? "test";
-        return $"mongodb+srv://{user}:{pwd}@{host}/";
+        return Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING") ?? "mongodb://test:test@127.0.0.1/";
     }
     private const string TestDatabaseName = "test";
 

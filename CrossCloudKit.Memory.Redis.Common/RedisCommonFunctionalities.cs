@@ -605,26 +605,24 @@ public abstract class RedisCommonFunctionalities : IAsyncDisposable
     {
         var redisHost = Environment.GetEnvironmentVariable("REDIS_HOST");
         var redisPortStr = Environment.GetEnvironmentVariable("REDIS_PORT");
-        var redisUser = Environment.GetEnvironmentVariable("REDIS_USER");
-        var redisPassword = Environment.GetEnvironmentVariable("REDIS_PASSWORD");
-        var redisEnableSsl = Environment.GetEnvironmentVariable("REDIS_ENABLE_SSL");
         if (string.IsNullOrEmpty(redisHost)
-            || string.IsNullOrEmpty(redisPortStr) || !int.TryParse(redisPortStr, out var redisPort)
-            || string.IsNullOrEmpty(redisUser)
-            || string.IsNullOrEmpty(redisPassword)
-            || string.IsNullOrEmpty(redisEnableSsl) || !bool.TryParse(redisEnableSsl, out var redisEnableSslBool))
+            || string.IsNullOrEmpty(redisPortStr) || !int.TryParse(redisPortStr, out var redisPort))
         {
             throw new ArgumentException("Redis credentials are not set in environment variables.");
         }
+
+        var redisUser = Environment.GetEnvironmentVariable("REDIS_USER");
+        var redisPassword = Environment.GetEnvironmentVariable("REDIS_PASSWORD");
+        var redisEnableSsl = Environment.GetEnvironmentVariable("REDIS_ENABLE_SSL");
 
         return new RedisConnectionOptions()
         {
             Host = redisHost,
             Port = redisPort,
-            Username = redisUser,
-            Password = redisPassword,
+            Username = string.IsNullOrEmpty(redisUser) ? "N/A" : redisUser,
+            Password = string.IsNullOrEmpty(redisPassword) ? "N/A" : redisPassword,
             EnableRetryPolicy = true,
-            SslEnabled = redisEnableSslBool
+            SslEnabled = bool.TryParse(redisEnableSsl, out var redisEnableSslBool) && redisEnableSslBool
         };
     }
 }

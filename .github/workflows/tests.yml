@@ -38,16 +38,11 @@ jobs:
           GOOGLE_CLOUD_TEST_BUCKET: ${{ secrets.GOOGLE_CLOUD_TEST_BUCKET }}
 
           # MongoDB Configuration
-          MONGODB_HOST: ${{ secrets.MONGODB_HOST }}
-          MONGODB_USER: ${{ secrets.MONGODB_USER }}
-          MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}
+          MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
 
           # Redis Configuration
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PORT: ${{ secrets.REDIS_PORT }}
-          REDIS_USER: ${{ secrets.REDIS_USER }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
-          REDIS_ENABLE_SSL: ${{ secrets.REDIS_ENABLE_SSL }}
 
           # S3 Compatible Storage Configuration
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}

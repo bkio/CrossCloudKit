@@ -259,6 +259,10 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
             return true;
         }
+        catch (MongoCommandException ex) when (ex.Code == 48) // NamespaceExists — another thread created it concurrently
+        {
+            return true;
+        }
         catch (Exception)
         {
             return false;

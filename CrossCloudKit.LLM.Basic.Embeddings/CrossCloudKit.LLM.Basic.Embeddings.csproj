@@ -11,7 +11,7 @@
     <RepositoryUrl>https://github.com/bkio/CrossCloudKit</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
+    <NoWarn>$(NoWarn);1591;NU5104</NoWarn>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>CPU-only embedding service for CrossCloudKit. Ships all-MiniLM-L6-v2 via SmartComponents.LocalEmbeddings — no cloud dependency required. For combined embedding + completion, use CrossCloudKit.LLM.Basic instead.</Description>
   </PropertyGroup>

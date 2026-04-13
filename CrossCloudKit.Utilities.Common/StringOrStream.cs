@@ -27,6 +27,25 @@ public enum StringOrStreamKind
 /// This type provides safe, type-checked access to the underlying content and supports
 /// both synchronous and asynchronous operations.
 /// </summary>
+/// <remarks>
+/// Used by <c>IFileService</c> for upload/download content. Pass a file path (string) or a <c>Stream</c> directly.
+/// Implements <see cref="IDisposable"/> and <see cref="IAsyncDisposable"/> — always dispose after use.
+/// </remarks>
+/// <example>
+/// <code>
+/// // From file path
+/// var content = new StringOrStream("/tmp/data.bin");
+///
+/// // From stream
+/// using var ms = new MemoryStream(bytes);
+/// var content2 = new StringOrStream(ms, ms.Length);
+///
+/// // Pattern matching
+/// content.Match(
+///     str  =&gt; Console.WriteLine($"File path: {str}"),
+///     stream =&gt; Console.WriteLine($"Stream length: {stream.Length}"));
+/// </code>
+/// </example>
 public sealed class StringOrStream : IDisposable, IAsyncDisposable
 {
     private readonly string? _stringValue;

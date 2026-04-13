@@ -31,6 +31,17 @@ namespace CrossCloudKit.Interfaces.Classes;
 /// <item><description>Environment migrations (e.g., dev to prod)</description></item>
 /// </list>
 /// </remarks>
+/// <example>
+/// <code>
+/// var result = await DatabaseServiceMigration.MigrateAsync(
+///     sourceDatabase, destinationDatabase,
+///     fileService, pubSubService,
+///     backupWorkBucketName: "migration-temp",
+///     cleanUpDestinationDatabaseBeforeMigrate: true);
+/// if (result.IsSuccessful)
+///     Console.WriteLine("Migration complete.");
+/// </code>
+/// </example>
 public static class DatabaseServiceMigration
 {
     /// <summary>

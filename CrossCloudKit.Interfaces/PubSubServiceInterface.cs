@@ -9,6 +9,9 @@ namespace CrossCloudKit.Interfaces;
 /// Modern async interface for cloud pub/sub services providing unified access across different providers.
 /// Supports proper error handling and .NET 10 features.
 /// </summary>
+/// <remarks>
+/// <para>Providers: AWS SNS/SQS, Google Cloud Pub/Sub, Redis, and Basic (in-memory). All methods return <see cref="OperationResult{T}"/>.</para>
+/// </remarks>
 public interface IPubSubService
 {
     protected const string UsedOnBucketEventFlagKey = "used_on_bucket_event";
@@ -16,6 +19,12 @@ public interface IPubSubService
     /// <summary>
     /// Gets a value indicating whether the pub/sub service has been successfully initialized.
     /// </summary>
+    /// <example>
+    /// <code>
+    /// if (!pubSubService.IsInitialized)
+    ///     throw new InvalidOperationException("PubSub service is not initialized.");
+    /// </code>
+    /// </example>
     bool IsInitialized { get; }
 
     /// <summary>
@@ -24,6 +33,11 @@ public interface IPubSubService
     /// <param name="topic">Topic to be ensured on.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if ensuring succeeded; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await pubSubService.EnsureTopicExistsAsync("order-events");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> EnsureTopicExistsAsync(
         string topic,
         CancellationToken cancellationToken = default);
@@ -36,6 +50,16 @@ public interface IPubSubService
     /// <param name="onError">Action invoked for each error during pooling.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if subscription succeeded; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await pubSubService.SubscribeAsync("order-events",
+    ///     onMessage: async (topic, message) =&gt;
+    ///     {
+    ///         Console.WriteLine($"[{topic}] {message}");
+    ///     },
+    ///     onError: ex =&gt; Console.Error.WriteLine(ex));
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> SubscribeAsync(
         string topic,
         Func<string, string, Task>? onMessage,
@@ -49,6 +73,11 @@ public interface IPubSubService
     /// <param name="message">Message to be sent.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if publish succeeded; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await pubSubService.PublishAsync("order-events", "{\"orderId\":\"123\"}");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> PublishAsync(
         string topic,
         string message,
@@ -60,6 +89,11 @@ public interface IPubSubService
     /// <param name="topic">Topic to be deleted.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if publish succeeded; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await pubSubService.DeleteTopicAsync("order-events");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> DeleteTopicAsync(
         string topic,
         CancellationToken cancellationToken = default);
@@ -85,6 +119,11 @@ public interface IPubSubService
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns></returns>
+    /// <example>
+    /// <code>
+    /// var topics = await pubSubService.GetTopicsUsedOnBucketEventAsync();
+    /// </code>
+    /// </example>
     Task<OperationResult<List<string>>> GetTopicsUsedOnBucketEventAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

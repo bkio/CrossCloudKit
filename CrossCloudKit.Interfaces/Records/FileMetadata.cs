@@ -6,6 +6,13 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Represents file metadata information.
 /// </summary>
+/// <example>
+/// <code>
+/// var meta = await fileService.GetFileMetadataAsync("bucket", "file.pdf");
+/// if (meta.IsSuccessful)
+///     Console.WriteLine($"Size={meta.Data.Size}, Type={meta.Data.ContentType}");
+/// </code>
+/// </example>
 public sealed record FileMetadata
 {
     /// <summary>

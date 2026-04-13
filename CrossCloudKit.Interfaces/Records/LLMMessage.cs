@@ -8,6 +8,18 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// A single message in an LLM conversation.
 /// </summary>
+/// <example>
+/// <code>
+/// var system = new LLMMessage { Role = LLMRole.System, Content = "You are a helpful assistant." };
+/// var user   = new LLMMessage { Role = LLMRole.User, Content = "Hello!" };
+/// var toolResult = new LLMMessage
+/// {
+///     Role = LLMRole.Tool,
+///     ToolCallId = "call_abc",
+///     Content = "{\"result\":42}"
+/// };
+/// </code>
+/// </example>
 public sealed record LLMMessage
 {
     /// <summary>The role of the message author.</summary>

@@ -15,6 +15,14 @@ using Microsoft.AspNetCore.Http;
 
 namespace CrossCloudKit.File.Basic;
 
+/// <summary>
+/// Local file system implementation of <see cref="IFileService"/>. Suitable for development and testing.
+/// </summary>
+/// <example>
+/// <code>
+/// IFileService fs = new FileServiceBasic();
+/// </code>
+/// </example>
 public class FileServiceBasic : IFileService, IAsyncDisposable
 {
     private const string RootFolderName = "CrossCloudKit.File.Basic";

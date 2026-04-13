@@ -6,6 +6,12 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Options for listing files in a bucket.
 /// </summary>
+/// <example>
+/// <code>
+/// var opts = new FileListOptions { Prefix = "reports/2024/", MaxResults = 50 };
+/// var result = await fileService.ListFilesAsync("bucket", opts);
+/// </code>
+/// </example>
 public sealed record FileListOptions
 {
     /// <summary>

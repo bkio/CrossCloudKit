@@ -8,6 +8,19 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// A single chunk delivered during a streaming LLM completion.
 /// </summary>
+/// <example>
+/// <code>
+/// await foreach (var chunk in llmService.CompleteStreamingAsync(request))
+/// {
+///     if (chunk.IsSuccessful)
+///     {
+///         Console.Write(chunk.Data.ContentDelta);
+///         if (chunk.Data.IsFinal)
+///             Console.WriteLine($"\nDone: {chunk.Data.FinishReason}");
+///     }
+/// }
+/// </code>
+/// </example>
 public sealed record LLMStreamChunk
 {
     /// <summary>

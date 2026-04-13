@@ -20,6 +20,21 @@ namespace CrossCloudKit.LLM.OpenAI;
 /// Compatible with OpenAI, Azure OpenAI, Google Gemini (via compatibility layer),
 /// Groq, Amazon Bedrock, Ollama, and LM Studio.
 /// </summary>
+/// <example>
+/// <code>
+/// // OpenAI
+/// ILLMService llm = new LLMServiceOpenAI(
+///     baseUrl: "https://api.openai.com/v1",
+///     apiKey: "sk-...",
+///     defaultModel: "gpt-4o-mini",
+///     embeddingModel: "text-embedding-3-small");
+///
+/// // Local Ollama
+/// ILLMService llm = new LLMServiceOpenAI(
+///     baseUrl: "http://localhost:11434/v1",
+///     defaultModel: "llama3");
+/// </code>
+/// </example>
 public sealed class LLMServiceOpenAI : ILLMService
 {
     private readonly HttpClient _httpClient;

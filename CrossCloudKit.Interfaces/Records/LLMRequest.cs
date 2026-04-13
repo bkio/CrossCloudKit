@@ -6,6 +6,21 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Parameters for an LLM chat completion request.
 /// </summary>
+/// <example>
+/// <code>
+/// var request = new LLMRequest
+/// {
+///     Messages = new[]
+///     {
+///         new LLMMessage { Role = LLMRole.System, Content = "You are a concise assistant." },
+///         new LLMMessage { Role = LLMRole.User, Content = "Summarize CrossCloudKit." }
+///     },
+///     Temperature = 0.3,
+///     MaxTokens = 512
+/// };
+/// var response = await llmService.CompleteAsync(request);
+/// </code>
+/// </example>
 public sealed record LLMRequest
 {
     /// <summary>

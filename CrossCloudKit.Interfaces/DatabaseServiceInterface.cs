@@ -13,11 +13,28 @@ namespace CrossCloudKit.Interfaces;
 /// <summary>
 /// Modern async interface for database services
 /// </summary>
+/// <remarks>
+/// <para>All database providers (AWS DynamoDB, MongoDB, Google Cloud Datastore, Basic file-based)
+/// implement this interface. Pick a provider, code against <c>IDatabaseService</c>, and swap providers without changing business logic.</para>
+/// <para>Key patterns:</para>
+/// <list type="bullet">
+/// <item>Every method returns <see cref="OperationResult{T}"/>. Always check <c>IsSuccessful</c> before accessing <c>Data</c>.</item>
+/// <item>Items are identified by <see cref="DbKey"/> (name + <see cref="Primitive"/> value).</item>
+/// <item>Item data is <c>JObject</c> (Newtonsoft.Json).</item>
+/// <item>Conditions are built with factory methods (e.g. <c>AttributeEquals</c>) and composed with <c>.And()</c> / <c>.Or()</c>.</item>
+/// </list>
+/// </remarks>
 public interface IDatabaseService
 {
     /// <summary>
     /// Gets a value indicating whether the database service has been successfully initialized
     /// </summary>
+    /// <example>
+    /// <code>
+    /// if (!dbService.IsInitialized)
+    ///     throw new InvalidOperationException("Database service is not initialized.");
+    /// </code>
+    /// </example>
     bool IsInitialized { get; }
 
     /// <summary>
@@ -27,6 +44,13 @@ public interface IDatabaseService
     /// <remarks>
     /// This method allows runtime configuration of database service behavior. The options affect how data is processed and returned across all database operations.
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// dbService.SetOptions(new DbOptions(
+    ///     AutoSortArrays: DbAutoSortArrays.Yes,
+    ///     AutoConvertRoundableFloatToInt: DbAutoConvertRoundableFloatToInt.Yes));
+    /// </code>
+    /// </example>
     void SetOptions(DbOptions newOptions);
 
     // Condition builders
@@ -36,6 +60,12 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the attribute to check for existence</param>
     /// <returns>A condition that evaluates to true if the specified attribute exists on the item</returns>
     /// <remarks>This condition is useful for ensuring an attribute is present before performing operations that depend on its existence.</remarks>
+    /// <example>
+    /// <code>
+    /// var hasEmail = dbService.AttributeExists("Email");
+    /// var result = await dbService.ItemExistsAsync("Users", key, hasEmail);
+    /// </code>
+    /// </example>
     Condition AttributeExists(string attributeName);
 
     /// <summary>
@@ -44,6 +74,12 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the attribute to check for non-existence</param>
     /// <returns>A condition that evaluates to true if the specified attribute does not exist on the item</returns>
     /// <remarks>This condition is useful for preventing overwrites or ensuring clean initial states.</remarks>
+    /// <example>
+    /// <code>
+    /// var noMiddleName = dbService.AttributeNotExists("MiddleName");
+    /// var result = await dbService.ItemExistsAsync("Users", key, noMiddleName);
+    /// </code>
+    /// </example>
     Condition AttributeNotExists(string attributeName);
 
     /// <summary>
@@ -53,6 +89,19 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute equals the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
+    /// <example>
+    /// <code>
+    /// // Single condition
+    /// var isActive = dbService.AttributeEquals("Status", new Primitive("active"));
+    ///
+    /// // Composed with .And()
+    /// var isActiveAdmin = dbService.AttributeEquals("Status", new Primitive("active"))
+    ///     .And(dbService.AttributeEquals("Role", new Primitive("admin")));
+    ///
+    /// // Nested object path (dot notation)
+    /// var nested = dbService.AttributeEquals("User.Email", new Primitive("john@example.com"));
+    /// </code>
+    /// </example>
     Condition AttributeEquals(string attributeName, Primitive value);
 
     /// <summary>
@@ -62,6 +111,11 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute does not equal the specified value</returns>
     /// <remarks>The comparison is type-sensitive and will handle different primitive types appropriately.</remarks>
+    /// <example>
+    /// <code>
+    /// var notGuest = dbService.AttributeNotEquals("Role", new Primitive("guest"));
+    /// </code>
+    /// </example>
     Condition AttributeNotEquals(string attributeName, Primitive value);
 
     /// <summary>
@@ -71,6 +125,11 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
+    /// <example>
+    /// <code>
+    /// var adults = dbService.AttributeIsGreaterThan("Age", new Primitive(18L));
+    /// </code>
+    /// </example>
     Condition AttributeIsGreaterThan(string attributeName, Primitive value);
 
     /// <summary>
@@ -80,6 +139,11 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is greater than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
+    /// <example>
+    /// <code>
+    /// var minBalance = dbService.AttributeIsGreaterOrEqual("Balance", new Primitive(100.0));
+    /// </code>
+    /// </example>
     Condition AttributeIsGreaterOrEqual(string attributeName, Primitive value);
 
     /// <summary>
@@ -89,6 +153,11 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
+    /// <example>
+    /// <code>
+    /// var cheap = dbService.AttributeIsLessThan("Price", new Primitive(20.0));
+    /// </code>
+    /// </example>
     Condition AttributeIsLessThan(string attributeName, Primitive value);
 
     /// <summary>
@@ -98,6 +167,11 @@ public interface IDatabaseService
     /// <param name="value">The value to compare the attribute against</param>
     /// <returns>A condition that evaluates to true if the attribute is less than or equal to the specified value</returns>
     /// <remarks>This condition works with numeric types and strings (lexicographical comparison).</remarks>
+    /// <example>
+    /// <code>
+    /// var maxScore = dbService.AttributeIsLessOrEqual("Score", new Primitive(100.0));
+    /// </code>
+    /// </example>
     Condition AttributeIsLessOrEqual(string attributeName, Primitive value);
 
     /// <summary>
@@ -106,7 +180,17 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the array attribute to check</param>
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array contains the specified element</returns>
-    /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
+    /// <remarks>
+    /// The element comparison is type-sensitive and uses exact matching.
+    /// <b>Important:</b> Do NOT use array index syntax (e.g. <c>"Tags[0]"</c>). Use this method to check for element membership.
+    /// Nested paths are supported: <c>dbService.ArrayElementExists("User.Permissions", new Primitive("admin"))</c>.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var hasAdmin = dbService.ArrayElementExists("Permissions", new Primitive("admin"));
+    /// var hasNestedCert = dbService.ArrayElementExists("Profile.Certifications", new Primitive("AWS"));
+    /// </code>
+    /// </example>
     Condition ArrayElementExists(string attributeName, Primitive elementValue);
 
     /// <summary>
@@ -115,7 +199,15 @@ public interface IDatabaseService
     /// <param name="attributeName">The name of the array attribute to check</param>
     /// <param name="elementValue">The value to search for in the array</param>
     /// <returns>A condition that evaluates to true if the array does not contain the specified element</returns>
-    /// <remarks>The element comparison is type-sensitive and uses exact matching.</remarks>
+    /// <remarks>
+    /// The element comparison is type-sensitive and uses exact matching.
+    /// <b>Important:</b> Do NOT use array index syntax (e.g. <c>"Tags[0]"</c>). Use this method to check for element absence.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var notBlocked = dbService.ArrayElementNotExists("Tags", new Primitive("blocked"));
+    /// </code>
+    /// </example>
     Condition ArrayElementNotExists(string attributeName, Primitive elementValue);
 
     /// <summary>
@@ -137,6 +229,18 @@ public interface IDatabaseService
     /// If conditions are provided, it evaluates them and only returns success if all conditions are satisfied.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    ///
+    /// // Simple existence check
+    /// var exists = await dbService.ItemExistsAsync("Users", key);
+    ///
+    /// // Existence check with conditions
+    /// var condition = dbService.AttributeEquals("Status", new Primitive("active"));
+    /// var activeExists = await dbService.ItemExistsAsync("Users", key, condition);
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> ItemExistsAsync(
         string tableName,
         DbKey key,
@@ -162,6 +266,15 @@ public interface IDatabaseService
     /// The operation uses consistent reads where supported by the underlying database implementation.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var result = await dbService.GetItemAsync("Users", key);
+    ///
+    /// if (result.IsSuccessful &amp;&amp; result.Data != null)
+    ///     Console.WriteLine($"User: {result.Data["Name"]}");
+    /// </code>
+    /// </example>
     Task<OperationResult<JObject?>> GetItemAsync(
         string tableName,
         DbKey key,
@@ -189,6 +302,19 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when keyValues is null.</exception>
+    /// <example>
+    /// <code>
+    /// var keys = new[] {
+    ///     new DbKey("id", new Primitive("user-1")),
+    ///     new DbKey("id", new Primitive("user-2")),
+    ///     new DbKey("id", new Primitive("user-3"))
+    /// };
+    /// var result = await dbService.GetItemsAsync("Users", keys);
+    /// if (result.IsSuccessful)
+    ///     foreach (var item in result.Data)
+    ///         Console.WriteLine(item["Name"]);
+    /// </code>
+    /// </example>
     Task<OperationResult<IReadOnlyList<JObject>>> GetItemsAsync(
         string tableName,
         DbKey[] keys,
@@ -218,6 +344,21 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when item is null.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var item = new JObject
+    /// {
+    ///     ["Name"] = "John Doe",
+    ///     ["Email"] = "john@example.com",
+    ///     ["Age"] = 30
+    /// };
+    /// var result = await dbService.PutItemAsync("Users", key, item);
+    /// if (!result.IsSuccessful)
+    ///     Console.WriteLine($"Put failed: {result.ErrorMessage}");
+    /// </code>
+    /// </example>
+    /// <seealso cref="UpdateItemAsync"/>
     Task<OperationResult<JObject?>> PutItemAsync(
         string tableName,
         DbKey key,
@@ -250,6 +391,22 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when updateData is null.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var update = new JObject { ["LastLogin"] = DateTime.UtcNow.ToString("o") };
+    ///
+    /// // Conditional update: only update if Status == "active"
+    /// var condition = dbService.AttributeEquals("Status", new Primitive("active"));
+    /// var result = await dbService.UpdateItemAsync("Users", key, update, conditions: condition);
+    ///
+    /// if (result.IsSuccessful)
+    ///     Console.WriteLine("Updated.");
+    /// else if (result.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+    ///     Console.WriteLine("Condition not met.");
+    /// </code>
+    /// </example>
+    /// <seealso cref="PutItemAsync"/>
     Task<OperationResult<JObject?>> UpdateItemAsync(
         string tableName,
         DbKey key,
@@ -280,6 +437,15 @@ public interface IDatabaseService
     /// This operation is atomic and cannot be partially completed.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName or keyName is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var result = await dbService.DeleteItemAsync("Users", key,
+    ///     returnBehavior: DbReturnItemBehavior.ReturnOldValues);
+    /// if (result.IsSuccessful &amp;&amp; result.Data != null)
+    ///     Console.WriteLine($"Deleted user: {result.Data["Name"]}");
+    /// </code>
+    /// </example>
     Task<OperationResult<JObject?>> DeleteItemAsync(
         string tableName,
         DbKey key,
@@ -314,6 +480,14 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName, keyName, or arrayAttributeName is null or whitespace, or when elementsToAdd contains mixed types.</exception>
     /// <exception cref="ArgumentNullException">Thrown when elementsToAdd is null.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var tags = new[] { new Primitive("admin"), new Primitive("verified") };
+    /// await dbService.AddElementsToArrayAsync("Users", key, "Tags", tags);
+    /// </code>
+    /// </example>
+    /// <seealso cref="RemoveElementsFromArrayAsync"/>
     Task<OperationResult<JObject?>> AddElementsToArrayAsync(
         string tableName,
         DbKey key,
@@ -350,6 +524,14 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName, keyName, or arrayAttributeName is null or whitespace, or when elementsToRemove contains mixed types.</exception>
     /// <exception cref="ArgumentNullException">Thrown when elementsToRemove is null.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var tagsToRemove = new[] { new Primitive("guest") };
+    /// await dbService.RemoveElementsFromArrayAsync("Users", key, "Tags", tagsToRemove);
+    /// </code>
+    /// </example>
+    /// <seealso cref="AddElementsToArrayAsync"/>
     Task<OperationResult<JObject?>> RemoveElementsFromArrayAsync(
         string tableName,
         DbKey key,
@@ -383,6 +565,14 @@ public interface IDatabaseService
     /// The operation uses optimistic locking when conditions are specified to prevent race conditions.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName, keyName, or numericAttributeName is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var key = new DbKey("id", new Primitive("user-123"));
+    /// var result = await dbService.IncrementAttributeAsync("Users", key, "LoginCount", 1);
+    /// if (result.IsSuccessful)
+    ///     Console.WriteLine($"New login count: {result.Data}");
+    /// </code>
+    /// </example>
     Task<OperationResult<double>> IncrementAttributeAsync(
         string tableName,
         DbKey key,
@@ -414,6 +604,16 @@ public interface IDatabaseService
     /// The <c>Keys</c> and <c>Items</c> collections are index-aligned (i.e., <c>Keys[i]</c> corresponds to <c>Items[i]</c>).
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="tableName"/> is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var result = await dbService.ScanTableAsync("Users");
+    /// if (result.IsSuccessful)
+    ///     foreach (var item in result.Data.Items)
+    ///         Console.WriteLine(item["Name"]);
+    /// </code>
+    /// </example>
+    /// <seealso cref="ScanTablePaginatedAsync"/>
+    /// <seealso cref="ScanTableWithFilterAsync"/>
     Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableAsync(
         string tableName,
         CancellationToken cancellationToken = default);
@@ -456,6 +656,20 @@ public interface IDatabaseService
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="tableName"/> is null or whitespace, or <paramref name="pageSize"/> is less than or equal to 0.
     /// </exception>
+    /// <example>
+    /// <code>
+    /// string? token = null;
+    /// do
+    /// {
+    ///     var page = await dbService.ScanTablePaginatedAsync("Users", pageSize: 10, pageToken: token);
+    ///     if (!page.IsSuccessful) break;
+    ///     foreach (var item in page.Data.Items)
+    ///         Console.WriteLine(item["Name"]);
+    ///     token = page.Data.NextPageToken;
+    /// } while (token != null);
+    /// </code>
+    /// </example>
+    /// <seealso cref="ScanTableAsync"/>
     Task<OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTablePaginatedAsync(
         string tableName,
         int pageSize,
@@ -491,6 +705,16 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="tableName"/> is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filterConditions"/> is null.</exception>
+    /// <example>
+    /// <code>
+    /// var filter = dbService.AttributeEquals("Status", new Primitive("active"))
+    ///     .And(dbService.AttributeIsGreaterThan("Age", new Primitive(18L)));
+    /// var result = await dbService.ScanTableWithFilterAsync("Users", filter);
+    /// if (result.IsSuccessful)
+    ///     Console.WriteLine($"Found {result.Data.Items.Count} matching users.");
+    /// </code>
+    /// </example>
+    /// <seealso cref="ScanTableWithFilterPaginatedAsync"/>
     Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> ScanTableWithFilterAsync(
         string tableName,
         ConditionCoupling filterConditions,
@@ -526,6 +750,22 @@ public interface IDatabaseService
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when tableName is null or whitespace, or pageSize is less than or equal to 0.</exception>
     /// <exception cref="ArgumentNullException">Thrown when the filterConditions parameter is null.</exception>
+    /// <example>
+    /// <code>
+    /// var filter = dbService.AttributeEquals("Status", new Primitive("active"));
+    /// string? token = null;
+    /// do
+    /// {
+    ///     var page = await dbService.ScanTableWithFilterPaginatedAsync(
+    ///         "Users", filter, pageSize: 10, pageToken: token);
+    ///     if (!page.IsSuccessful) break;
+    ///     foreach (var item in page.Data.Items)
+    ///         Console.WriteLine(item["Name"]);
+    ///     token = page.Data.NextPageToken;
+    /// } while (token != null);
+    /// </code>
+    /// </example>
+    /// <seealso cref="ScanTableWithFilterAsync"/>
     Task<OperationResult<(IReadOnlyList<string>? Keys, IReadOnlyList<JObject> Items, string? NextPageToken, long? TotalCount)>> ScanTableWithFilterPaginatedAsync(
         string tableName,
         ConditionCoupling filterConditions,
@@ -543,6 +783,14 @@ public interface IDatabaseService
     /// A task representing the asynchronous operation. The task result contains an <see cref="OperationResult{T}"/>
     /// wrapping a read-only list of strings, where each string represents a table name in the database.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var tables = await dbService.GetTableNamesAsync();
+    /// if (tables.IsSuccessful)
+    ///     foreach (var name in tables.Data)
+    ///         Console.WriteLine(name);
+    /// </code>
+    /// </example>
     Task<OperationResult<IReadOnlyList<string>>> GetTableNamesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -558,6 +806,11 @@ public interface IDatabaseService
     /// A task representing the asynchronous operation. The task result contains an <see cref="OperationResult{T}"/>
     /// wrapping a boolean value: <c>true</c> if the table was successfully dropped or did not exist; <c>false</c> if the operation failed.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// await dbService.DropTableAsync("TempData");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> DropTableAsync(string tableName, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -577,6 +830,13 @@ public interface IDatabaseService
     /// The operation depends on the <c>SystemTableKeyName</c> and <c>SystemTableKeysAttributeName</c> constants being defined correctly.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="tableName"/> is null or whitespace.</exception>
+    /// <example>
+    /// <code>
+    /// var keys = await dbService.GetTableKeysAsync("Users");
+    /// if (keys.IsSuccessful)
+    ///     Console.WriteLine($"Key attributes: {string.Join(", ", keys.Data)}");
+    /// </code>
+    /// </example>
     Task<OperationResult<IReadOnlyList<string>>> GetTableKeysAsync(
         string tableName,
         CancellationToken cancellationToken = default);

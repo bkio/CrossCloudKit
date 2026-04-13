@@ -6,6 +6,13 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Options for downloading files with range support.
 /// </summary>
+/// <example>
+/// <code>
+/// // Download bytes 1000-2000
+/// var opts = new FileDownloadOptions { StartIndex = 1000, Size = 1000 };
+/// await fileService.DownloadFileAsync("bucket", "file.bin", "/tmp/part.bin", opts);
+/// </code>
+/// </example>
 public sealed record FileDownloadOptions
 {
     /// <summary>

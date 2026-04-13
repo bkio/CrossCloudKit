@@ -18,6 +18,11 @@ namespace CrossCloudKit.File.GC;
 /// Google Cloud Storage implementation of the file service interface.
 /// Provides modern async/await support with comprehensive error handling and .NET 10 features.
 /// </summary>
+/// <example>
+/// <code>
+/// IFileService fs = new FileServiceGC("my-gcp-project", "/secrets/sa.json");
+/// </code>
+/// </example>
 public sealed class FileServiceGC : IFileService, IAsyncDisposable
 {
     /// <summary>Google Storage Client that is responsible to serve to this object</summary>

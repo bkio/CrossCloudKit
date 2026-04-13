@@ -1269,6 +1269,51 @@ public class OrderProcessingService
         _pubsub.PublishAsync("order-events", JsonConvert.SerializeObject(new { OrderId = order.Id, Status = "processing" })); }}
 ```
 
+## 🤖 AI Code Assistance
+
+CrossCloudKit ships with pre-built instruction files that teach AI coding assistants (GitHub Copilot, Cursor, Windsurf, and others) the correct API patterns, types, anti-patterns, and provider constructors. These files are automatically loaded by each IDE when you work inside the repository.
+
+### Included Files
+
+| IDE / Tool | File | Auto-loaded? |
+|------------|------|-------------|
+| **GitHub Copilot** (VS Code, VS, JetBrains) | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | ✅ Yes |
+| **Cursor** | [`.cursor/rules/crosscloudkit.mdc`](.cursor/rules/crosscloudkit.mdc) | ✅ Yes (`alwaysApply: true`) |
+| **Windsurf** | [`.windsurf/rules/crosscloudkit.md`](.windsurf/rules/crosscloudkit.md) | ✅ Yes (`trigger: always_on`) |
+
+### Using as a NuGet Consumer
+
+If you consume CrossCloudKit via NuGet (rather than cloning this repo), the AI instruction files aren't automatically present in your project. To enable AI assistance in your own codebase:
+
+1. **Copy the appropriate file** from this repository into your project:
+
+   ```bash
+   # GitHub Copilot — place in your repo's .github/ folder
+   mkdir -p .github
+   curl -o .github/copilot-instructions.md \
+     https://raw.githubusercontent.com/bkio/CrossCloudKit/main/.github/copilot-instructions.md
+
+   # Cursor — place in your repo's .cursor/rules/ folder
+   mkdir -p .cursor/rules
+   curl -o .cursor/rules/crosscloudkit.mdc \
+     https://raw.githubusercontent.com/bkio/CrossCloudKit/main/.cursor/rules/crosscloudkit.mdc
+
+   # Windsurf — place in your repo's .windsurf/rules/ folder
+   mkdir -p .windsurf/rules
+   curl -o .windsurf/rules/crosscloudkit.md \
+     https://raw.githubusercontent.com/bkio/CrossCloudKit/main/.windsurf/rules/crosscloudkit.md
+   ```
+
+2. **Commit the file** to your repository so the entire team benefits.
+
+3. **Other IDEs**: Any AI assistant that supports markdown-based project rules can use the same content. Copy any of the files above and place it according to your IDE's convention:
+   - **JetBrains AI Assistant**: `.junie/guidelines.md`
+   - **Cline**: `.clinerules`
+   - **Aider**: `CONVENTIONS.md`
+   - **Generic / multi-IDE**: `AGENTS.md` (recognized by Cursor, Windsurf, and others)
+
+> **Tip**: The instruction files are identical in content — only the frontmatter/header differs per IDE. You only need one copy for each IDE you use.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

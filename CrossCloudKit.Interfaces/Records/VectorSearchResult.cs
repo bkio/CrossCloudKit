@@ -8,6 +8,14 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// A single result returned by a vector similarity search.
 /// </summary>
+/// <example>
+/// <code>
+/// var results = await vectorService.QueryAsync("docs", queryVector, topK: 5);
+/// if (results.IsSuccessful)
+///     foreach (var r in results.Data)
+///         Console.WriteLine($"ID={r.Id}, Score={r.Score}, Title={r.Metadata?["title"]}");
+/// </code>
+/// </example>
 public sealed record VectorSearchResult
 {
     /// <summary>The identifier of the matching point.</summary>

@@ -23,6 +23,21 @@ using Expression = Amazon.DynamoDBv2.DocumentModel.Expression;
 
 namespace CrossCloudKit.Database.AWS;
 
+/// <summary>
+/// <see cref="IDatabaseService"/> implementation backed by Amazon DynamoDB.
+/// </summary>
+/// <example>
+/// <code>
+/// // Managed AWS DynamoDB
+/// IDatabaseService db = new DatabaseServiceAWS(
+///     accessKey: "AKIA...", secretKey: "secret", region: "eu-west-1",
+///     memoryService: memoryService);
+///
+/// // Local DynamoDB (docker)
+/// IDatabaseService db = new DatabaseServiceAWS(
+///     serviceUrl: "http://localhost:8000", memoryService: memoryService);
+/// </code>
+/// </example>
 public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 {
     /// <summary>

@@ -29,6 +29,17 @@ namespace CrossCloudKit.LLM.Basic.Completion;
 /// <c>CrossCloudKit.LLM.Basic</c>.
 /// </para>
 /// </summary>
+/// <example>
+/// <code>
+/// // Zero-config (uses bundled SmolLM2-135M model)
+/// ILLMService llm = new LLMCompletionServiceBasic();
+///
+/// // Custom GGUF model
+/// ILLMService llm = new LLMCompletionServiceBasic(
+///     completionModelPath: "/models/my-model.gguf",
+///     contextSize: 4096);
+/// </code>
+/// </example>
 public sealed class LLMCompletionServiceBasic : ILLMService
 {
     /// <summary>Filename of the bundled default GGUF model.</summary>

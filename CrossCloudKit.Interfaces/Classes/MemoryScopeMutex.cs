@@ -36,6 +36,23 @@ namespace CrossCloudKit.Interfaces.Classes;
 /// - If unlock fails during Dispose/DisposeAsync, an exception is thrown (you may want to log instead).
 /// - mutexValue cannot be "master". This word is reserved for the master mutex.
 /// </summary>
+/// <example>
+/// <code>
+/// // Async (preferred)
+/// await using (var mutex = await MemoryScopeMutex.CreateEntityScopeAsync(
+///     memoryService, new MemoryScopeLambda("orders"), "order-42", TimeSpan.FromSeconds(30)))
+/// {
+///     await ProcessOrderAsync();
+/// }
+///
+/// // Master lock (blocks all entity locks in scope)
+/// await using (var master = await MemoryScopeMutex.CreateMasterScopeAsync(
+///     memoryService, new MemoryScopeLambda("orders"), TimeSpan.FromMinutes(1)))
+/// {
+///     await RebuildIndexAsync();
+/// }
+/// </code>
+/// </example>
 public sealed class MemoryScopeMutex : IDisposable, IAsyncDisposable
 {
     private readonly IMemoryService _memoryService;

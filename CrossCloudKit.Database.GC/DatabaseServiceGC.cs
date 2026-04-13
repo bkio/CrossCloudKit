@@ -18,6 +18,17 @@ using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.Database.GC;
 
+/// <summary>
+/// <see cref="IDatabaseService"/> implementation backed by Google Cloud Datastore.
+/// </summary>
+/// <example>
+/// <code>
+/// IDatabaseService db = new DatabaseServiceGC(
+///     projectId: "my-gcp-project",
+///     serviceAccountKeyFilePath: "/secrets/sa.json",
+///     memoryService: memoryService);
+/// </code>
+/// </example>
 public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 {
     /// <summary>

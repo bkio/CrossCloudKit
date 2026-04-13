@@ -19,6 +19,11 @@ namespace CrossCloudKit.PubSub.AWS;
 /// AWS SNS+SQS hybrid pub/sub service implementation
 /// Uses SNS for publishing and SQS for reliable subscription delivery
 /// </summary>
+/// <example>
+/// <code>
+/// IPubSubService ps = new PubSubServiceAWS("AKIA...", "secret", "eu-west-1");
+/// </code>
+/// </example>
 public sealed class PubSubServiceAWS : IPubSubService, IAsyncDisposable
 {
     private readonly string _region;

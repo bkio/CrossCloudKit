@@ -14,6 +14,16 @@ using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.File.S3Compatible;
 
+/// <summary>
+/// S3-compatible file service (MinIO, Wasabi, etc.) extending <see cref="FileServiceAWS"/>.
+/// </summary>
+/// <example>
+/// <code>
+/// IFileService fs = new FileServiceS3Compatible(
+///     serverAddress: "http://localhost:9000",
+///     accessKey: "minioadmin", secretKey: "minioadmin", region: "us-east-1");
+/// </code>
+/// </example>
 public class FileServiceS3Compatible : FileServiceAWS
 {
     /// <summary>

@@ -6,6 +6,17 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Options for creating signed URLs for file uploads.
 /// </summary>
+/// <example>
+/// <code>
+/// var opts = new FileSignedUploadUrlOptions
+/// {
+///     ContentType = "application/pdf",
+///     ValidFor = TimeSpan.FromMinutes(30),
+///     SupportResumable = true
+/// };
+/// var url = await fileService.CreateSignedUploadUrlAsync("bucket", "upload.pdf", opts);
+/// </code>
+/// </example>
 public sealed record FileSignedUploadUrlOptions
 {
     /// <summary>

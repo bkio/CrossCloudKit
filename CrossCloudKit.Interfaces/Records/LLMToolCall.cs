@@ -6,6 +6,26 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// Represents a tool invocation requested by the LLM.
 /// </summary>
+/// <remarks>
+/// When the model's <see cref="LLMResponse.FinishReason"/> is <see cref="Enums.LLMFinishReason.ToolCall"/>,
+/// execute each tool call, then send the results back as <see cref="LLMMessage"/> entries with
+/// <c>Role = LLMRole.Tool</c> and <c>ToolCallId</c> set to <see cref="Id"/>.
+/// </remarks>
+/// <example>
+/// <code>
+/// // Process tool calls from a response
+/// foreach (var tc in response.ToolCalls!)
+/// {
+///     var toolResult = ExecuteTool(tc.Name, tc.Arguments);
+///     messages.Add(new LLMMessage
+///     {
+///         Role = LLMRole.Tool,
+///         ToolCallId = tc.Id,
+///         Content = toolResult
+///     });
+/// }
+/// </code>
+/// </example>
 public sealed record LLMToolCall
 {
     /// <summary>

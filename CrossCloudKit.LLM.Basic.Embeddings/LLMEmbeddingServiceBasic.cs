@@ -21,6 +21,12 @@ namespace CrossCloudKit.LLM.Basic.Embeddings;
 /// <c>CrossCloudKit.LLM.Basic</c>.
 /// </para>
 /// </summary>
+/// <example>
+/// <code>
+/// ILLMService embedder = new LLMEmbeddingServiceBasic();
+/// var result = await embedder.CreateEmbeddingAsync("hello world");
+/// </code>
+/// </example>
 public sealed class LLMEmbeddingServiceBasic : ILLMService
 {
     private readonly LocalEmbedder _embedder;

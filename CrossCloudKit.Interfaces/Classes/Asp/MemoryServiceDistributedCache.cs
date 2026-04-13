@@ -6,6 +6,18 @@ using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.Interfaces.Classes.Asp;
 
+/// <summary>
+/// Implements <see cref="IDistributedCache"/> using <see cref="IMemoryService"/> as the backend.
+/// Supports absolute and sliding expiration.
+/// </summary>
+/// <example>
+/// <code>
+/// // Register in DI
+/// var scope = new MemoryScopeLambda("cache");
+/// builder.Services.AddSingleton&lt;IDistributedCache&gt;(
+///     sp =&gt; new MemoryServiceDistributedCache(sp.GetRequiredService&lt;IMemoryService&gt;(), scope));
+/// </code>
+/// </example>
 public class MemoryServiceDistributedCache(IMemoryService memoryService, IMemoryScope scope) : IDistributedCache
 {
     private readonly string _scopeCompiled = scope.Compile();

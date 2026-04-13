@@ -10,6 +10,15 @@ using CrossCloudKit.Utilities.Common;
 
 namespace CrossCloudKit.PubSub.Redis
 {
+    /// <summary>
+    /// Redis-based <see cref="IPubSubService"/> implementation. Messages are not persisted — undelivered messages are lost.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// IPubSubService ps = new PubSubServiceRedis(
+    ///     new RedisConnectionOptions { Host = "localhost", Port = 6379 });
+    /// </code>
+    /// </example>
     public class PubSubServiceRedis : RedisCommonFunctionalities, IPubSubService
     {
         private bool _disposed;

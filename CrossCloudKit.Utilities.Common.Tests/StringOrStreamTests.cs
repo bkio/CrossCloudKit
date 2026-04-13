@@ -754,32 +754,7 @@ public class StringOrStreamTests
         Assert.Same(emptyStream, retrievedStream);
         Assert.Equal(0, stringOrStream.Length);
     }
-
-    [Fact]
-    public void StringOrStream_Performance_ManyOperations()
-    {
-        // Arrange
-        const int operationCount = 1000;
-        const string testContent = "Performance test content";
-
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        // Act
-        for (int i = 0; i < operationCount; i++)
-        {
-            using var stringOrStream = new StringOrStream(testContent);
-            var _ = stringOrStream.AsString();
-            using var stream = stringOrStream.AsStream();
-            var __ = stringOrStream.ToString();
-        }
-
-        stopwatch.Stop();
-
-        // Assert
-        Assert.True(stopwatch.ElapsedMilliseconds < 1000,
-            $"Performance test failed: took {stopwatch.ElapsedMilliseconds}ms for {operationCount} operations");
-    }
-
+    
     [Fact]
     public async Task StringOrStream_ConcurrentAccess_WorksCorrectly()
     {

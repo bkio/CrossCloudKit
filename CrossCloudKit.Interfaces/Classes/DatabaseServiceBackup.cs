@@ -41,6 +41,22 @@ public sealed class DbBackupFileCursor
 /// All backup and restore operations are protected by distributed mutex locks to ensure data consistency.
 /// The service publishes events through the PubSub service during backup and restore operations.
 /// </remarks>
+/// <example>
+/// <code>
+/// // Scheduled backup (daily at 1 AM UTC)
+/// await using var backup = new DatabaseServiceBackup(
+///     databaseService, fileService, "backups-bucket", pubSubService,
+///     cronExpression: "0 1 * * *");
+///
+/// // Manual one-time backup
+/// var result = backup.TakeBackup();
+///
+/// // Restore from latest backup
+/// var cursors = await backup.GetBackupFileCursorsAsync();
+/// if (cursors.IsSuccessful &amp;&amp; cursors.Data.Count &gt; 0)
+///     await backup.RestoreBackupAsync(cursors.Data[0]);
+/// </code>
+/// </example>
 // ReSharper disable once ClassNeverInstantiated.Global
 public class DatabaseServiceBackup: IAsyncDisposable
 {

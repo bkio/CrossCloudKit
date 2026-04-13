@@ -16,6 +16,11 @@ namespace CrossCloudKit.PubSub.Basic;
 /// Cross-process implementation of IPubSubService using file-based storage and OS-level synchronization primitives.
 /// Enables pub/sub messaging across multiple processes on the same machine.
 /// </summary>
+/// <example>
+/// <code>
+/// IPubSubService ps = new PubSubServiceBasic();
+/// </code>
+/// </example>
 public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 {
     private readonly string _storageDirectory;

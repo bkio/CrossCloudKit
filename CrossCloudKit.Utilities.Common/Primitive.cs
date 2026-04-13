@@ -19,9 +19,52 @@ public enum PrimitiveKind
 }
 
 /// <summary>
-/// Represents a discriminated union of primitive types (string, long, double, byte array).
+/// Represents a discriminated union of primitive types (string, long, double, bool, byte array).
 /// This type is immutable and provides type-safe access to the underlying value.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <c>Primitive</c> is the universal value type used across all CrossCloudKit services — database keys,
+/// condition values, memory key-values, and vector metadata all accept <c>Primitive</c>.
+/// </para>
+/// <para>
+/// <b>Implicit conversions</b> exist for <c>string</c>, <c>bool</c>, <c>long</c>, <c>int</c>,
+/// <c>double</c>, <c>float</c>, and <c>byte[]</c>, so you can pass raw values directly where a
+/// <c>Primitive</c> parameter is expected (e.g. <c>new Primitive("hello")</c> and just <c>"hello"</c>
+/// both work).
+/// </para>
+/// <para>
+/// Use the <c>As*</c> properties (<see cref="AsString"/>, <see cref="AsInteger"/>, etc.) for direct access
+/// (throws <see cref="InvalidOperationException"/> on type mismatch), or the <c>TryGet*</c> methods
+/// (<see cref="TryGetString"/>, <see cref="TryGetInteger"/>, etc.) for safe access. Use
+/// <see cref="Match{T}"/> for exhaustive pattern matching across all kinds.
+/// </para>
+/// </remarks>
+/// <example>
+/// <code>
+/// // Explicit construction
+/// var strVal  = new Primitive("hello");
+/// var intVal  = new Primitive(42L);
+/// var boolVal = new Primitive(true);
+/// var dblVal  = new Primitive(3.14);
+/// var binVal  = new Primitive(new byte[] { 1, 2, 3 });
+///
+/// // Implicit conversion — works anywhere a Primitive is expected
+/// Primitive p = "hello";
+/// Primitive n = 42L;
+///
+/// // Safe access with TryGet
+/// if (p.TryGetString(out var s)) Console.WriteLine(s);
+///
+/// // Exhaustive pattern matching
+/// string description = p.Match(
+///     onString:    s => $"string: {s}",
+///     onBoolean:   b => $"bool: {b}",
+///     onInteger:   i => $"int: {i}",
+///     onDouble:    d => $"double: {d}",
+///     onByteArray: a => $"bytes: {a.Length}");
+/// </code>
+/// </example>
 [JsonConverter(typeof(PrimitiveJsonConverter))]
 public sealed class Primitive : IEquatable<Primitive>
 {
@@ -136,6 +179,7 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <summary>
     /// Gets the string value. Only valid when Kind is String.
     /// </summary>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.String"/>. Use <see cref="TryGetString"/> for safe access.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not String</exception>
     public string AsString => Kind == PrimitiveKind.String
         ? (string)_value
@@ -144,15 +188,17 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <summary>
     /// Gets the long integer value. Only valid when Kind is Integer.
     /// </summary>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.Integer"/>. Use <see cref="TryGetInteger"/> for safe access.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Integer</exception>
     public long AsInteger => Kind == PrimitiveKind.Integer
         ? (long)_value
         : throw new InvalidOperationException($"Cannot access integer value when Kind is {Kind}");
 
     /// <summary>
-    /// Gets the long integer value. Only valid when Kind is Integer.
+    /// Gets the boolean value. Only valid when Kind is Boolean.
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown when Kind is not Integer</exception>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.Boolean"/>. Use <see cref="TryGetBoolean"/> for safe access.</remarks>
+    /// <exception cref="InvalidOperationException">Thrown when Kind is not Boolean</exception>
     public bool AsBoolean => Kind == PrimitiveKind.Boolean
         ? (bool)_value
         : throw new InvalidOperationException($"Cannot access boolean value when Kind is {Kind}");
@@ -160,6 +206,7 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <summary>
     /// Gets the double value. Only valid when Kind is Double.
     /// </summary>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.Double"/>. Use <see cref="TryGetDouble"/> for safe access.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not Double</exception>
     public double AsDouble => Kind == PrimitiveKind.Double
         ? (double)_value
@@ -168,6 +215,7 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <summary>
     /// Gets a copy of the byte array value. Only valid when Kind is ByteArray.
     /// </summary>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.ByteArray"/>. Use <see cref="TryGetByteArray"/> for safe access. Returns a defensive copy.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not ByteArray</exception>
     public byte[] AsByteArray => Kind == PrimitiveKind.ByteArray
         ? ((byte[])_value).ToArray()
@@ -176,6 +224,7 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <summary>
     /// Gets a read-only span of the byte array value. Only valid when Kind is ByteArray.
     /// </summary>
+    /// <remarks>Throws if <see cref="Kind"/> is not <see cref="PrimitiveKind.ByteArray"/>. Zero-allocation alternative to <see cref="AsByteArray"/>.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when Kind is not ByteArray</exception>
     public ReadOnlySpan<byte> AsByteSpan => Kind == PrimitiveKind.ByteArray
         ? ((byte[])_value).AsSpan()
@@ -310,19 +359,46 @@ public sealed class Primitive : IEquatable<Primitive>
 
     public static bool operator !=(Primitive? left, Primitive? right) => !(left == right);
 
-    // Implicit conversion operators for convenience
+    /// <summary>Implicit conversions allow passing raw values where <see cref="Primitive"/> is expected.</summary>
+    /// <remarks>
+    /// Both directions are supported. To Primitive: <c>Primitive p = "hello";</c> or <c>Primitive p = 42L;</c>.
+    /// From Primitive: <c>string s = myPrimitive;</c> (throws if kind mismatches).
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// // To Primitive — works anywhere a Primitive parameter is expected:
+    /// Primitive p = "hello";      // string → Primitive
+    /// Primitive n = 42L;           // long → Primitive
+    /// Primitive b = true;          // bool → Primitive
+    ///
+    /// // From Primitive — extracts the underlying value:
+    /// string s = p;   // Primitive → string (throws if not a string)
+    /// long   v = n;   // Primitive → long   (throws if not an integer)
+    /// </code>
+    /// </example>
     public static implicit operator Primitive(string value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(bool value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(long value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(int value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(double value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(float value) => new(value);
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator Primitive(byte[] value) => new(value);
 
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator string(Primitive value) => value.AsString;
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator bool(Primitive value) => value.AsBoolean;
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator long(Primitive value) => value.AsInteger;
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator double(Primitive value) => value.AsDouble;
+    /// <inheritdoc cref="op_Implicit(string)"/>
     public static implicit operator byte[](Primitive value) => value.AsByteArray;
 
     /// <summary>
@@ -333,6 +409,17 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <param name="onInteger">Action to execute if Kind is Integer</param>
     /// <param name="onDouble">Action to execute if Kind is Double</param>
     /// <param name="onByteArray">Action to execute if Kind is ByteArray</param>
+    /// <example>
+    /// <code>
+    /// var p = new Primitive(42L);
+    /// p.Match(
+    ///     onString:    s => Console.WriteLine($"string: {s}"),
+    ///     onInteger:   i => Console.WriteLine($"int: {i}"),
+    ///     onDouble:    d => Console.WriteLine($"double: {d}"),
+    ///     onBoolean:   b => Console.WriteLine($"bool: {b}"),
+    ///     onByteArray: a => Console.WriteLine($"bytes: {a.Length}"));
+    /// </code>
+    /// </example>
     public void Match(
         Action<string>? onString = null,
         Action<bool>? onBoolean = null,
@@ -370,6 +457,18 @@ public sealed class Primitive : IEquatable<Primitive>
     /// <param name="onDouble">Function to execute if Kind is Double</param>
     /// <param name="onByteArray">Function to execute if Kind is ByteArray</param>
     /// <returns>The result of the executed function</returns>
+    /// <example>
+    /// <code>
+    /// var p = new Primitive("hello");
+    /// string desc = p.Match(
+    ///     onString:    s => $"string({s.Length})",
+    ///     onBoolean:   b => $"bool({b})",
+    ///     onInteger:   i => $"int({i})",
+    ///     onDouble:    d => $"double({d})",
+    ///     onByteArray: a => $"bytes({a.Length})");
+    /// // desc == "string(5)"
+    /// </code>
+    /// </example>
     public T Match<T>(
         Func<string, T> onString,
         Func<bool, T> onBoolean,

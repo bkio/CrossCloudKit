@@ -29,6 +29,13 @@ public enum CredentialType
 /// <summary>
 /// Simplified Google Cloud Pub/Sub implementation
 /// </summary>
+/// <example>
+/// <code>
+/// IPubSubService ps = new PubSubServiceGC(
+///     "my-gcp-project", CredentialType.ServiceAccountFile,
+///     credentialData: "/secrets/sa.json");
+/// </code>
+/// </example>
 public sealed class PubSubServiceGC : IPubSubService, IAsyncDisposable
 {
     private readonly string _projectId;

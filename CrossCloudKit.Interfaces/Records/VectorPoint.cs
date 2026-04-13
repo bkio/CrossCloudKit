@@ -8,6 +8,17 @@ namespace CrossCloudKit.Interfaces.Records;
 /// <summary>
 /// A point stored in a vector collection.
 /// </summary>
+/// <example>
+/// <code>
+/// var point = new VectorPoint
+/// {
+///     Id = "doc-42",
+///     Vector = embedding,
+///     Metadata = new JObject { ["title"] = "My Document", ["page"] = 3 }
+/// };
+/// await vectorService.UpsertAsync("documents", point);
+/// </code>
+/// </example>
 public sealed record VectorPoint
 {
     /// <summary>Unique string identifier for this point.</summary>

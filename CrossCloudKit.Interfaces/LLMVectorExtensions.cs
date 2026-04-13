@@ -30,6 +30,13 @@ public static class LLMVectorExtensions
     /// An <see cref="OperationResult{T}"/> with <c>true</c> on success, or a failure result
     /// if the embedding or upsert step fails.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// await vectorService.EmbedAndUpsertAsync(
+    ///     llmService, "documents", "doc-1", "CrossCloudKit is a cloud-agnostic framework.",
+    ///     metadata: new JObject { ["source"] = "readme" });
+    /// </code>
+    /// </example>
     public static async Task<OperationResult<bool>> EmbedAndUpsertAsync(
         this IVectorService vectorService,
         ILLMService llmService,
@@ -67,6 +74,16 @@ public static class LLMVectorExtensions
     /// An <see cref="OperationResult{T}"/> with <c>true</c> on success, or a failure result
     /// if the embedding or upsert step fails.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var items = new List&lt;(string Id, string Text, JObject? Metadata)&gt;
+    /// {
+    ///     ("doc-1", "First document text.", new JObject { ["page"] = 1 }),
+    ///     ("doc-2", "Second document text.", null)
+    /// };
+    /// await vectorService.EmbedAndUpsertBatchAsync(llmService, "documents", items);
+    /// </code>
+    /// </example>
     public static async Task<OperationResult<bool>> EmbedAndUpsertBatchAsync(
         this IVectorService vectorService,
         ILLMService llmService,
@@ -117,6 +134,15 @@ public static class LLMVectorExtensions
     /// An <see cref="OperationResult{T}"/> containing results ordered by descending similarity,
     /// or a failure result if the embedding or query step fails.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var results = await vectorService.SemanticSearchAsync(
+    ///     llmService, "documents", "What is CrossCloudKit?", topK: 5);
+    /// if (results.IsSuccessful)
+    ///     foreach (var r in results.Data)
+    ///         Console.WriteLine($"{r.Id}: score={r.Score}");
+    /// </code>
+    /// </example>
     public static async Task<OperationResult<IReadOnlyList<VectorSearchResult>>> SemanticSearchAsync(
         this IVectorService vectorService,
         ILLMService llmService,

@@ -23,6 +23,12 @@ namespace CrossCloudKit.Vector.Qdrant;
 /// <see cref="IVectorService"/> implementation backed by a Qdrant cluster.
 /// Uses the official Qdrant .NET gRPC client (<c>Qdrant.Client</c>).
 /// </summary>
+/// <example>
+/// <code>
+/// IVectorService vs = new VectorServiceQdrant(host: "localhost", grpcPort: 6334);
+/// await vs.EnsureCollectionExistsAsync("docs", 1536, VectorDistanceMetric.Cosine);
+/// </code>
+/// </example>
 public sealed class VectorServiceQdrant : IVectorService
 {
     // Reserved payload key for storing the original string ID when it is not a UUID.

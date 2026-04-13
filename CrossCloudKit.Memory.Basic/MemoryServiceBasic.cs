@@ -18,6 +18,11 @@ namespace CrossCloudKit.Memory.Basic;
 /// Cross-process implementation of IMemoryService using memory-mapped files and OS-level synchronization primitives.
 /// Enables memory sharing and mutex operations across multiple processes on the same machine.
 /// </summary>
+/// <example>
+/// <code>
+/// IMemoryService mem = new MemoryServiceBasic();
+/// </code>
+/// </example>
 public sealed class MemoryServiceBasic : IMemoryService
 {
     private readonly IPubSubService? _pubSubService;

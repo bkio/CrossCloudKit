@@ -11,11 +11,28 @@ namespace CrossCloudKit.Interfaces;
 /// Modern async interface for abstracting Memory Services across multiple providers (Redis, Memcached, etc.)
 /// Provides unified access with proper error handling and .NET 10 features.
 /// </summary>
+/// <remarks>
+/// <para>Providers: Redis and Basic (in-memory/ConcurrentDictionary-based). All operations are scoped by <see cref="IMemoryScope"/>, which acts as a namespace key.</para>
+/// <para>Key concepts:</para>
+/// <list type="bullet">
+/// <item>Use <see cref="MemoryScopeLambda"/> to build scopes: <c>new MemoryScopeLambda(() =&gt; "session:abc")</c> or <c>new MemoryScopeLambda("session:abc")</c></item>
+/// <item>Key-value operations store <see cref="Primitive"/> values (string, long, double, bool, byte[]).</item>
+/// <item>List operations provide push/pop/remove semantics (like Redis lists).</item>
+/// <item>Distributed mutex locks are available via <c>MemoryMutexLock</c>/<c>MemoryMutexUnlock</c> or the helper <see cref="MemoryScopeMutex"/>.</item>
+/// <item>All methods return <see cref="OperationResult{T}"/>. Always check <c>IsSuccessful</c> before accessing <c>Data</c>.</item>
+/// </list>
+/// </remarks>
 public interface IMemoryService : IAsyncDisposable
 {
     /// <summary>
     /// Gets a value indicating whether the memory service has been successfully initialized.
     /// </summary>
+    /// <example>
+    /// <code>
+    /// if (!memoryService.IsInitialized)
+    ///     throw new InvalidOperationException("Memory service is not initialized.");
+    /// </code>
+    /// </example>
     bool IsInitialized { get; }
 
     /// <summary>
@@ -52,6 +69,19 @@ public interface IMemoryService : IAsyncDisposable
     /// The returned lock ID uniquely identifies this lock acquisition and must be used
     /// when releasing the lock to ensure only the lock holder can unlock it.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("resource:orders");
+    /// var result = await memoryService.MemoryMutexLock(scope, "order-42", TimeSpan.FromSeconds(30));
+    /// if (result.IsSuccessful &amp;&amp; result.Data != null)
+    /// {
+    ///     string lockId = result.Data;
+    ///     // ... critical section ...
+    ///     await memoryService.MemoryMutexUnlock(scope, "order-42", lockId);
+    /// }
+    /// </code>
+    /// </example>
+    /// <seealso cref="MemoryMutexUnlock"/>
     Task<OperationResult<string?>> MemoryMutexLock(
         IMemoryScope memoryScope,
         string mutexValue,
@@ -83,6 +113,18 @@ public interface IMemoryService : IAsyncDisposable
     /// The returned lock ID must be used to release the lock, ensuring only the lock holder
     /// can unlock the entire scope.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("resource:orders");
+    /// var result = await memoryService.MemoryMutexMasterLock(scope, TimeSpan.FromSeconds(60));
+    /// if (result.IsSuccessful &amp;&amp; result.Data != null)
+    /// {
+    ///     // ... entire scope is locked ...
+    ///     await memoryService.MemoryMutexMasterUnlock(scope, result.Data);
+    /// }
+    /// </code>
+    /// </example>
+    /// <seealso cref="MemoryMutexMasterUnlock"/>
     Task<OperationResult<string?>> MemoryMutexMasterLock(
         IMemoryScope memoryScope,
         TimeSpan timeToLive,
@@ -114,6 +156,11 @@ public interface IMemoryService : IAsyncDisposable
     /// - False if the lock was not found, already expired, or held by a different process
     /// - Failure result if an error occurred during the unlock operation
     /// </returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.MemoryMutexUnlock(scope, "order-42", lockId);
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> MemoryMutexUnlock(
         IMemoryScope memoryScope,
         string mutexValue,
@@ -141,6 +188,11 @@ public interface IMemoryService : IAsyncDisposable
     /// - False if the lock was not found, already expired, or held by a different process.
     /// - Failure result if an error occurred during the unlock operation.
     /// </returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.MemoryMutexMasterUnlock(scope, lockId);
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> MemoryMutexMasterUnlock(
         IMemoryScope memoryScope,
         string lockId,
@@ -157,6 +209,14 @@ public interface IMemoryService : IAsyncDisposable
     /// An <see cref="OperationResult{T}"/> containing the collection of matching memory scopes as
     /// <see cref="IReadOnlyCollection{String}"/> if successful, or a failure with an error message
     /// </returns>
+    /// <example>
+    /// <code>
+    /// var scopes = await memoryService.ScanMemoryScopesWithPattern("session:*");
+    /// if (scopes.IsSuccessful)
+    ///     foreach (var s in scopes.Data)
+    ///         Console.WriteLine(s);
+    /// </code>
+    /// </example>
     Task<OperationResult<IReadOnlyCollection<string>>> ScanMemoryScopesWithPattern(
         string pattern,
         CancellationToken cancellationToken = default);
@@ -168,6 +228,12 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="timeToLive">Time to live duration.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("session:abc");
+    /// await memoryService.SetKeyExpireTimeAsync(scope, TimeSpan.FromMinutes(30));
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> SetKeyExpireTimeAsync(
         IMemoryScope memoryScope,
         TimeSpan timeToLive,
@@ -179,6 +245,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key to check expiration for.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The time to live if found; otherwise, null.</returns>
+    /// <example>
+    /// <code>
+    /// var ttl = await memoryService.GetKeyExpireTimeAsync(scope);
+    /// if (ttl.IsSuccessful &amp;&amp; ttl.Data.HasValue)
+    ///     Console.WriteLine($"Expires in: {ttl.Data.Value.TotalSeconds}s");
+    /// </code>
+    /// </example>
     Task<OperationResult<TimeSpan?>> GetKeyExpireTimeAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default);
@@ -191,6 +264,17 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("user:123");
+    /// var kvs = new Dictionary&lt;string, Primitive&gt;
+    /// {
+    ///     ["Name"] = new Primitive("John"),
+    ///     ["Age"] = new Primitive(30L)
+    /// };
+    /// await memoryService.SetKeyValuesAsync(scope, kvs);
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> SetKeyValuesAsync(
         IMemoryScope memoryScope,
         IEnumerable<KeyValuePair<string, Primitive>> keyValues,
@@ -206,6 +290,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the key was set; false if it already existed.</returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("config");
+    /// var wasSet = await memoryService.SetKeyValueConditionallyAsync(
+    ///     scope, "initialized", new Primitive(true));
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> SetKeyValueConditionallyAsync(
         IMemoryScope memoryScope,
         string key,
@@ -222,6 +313,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Pair of "True if the key was set; false if it already existed" and "value of the key after this operation"</returns>
+    /// <example>
+    /// <code>
+    /// var (newlySet, value) = (await memoryService.SetKeyValueConditionallyAndReturnValueRegardlessAsync(
+    ///     scope, "leader", new Primitive("node-1"))).Data;
+    /// Console.WriteLine(newlySet ? "We are leader" : $"Leader is {value}");
+    /// </code>
+    /// </example>
     public Task<OperationResult<(bool newlySet, Primitive? value)>> SetKeyValueConditionallyAndReturnValueRegardlessAsync(
             IMemoryScope memoryScope,
             string key,
@@ -236,6 +334,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="key">The key to retrieve.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The value if found; otherwise, null.</returns>
+    /// <example>
+    /// <code>
+    /// var val = await memoryService.GetKeyValueAsync(scope, "Name");
+    /// if (val.IsSuccessful &amp;&amp; val.Data != null)
+    ///     Console.WriteLine(val.Data.AsString);
+    /// </code>
+    /// </example>
     Task<OperationResult<Primitive?>> GetKeyValueAsync(
         IMemoryScope memoryScope,
         string key,
@@ -248,6 +353,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="keys">Collection of keys to retrieve.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Dictionary of found key-value pairs.</returns>
+    /// <example>
+    /// <code>
+    /// var vals = await memoryService.GetKeyValuesAsync(scope, new[] { "Name", "Age" });
+    /// </code>
+    /// </example>
     Task<OperationResult<Dictionary<string, Primitive>>> GetKeyValuesAsync(
         IMemoryScope memoryScope,
         IEnumerable<string> keys,
@@ -259,6 +369,14 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Dictionary of all key-value pairs in the namespace.</returns>
+    /// <example>
+    /// <code>
+    /// var all = await memoryService.GetAllKeyValuesAsync(scope);
+    /// if (all.IsSuccessful)
+    ///     foreach (var (k, v) in all.Data)
+    ///         Console.WriteLine($"{k} = {v.AsString}");
+    /// </code>
+    /// </example>
     Task<OperationResult<Dictionary<string, Primitive>>> GetAllKeyValuesAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default);
@@ -271,6 +389,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the key was deleted; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.DeleteKeyAsync(scope, "TempToken");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> DeleteKeyAsync(
         IMemoryScope memoryScope,
         string key,
@@ -284,6 +407,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if keys were deleted; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.DeleteAllKeysAsync(scope);
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> DeleteAllKeysAsync(
         IMemoryScope memoryScope,
         bool publishChange = true,
@@ -295,6 +423,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Collection of keys in the namespace.</returns>
+    /// <example>
+    /// <code>
+    /// var keys = await memoryService.GetKeysAsync(scope);
+    /// </code>
+    /// </example>
     Task<OperationResult<ReadOnlyCollection<string>>> GetKeysAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default);
@@ -305,6 +438,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="memoryScope">The memory scope key for the operation.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The number of keys in the namespace.</returns>
+    /// <example>
+    /// <code>
+    /// var count = await memoryService.GetKeysCountAsync(scope);
+    /// </code>
+    /// </example>
     Task<OperationResult<long>> GetKeysCountAsync(
         IMemoryScope memoryScope,
         CancellationToken cancellationToken = default);
@@ -317,6 +455,16 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Dictionary of keys and their new values after increment.</returns>
+    /// <example>
+    /// <code>
+    /// var increments = new Dictionary&lt;string, long&gt;
+    /// {
+    ///     ["ViewCount"] = 1,
+    ///     ["ClickCount"] = 3
+    /// };
+    /// var result = await memoryService.IncrementKeyValuesAsync(scope, increments);
+    /// </code>
+    /// </example>
     Task<OperationResult<Dictionary<string, long>>> IncrementKeyValuesAsync(
         IMemoryScope memoryScope,
         IEnumerable<KeyValuePair<string, long>> keyIncrements,
@@ -332,6 +480,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The new value after increment.</returns>
+    /// <example>
+    /// <code>
+    /// var newVal = await memoryService.IncrementKeyByValueAndGetAsync(scope, "Counter", 1);
+    /// if (newVal.IsSuccessful)
+    ///     Console.WriteLine($"Counter is now: {newVal.Data}");
+    /// </code>
+    /// </example>
     Task<OperationResult<long>> IncrementKeyByValueAndGetAsync(
         IMemoryScope memoryScope,
         string key,
@@ -351,6 +506,13 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// var scope = new MemoryScopeLambda("queue:tasks");
+    /// await memoryService.PushToListTailAsync(scope, "pending",
+    ///     new[] { new Primitive("task-1"), new Primitive("task-2") });
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> PushToListTailAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -369,6 +531,12 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Array of values that were successfully pushed</returns>
+    /// <example>
+    /// <code>
+    /// var pushed = await memoryService.PushToListTailIfValuesNotExistsAsync(
+    ///     scope, "uniqueTags", new[] { new Primitive("A"), new Primitive("B") });
+    /// </code>
+    /// </example>
     Task<OperationResult<Primitive[]>> PushToListTailIfValuesNotExistsAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -386,6 +554,12 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the operation was successful; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.PushToListHeadAsync(scope, "recent",
+    ///     new[] { new Primitive("latest-item") });
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> PushToListHeadAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -402,6 +576,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The popped element if found; otherwise, null.</returns>
+    /// <example>
+    /// <code>
+    /// var last = await memoryService.PopLastElementOfListAsync(scope, "pending");
+    /// </code>
+    /// </example>
     Task<OperationResult<Primitive?>> PopLastElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -416,6 +595,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The popped element if found; otherwise, null.</returns>
+    /// <example>
+    /// <code>
+    /// var first = await memoryService.PopFirstElementOfListAsync(scope, "pending");
+    /// </code>
+    /// </example>
     Task<OperationResult<Primitive?>> PopFirstElementOfListAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -431,6 +615,12 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Removed values</returns>
+    /// <example>
+    /// <code>
+    /// var removed = await memoryService.RemoveElementsFromListAsync(
+    ///     scope, "tags", new[] { new Primitive("obsolete") });
+    /// </code>
+    /// </example>
     Task<OperationResult<IEnumerable<Primitive?>>> RemoveElementsFromListAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -445,6 +635,14 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="listName">The name of the list.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>Collection of all elements in the list.</returns>
+    /// <example>
+    /// <code>
+    /// var items = await memoryService.GetAllElementsOfListAsync(scope, "pending");
+    /// if (items.IsSuccessful)
+    ///     foreach (var item in items.Data)
+    ///         Console.WriteLine(item.AsString);
+    /// </code>
+    /// </example>
     Task<OperationResult<ReadOnlyCollection<Primitive>>> GetAllElementsOfListAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -458,6 +656,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the list was emptied; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.EmptyListAsync(scope, "pending");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> EmptyListAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -473,6 +676,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="publishChange">Whether to publish change notifications.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the list was emptied; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// await memoryService.EmptyListAndSublistsAsync(scope, "tasks", "tasks:");
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> EmptyListAndSublistsAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -487,6 +695,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="listName">The name of the list.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>The number of elements in the list.</returns>
+    /// <example>
+    /// <code>
+    /// var size = await memoryService.GetListSizeAsync(scope, "pending");
+    /// </code>
+    /// </example>
     Task<OperationResult<long>> GetListSizeAsync(
         IMemoryScope memoryScope,
         string listName,
@@ -500,6 +713,11 @@ public interface IMemoryService : IAsyncDisposable
     /// <param name="value">The value to search for.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>True if the list contains the value; otherwise, false.</returns>
+    /// <example>
+    /// <code>
+    /// var has = await memoryService.ListContainsAsync(scope, "tags", new Primitive("urgent"));
+    /// </code>
+    /// </example>
     Task<OperationResult<bool>> ListContainsAsync(
         IMemoryScope memoryScope,
         string listName,

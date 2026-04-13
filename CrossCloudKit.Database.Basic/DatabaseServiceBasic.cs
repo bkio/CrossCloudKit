@@ -19,6 +19,16 @@ using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.Database.Basic;
 
+/// <summary>
+/// <see cref="IDatabaseService"/> implementation using local JSON files. Suitable for development, testing, and small workloads.
+/// </summary>
+/// <example>
+/// <code>
+/// IDatabaseService db = new DatabaseServiceBasic(
+///     databaseName: "myapp",
+///     memoryService: new MemoryServiceBasic());
+/// </code>
+/// </example>
 public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 {
     /// <summary>

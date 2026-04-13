@@ -14,6 +14,13 @@ namespace CrossCloudKit.Interfaces.Classes.Asp;
 /// Allows CrossCloudKit file services to be used as static file providers in web applications.
 /// For Watch functionality to work, pubSubService must be provided and should be the same type of service as the file service uses.
 /// </summary>
+/// <example>
+/// <code>
+/// // In ASP.NET Core Startup / Program.cs
+/// var provider = new FileServiceFileProvider(fileService, "static-assets", "wwwroot");
+/// app.UseStaticFiles(new StaticFileOptions { FileProvider = provider });
+/// </code>
+/// </example>
 public class FileServiceFileProvider(
     IFileService fileService,
     string bucketName,

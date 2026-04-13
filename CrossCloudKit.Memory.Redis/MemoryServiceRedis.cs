@@ -14,6 +14,12 @@ namespace CrossCloudKit.Memory.Redis;
 /// <summary>
 /// Modern Redis-based implementation of IMemoryService with async patterns and proper error handling.
 /// </summary>
+/// <example>
+/// <code>
+/// IMemoryService mem = new MemoryServiceRedis(
+///     new RedisConnectionOptions { Host = "localhost", Port = 6379 });
+/// </code>
+/// </example>
 public sealed class MemoryServiceRedis : RedisCommonFunctionalities, IMemoryService
 {
     private readonly IPubSubService? _pubSubService;

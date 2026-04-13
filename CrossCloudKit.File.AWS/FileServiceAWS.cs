@@ -20,6 +20,11 @@ namespace CrossCloudKit.File.AWS;
 /// <summary>
 /// AWS S3 file service implementation with async/await patterns
 /// </summary>
+/// <example>
+/// <code>
+/// IFileService fs = new FileServiceAWS("AKIA...", "secret", "eu-west-1");
+/// </code>
+/// </example>
 public class FileServiceAWS : IFileService, IAsyncDisposable
 {
     protected AmazonS3Client? S3Client;

@@ -21,6 +21,17 @@ using Newtonsoft.Json;
 
 namespace CrossCloudKit.Database.Mongo;
 
+/// <summary>
+/// <see cref="IDatabaseService"/> implementation backed by MongoDB.
+/// </summary>
+/// <example>
+/// <code>
+/// IDatabaseService db = new DatabaseServiceMongo(
+///     connectionString: "mongodb://localhost:27017",
+///     mongoDatabase: "myapp",
+///     memoryService: memoryService);
+/// </code>
+/// </example>
 public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 {
     /// <summary>

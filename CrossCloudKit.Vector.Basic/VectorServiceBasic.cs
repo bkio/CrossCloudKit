@@ -17,6 +17,12 @@ namespace CrossCloudKit.Vector.Basic;
 /// All data lives in RAM and is lost when the process exits.
 /// Intended for unit tests, offline development, and prototyping.
 /// </summary>
+/// <example>
+/// <code>
+/// IVectorService vs = new VectorServiceBasic();
+/// await vs.EnsureCollectionExistsAsync("test", 384, VectorDistanceMetric.Cosine);
+/// </code>
+/// </example>
 public sealed class VectorServiceBasic : IVectorService
 {
     // ── Internal state ────────────────────────────────────────────────────────

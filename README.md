@@ -1,18 +1,18 @@
 # CrossCloudKit
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![.NET 8](https://img.shields.io/badge/.NET-8-blue.svg)](https://dotnet.microsoft.com/download)
-![Tests](https://img.shields.io/badge/Tests-1520%2F1520%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-1599%2F1599%20passing-brightgreen)
 
 CrossCloudKit is a comprehensive .NET library that provides unified interfaces and implementations for working with multiple cloud services. It enables developers to write cloud-agnostic code that can seamlessly work across AWS, Google Cloud, MongoDB, Redis, and S3-compatible storage providers with consistent APIs and behavior.
 ## Test Results
 
-**Last Updated:** 2025-10-08 09:35:44 UTC
+**Last Updated:** 2026-04-12 00:00:00 UTC
 
 | Metric | Count |
 |--------|-------|
-| ✅ **Tests Passed** | **1520** |
+| ✅ **Tests Passed** | **1599** |
 | ❌ **Tests Failed** | **0** |
-| 📊 **Total Tests** | **1520** |
+| 📊 **Total Tests** | **1599** |
 
 ## Features
 
@@ -22,6 +22,9 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers, Cross-Process Basic
   - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
   - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
+  - **LLM Services**: OpenAI-compatible endpoints (Ollama, Groq, Azure, Bedrock…) with **separate embedding model support** + fully local CPU-only inference via LLamaSharp (bundled SmolLM2-135M) + bundled all-MiniLM-L6-v2 embeddings
+  - **Vector Database Services**: In-memory brute-force search + Qdrant (gRPC)
+  - **LLM ↔ Vector Bridge**: Built-in extension methods (`EmbedAndUpsertAsync`, `EmbedAndUpsertBatchAsync`, `SemanticSearchAsync`) for common embed-then-store and semantic-search workflows — single-line, no boilerplate
 - **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
@@ -58,6 +61,14 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | **Memory/Caching Services** |                                         |
 | `CrossCloudKit.Memory.Redis` | Redis memory and caching implementation |
 | `CrossCloudKit.Memory.Basic` | Cross-process file-based memory implementation |
+| **LLM Services** |                                         |
+| `CrossCloudKit.LLM.OpenAI` | OpenAI-compatible LLM provider — works with OpenAI, Azure OpenAI, Ollama, Groq, Bedrock, LM Studio, and any OpenAI-compatible endpoint |
+| `CrossCloudKit.LLM.Basic` | ⚡ **CPU-only plug & play** meta-package — installs both sub-packages below; completions + embeddings work out of the box |
+| `CrossCloudKit.LLM.Basic.Embeddings` | Embeddings only — bundles all-MiniLM-L6-v2 (384-dim) via SmartComponents.LocalEmbeddings; lightweight, no LLamaSharp dependency |
+| `CrossCloudKit.LLM.Basic.Completion` | Completions only — bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB, Apache-2.0) + LLamaSharp CPU backend; works with zero configuration |
+| **Vector Database Services** |                                         |
+| `CrossCloudKit.Vector.Basic` | In-memory vector store — zero dependencies, ideal for unit tests and prototyping |
+| `CrossCloudKit.Vector.Qdrant` | Qdrant vector database via official gRPC client |
 | **Utilities** |                                         |
 | `CrossCloudKit.Utilities.Common` | Common utilities and primitive types    |
 | `CrossCloudKit.Utilities.Windows` | Windows-specific utilities              |
@@ -87,10 +98,233 @@ dotnet add package CrossCloudKit.PubSub.Basic
 dotnet add package CrossCloudKit.Memory.Redis
 dotnet add package CrossCloudKit.Memory.Basic
 
+# LLM Services
+dotnet add package CrossCloudKit.LLM.OpenAI              # For any OpenAI-compatible endpoint
+dotnet add package CrossCloudKit.LLM.Basic               # CPU-only meta-package (embeddings + completions bundled)
+dotnet add package CrossCloudKit.LLM.Basic.Embeddings    # Embeddings only (lighter install, no LLamaSharp)
+dotnet add package CrossCloudKit.LLM.Basic.Completion    # Completions only (bundles SmolLM2-135M GGUF)
+
+# Vector Database Services
+dotnet add package CrossCloudKit.Vector.Basic  # In-memory, no infra needed
+dotnet add package CrossCloudKit.Vector.Qdrant # Qdrant gRPC client
+
 # Core interfaces (automatically included as dependency)
 dotnet add package CrossCloudKit.Interfaces
 ```
 ## 🏗️ Quick Start
+
+### LLM Services
+
+#### OpenAI-Compatible Endpoint (Ollama, Groq, Azure…)
+```csharp
+using CrossCloudKit.LLM.OpenAI;
+using CrossCloudKit.Interfaces.Records;
+using CrossCloudKit.Interfaces.Enums;
+
+// Works with OpenAI, Ollama, Groq, Azure OpenAI, Bedrock, LM Studio, etc.
+// embeddingModel is optional — use it when your completion and embedding models differ
+// (the common case on self-hosted endpoints like Ollama).
+await using var llmService = new LLMServiceOpenAI(
+    baseUrl:        "http://localhost:11434/v1",  // Ollama
+    apiKey:         "",
+    defaultModel:   "gemma3:12b",                 // used for completions
+    embeddingModel: "nomic-embed-text:v1.5"       // used for CreateEmbeddingAsync / CreateEmbeddingsAsync
+);
+// If embeddingModel is omitted it falls back to defaultModel.
+
+// Text completion
+var response = await llmService.CompleteAsync(new LLMRequest
+{
+    Messages =
+    [
+        new LLMMessage { Role = LLMRole.System, Content = "You are a helpful assistant." },
+        new LLMMessage { Role = LLMRole.User,   Content = "Explain quantum computing briefly." }
+    ],
+    MaxTokens = 256
+});
+Console.WriteLine(response.Data.Content);
+
+// Streaming completion
+await foreach (var chunk in llmService.CompleteStreamingAsync(request))
+{
+    if (!chunk.Data.IsFinal)
+        Console.Write(chunk.Data.ContentDelta);
+}
+
+// Embeddings
+var embedding = await llmService.CreateEmbeddingAsync("Hello, world!");
+Console.WriteLine($"Dimensions: {embedding.Data.Length}");
+```
+
+#### Local CPU-Only Inference (Plug & Play)
+```csharp
+using CrossCloudKit.LLM.Basic;
+using CrossCloudKit.Interfaces.Records;
+using CrossCloudKit.Interfaces.Enums;
+
+// Everything works out of the box — no downloads, no API keys, no configuration.
+//   • Embeddings:  all-MiniLM-L6-v2 (384 dimensions) bundled via SmartComponents.LocalEmbeddings
+//   • Completions: SmolLM2-135M-Instruct (Q8_0, ~139 MB) bundled in the NuGet package
+// To use a different GGUF model, pass its path or set LLM_BASIC_MODEL_PATH.
+await using var llmService = new LLMServiceBasic();
+
+// Embeddings — always available
+var vec = await llmService.CreateEmbeddingAsync("semantic search text");
+// vec.Data is float[384]
+
+// Batch embeddings
+var vecs = await llmService.CreateEmbeddingsAsync(["text a", "text b"]);
+
+// Completions — available out of the box with the bundled SmolLM2-135M model
+var reply = await llmService.CompleteAsync(new LLMRequest
+{
+    Messages = [new LLMMessage { Role = LLMRole.User, Content = "Say hello." }],
+    MaxTokens = 64
+});
+Console.WriteLine(reply.Data.Content);
+
+// Streaming completions
+await foreach (var chunk in llmService.CompleteStreamingAsync(new LLMRequest
+{
+    Messages = [new LLMMessage { Role = LLMRole.User, Content = "Explain gravity briefly." }],
+    MaxTokens = 128
+}))
+{
+    if (!chunk.Data.IsFinal)
+        Console.Write(chunk.Data.ContentDelta);
+}
+```
+
+#### Embeddings Only (Lightweight)
+```csharp
+using CrossCloudKit.LLM.Basic.Embeddings;
+
+// No LLamaSharp or GGUF model — just the tiny all-MiniLM-L6-v2 embedder.
+await using var embedder = new LLMEmbeddingServiceBasic();
+var vec = await embedder.CreateEmbeddingAsync("lightweight embedding");
+```
+
+#### Completions Only
+```csharp
+using CrossCloudKit.LLM.Basic.Completion;
+
+// Bundles SmolLM2-135M-Instruct; no embedding model overhead.
+await using var completer = new LLMCompletionServiceBasic();
+var reply = await completer.CompleteAsync(new LLMRequest
+{
+    Messages = [new LLMMessage { Role = LLMRole.User, Content = "Hello!" }],
+    MaxTokens = 64
+});
+Console.WriteLine(reply.Data.Content);
+```
+
+### Vector Database Services
+
+#### In-Memory (Zero Dependencies)
+```csharp
+using CrossCloudKit.Vector.Basic;
+using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
+using CrossCloudKit.Utilities.Common;
+using Newtonsoft.Json.Linq;
+
+await using var vectorService = new VectorServiceBasic();
+
+// Create collection
+await vectorService.EnsureCollectionExistsAsync("products", vectorDimensions: 384, VectorDistanceMetric.Cosine);
+
+// Upsert points
+await vectorService.UpsertAsync("products", new VectorPoint
+{
+    Id       = Guid.NewGuid().ToString(),
+    Vector   = new float[384],   // typically from llmService.CreateEmbeddingAsync
+    Metadata = new JObject { ["name"] = "Widget", ["price"] = 9.99, ["inStock"] = true }
+});
+
+// Similarity search with filter
+var filter = vectorService.FieldEquals("inStock", new Primitive(true))
+                 .And(vectorService.FieldLessThan("price", new Primitive(20.0)));
+var results = await vectorService.QueryAsync("products", queryVector, topK: 5, filter: filter);
+
+foreach (var r in results.Data)
+    Console.WriteLine($"{r.Id}  score={r.Score:F4}");
+```
+
+#### Qdrant (Production Vector Database)
+```csharp
+using CrossCloudKit.Vector.Qdrant;
+
+// Uses the official Qdrant gRPC client (port 6334)
+await using var vectorService = new VectorServiceQdrant(
+    host:     "localhost",    // or qdrant.common-db.svc.cluster.local
+    grpcPort: 6334
+);
+
+// Same unified IVectorService API as above
+await vectorService.EnsureCollectionExistsAsync("embeddings", 384, VectorDistanceMetric.Cosine);
+await vectorService.UpsertAsync("embeddings", point);
+var hits = await vectorService.QueryAsync("embeddings", queryVec, topK: 10);
+```
+
+#### Combined: Semantic Store & Search via Bridge Extensions
+```csharp
+using CrossCloudKit.Interfaces;          // LLMVectorExtensions lives here
+using CrossCloudKit.Interfaces.Records;
+using Newtonsoft.Json.Linq;
+
+// ── Single-item embed-then-upsert ──────────────────────────────────────────
+var result = await vectorService.EmbedAndUpsertAsync(
+    llmService:     llmService,
+    collectionName: "docs",
+    id:             "article-42",
+    text:           "cats are mammals",
+    metadata:       new JObject { ["source"] = "wiki" }
+);
+
+// ── Batch embed-then-upsert ────────────────────────────────────────────────
+var items = new List<(string Id, string Text, JObject? Metadata)>
+{
+    ("doc-0", "cats are mammals",                       new JObject { ["text"] = "cats are mammals" }),
+    ("doc-1", "dogs are loyal pets",                   new JObject { ["text"] = "dogs are loyal pets" }),
+    ("doc-2", "C# is a statically typed language",    new JObject { ["text"] = "C# is a statically typed language" })
+};
+await vectorService.EmbedAndUpsertBatchAsync(llmService, "docs", items);
+
+// ── Semantic search ────────────────────────────────────────────────────────
+var hits = await vectorService.SemanticSearchAsync(
+    llmService:     llmService,
+    collectionName: "docs",
+    queryText:      "what animals are domestic pets?",
+    topK:           2
+);
+
+foreach (var hit in hits.Data)
+    Console.WriteLine($"[{hit.Score:F3}] {hit.Metadata?["text"]}");
+```
+
+#### Combined: Manual LLM Embeddings + Vector Search
+```csharp
+// Embed documents
+var texts = new[] { "cats are mammals", "dogs are loyal pets", "C# is a statically typed language" };
+var embeddings = await llmService.CreateEmbeddingsAsync(texts);
+
+// Store in vector DB
+var points = texts.Zip(embeddings.Data, (t, e) => new VectorPoint
+{
+    Id       = Guid.NewGuid().ToString(),
+    Vector   = e,
+    Metadata = new JObject { ["text"] = t }
+}).ToList();
+await vectorService.UpsertBatchAsync("docs", points);
+
+// Retrieve semantically similar documents
+var queryVec = (await llmService.CreateEmbeddingAsync("what animals are domestic pets?")).Data;
+var queryHits = await vectorService.QueryAsync("docs", queryVec, topK: 2, includeMetadata: true);
+
+foreach (var hit in queryHits.Data)
+    Console.WriteLine($"[{hit.Score:F3}] {hit.Metadata?["text"]}");
+```
+
 ### Database Services
 
 #### AWS DynamoDB
@@ -741,6 +975,15 @@ dotnet test CrossCloudKit.PubSub.Basic.Tests
 
 dotnet test CrossCloudKit.Memory.Redis.Tests
 dotnet test CrossCloudKit.Memory.Basic.Tests
+
+dotnet test CrossCloudKit.LLM.OpenAI.Tests
+dotnet test CrossCloudKit.LLM.Basic.Tests
+
+dotnet test CrossCloudKit.Vector.Basic.Tests
+dotnet test CrossCloudKit.Vector.Qdrant.Tests
+
+# Bridge / unit tests (no external services required)
+dotnet test CrossCloudKit.Interfaces.Tests
 ```
 
 ### Test Configuration
@@ -781,25 +1024,51 @@ REDIS_ENABLE_SSL=true
 ```
 
 
+**LLM Services:**
+```shell script
+# OpenAI / any OpenAI-compatible endpoint (e.g. Ollama)
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=                          # leave empty for Ollama
+OPENAI_MODEL=gemma3:12b                  # completion model
+OPENAI_EMBEDDING_MODEL=nomic-embed-text:v1.5  # embedding model (optional, falls back to MODEL)
+# LLM.Basic — completions work out of the box with the bundled SmolLM2-135M model.
+# Set this only to override with a different GGUF model:
+LLM_BASIC_MODEL_PATH=/path/to/custom-model.gguf
+```
+
+
+**Qdrant (Vector Database):**
+```shell script
+QDRANT_HOST=localhost
+QDRANT_PORT=6334
+# Optional:
+QDRANT_API_KEY=your-api-key
+```
+
+
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                                Application Layer                                    │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
-│                     CrossCloudKit.Interfaces (Unified API Layer)                    │
-│           IDatabaseService | IFileService | IPubSubService | IMemoryService         │
-├──────────────────┬──────────────────┬──────────────────┬────────────────────────────┤
-│    Database      │   File Storage   │     PubSub       │        Memory              │
-│    Services      │    Services      │    Services      │       Services             │
-├──────────────────┼──────────────────┼──────────────────┼────────────────────────────┤
-│ AWS DynamoDB     │    AWS S3        │   AWS SNS/SQS    │     Redis Memory           │
-│ MongoDB          │ Google Storage   │ Google Pub/Sub   │  (Lists, KV, Mutex)        │
-│ Google Datastore │ S3-Compatible    │  Redis Pub/Sub   │     Basic Memory           │
-│ Basic File-Based │ Basic File-Based │ Basic Cross-Proc │  (Cross-Proc, Lists)       │
-├──────────────────┴──────────────────┴──────────────────┴────────────────────────────┤
+│                  CrossCloudKit.Interfaces (Unified API + Bridge Layer)               │
+│   IDatabaseService | IFileService | IPubSubService | IMemoryService                 │
+│   ILLMService | IVectorService | LLMVectorExtensions (bridge)                       │
+├──────────┬──────────┬──────────┬──────────┬──────────────┬──────────────────────────┤
+│ Database │  File    │  PubSub  │  Memory  │  LLM         │  Vector DB               │
+│ Services │ Storage  │ Services │ Services │  Services    │  Services                │
+├──────────┼──────────┼──────────┼──────────┼──────────────┼──────────────────────────┤
+│ AWS      │ AWS S3   │ AWS      │ Redis    │ OpenAI-compat│ In-memory (Basic)        │
+│ DynamoDB │ Google   │ SNS/SQS  │ (Lists,  │ (Ollama,     │ (zero deps, unit tests)  │
+│ MongoDB  │ Storage  │ Google   │ KV,Mutex)│ Groq, Azure, │ Qdrant (gRPC)            │
+│ Google   │ S3-compat│ Pub/Sub  │ Basic    │ Bedrock, OAI)│ (production)             │
+│ Datastore│ Basic    │ Redis    │ (Cross-  │ Local CPU    │                          │
+│ Basic    │ (local)  │ Basic    │ Process) │ (LLamaSharp +│                          │
+│          │          │          │          │ SmolLM2-135M)│                          │
+├──────────┴──────────┴──────────┴──────────┴──────────────┴──────────────────────────┤
 │                            CrossCloudKit.Utilities.Common                           │
-│                   (Primitive, OperationResult, etc.)                            │
+│                   (Primitive, OperationResult, etc.)                                │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

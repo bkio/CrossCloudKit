@@ -49,6 +49,14 @@ jobs:
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
           S3_REGION: ${{ secrets.S3_REGION }}
           S3_SERVER_ADDRESS: ${{ secrets.S3_SERVER_ADDRESS }}
+
+          # LLM / Vector configuration (cluster-local endpoints, no secrets needed)
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          OPENAI_EMBEDDING_MODEL: ${{ secrets.OPENAI_EMBEDDING_MODEL }}
+          OPENAI_API_KEY: ""
+          QDRANT_HOST: ${{ secrets.QDRANT_HOST }}
+          QDRANT_PORT: ${{ secrets.QDRANT_PORT }}
         continue-on-error: true
 
       - name: Parse test results and create badge
@@ -211,17 +219,70 @@ jobs:
         run: |
           echo "All tests passed! Creating NuGet packages with version $PACKAGE_VERSION..."
 
-          # Find all .csproj files and exclude test projects
-          echo "Discovering projects to pack..."
-          projects_to_pack=$(find . -name "*.csproj" -not -path "./.git/*" | grep -v "\.Tests\." | grep -v "Tests\.Common")
+          # ── Explicit project list ─────────────────────────────────────────────
+          # Projects that ship as NuGet packages. Test projects and shared test
+          # helpers are intentionally excluded.
+          # LLM.Basic is marked as CPU-ONLY PLUG & PLAY: consumers get the
+          # all-MiniLM-L6-v2 embedding model (via SmartComponents.LocalEmbeddings)
+          # and the LLamaSharp CPU backend automatically as transitive dependencies.
+          projects_to_pack=(
+            # Core
+            "./CrossCloudKit.Interfaces/CrossCloudKit.Interfaces.csproj"
 
-          echo "Projects found:"
-          echo "$projects_to_pack"
+            # Database services
+            "./CrossCloudKit.Database.AWS/CrossCloudKit.Database.AWS.csproj"
+            "./CrossCloudKit.Database.Mongo/CrossCloudKit.Database.Mongo.csproj"
+            "./CrossCloudKit.Database.GC/CrossCloudKit.Database.GC.csproj"
+            "./CrossCloudKit.Database.Basic/CrossCloudKit.Database.Basic.csproj"
+
+            # File storage services
+            "./CrossCloudKit.File.AWS/CrossCloudKit.File.AWS.csproj"
+            "./CrossCloudKit.File.GC/CrossCloudKit.File.GC.csproj"
+            "./CrossCloudKit.File.S3Compatible/CrossCloudKit.File.S3Compatible.csproj"
+            "./CrossCloudKit.File.Basic/CrossCloudKit.File.Basic.csproj"
+            "./CrossCloudKit.File.Common.MonitorBasedPubSub/CrossCloudKit.File.Common.MonitorBasedPubSub.csproj"
+
+            # PubSub services
+            "./CrossCloudKit.PubSub.AWS/CrossCloudKit.PubSub.AWS.csproj"
+            "./CrossCloudKit.PubSub.GC/CrossCloudKit.PubSub.GC.csproj"
+            "./CrossCloudKit.PubSub.Redis/CrossCloudKit.PubSub.Redis.csproj"
+            "./CrossCloudKit.PubSub.Basic/CrossCloudKit.PubSub.Basic.csproj"
+
+            # Memory / caching services
+            "./CrossCloudKit.Memory.Redis/CrossCloudKit.Memory.Redis.csproj"
+            "./CrossCloudKit.Memory.Redis.Common/CrossCloudKit.Memory.Redis.Common.csproj"
+            "./CrossCloudKit.Memory.Basic/CrossCloudKit.Memory.Basic.csproj"
+
+            # LLM services
+            # LLM.OpenAI  — works with any OpenAI-compatible endpoint (Ollama, Groq, Azure, etc.)
+            "./CrossCloudKit.LLM.OpenAI/CrossCloudKit.LLM.OpenAI.csproj"
+            # LLM.Basic sub-packages — CPU-only, plug & play:
+            #   .Embeddings  bundles all-MiniLM-L6-v2 (SmartComponents.LocalEmbeddings); lightweight install
+            #   .Completion  bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB) + LLamaSharp.Backend.Cpu
+            #   LLM.Basic    meta-package: depends on both sub-packages, exposes combined LLMServiceBasic
+            "./CrossCloudKit.LLM.Basic.Embeddings/CrossCloudKit.LLM.Basic.Embeddings.csproj"
+            "./CrossCloudKit.LLM.Basic.Completion/CrossCloudKit.LLM.Basic.Completion.csproj"
+            "./CrossCloudKit.LLM.Basic/CrossCloudKit.LLM.Basic.csproj"
+
+            # Vector store services
+            "./CrossCloudKit.Vector.Basic/CrossCloudKit.Vector.Basic.csproj"
+            "./CrossCloudKit.Vector.Qdrant/CrossCloudKit.Vector.Qdrant.csproj"
+
+            # Utilities
+            "./CrossCloudKit.Utilities.Common/CrossCloudKit.Utilities.Common.csproj"
+            "./CrossCloudKit.Utilities.Windows/CrossCloudKit.Utilities.Windows.csproj"
+          )
+
+          echo "Projects to pack:"
+          printf '  %s\n' "${projects_to_pack[@]}"
           echo ""
 
-          # Pack all non-test projects
           pack_count=0
-          for project in $projects_to_pack; do
+          for project in "${projects_to_pack[@]}"; do
+            if [ ! -f "$project" ]; then
+              echo "⚠️  Skipping (not found): $project"
+              continue
+            fi
             echo "Packing: $project"
             dotnet pack "$project" --configuration Release --output ./nupkgs --no-build -p:PackageVersion=$PACKAGE_VERSION
             if [ $? -eq 0 ]; then

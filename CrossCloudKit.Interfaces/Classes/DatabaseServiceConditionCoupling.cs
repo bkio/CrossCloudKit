@@ -73,10 +73,21 @@ public static class ConditionCouplingUtilities
 
     public static ConditionCoupling AggregateOr(this IEnumerable<Condition> conditions)
     {
-        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.Or(condition));
+        ConditionCoupling? result = null;
+        foreach (var condition in conditions)
+        {
+            var single = new SingleCondition(condition);
+            result = result is null ? single : result.Or(single);
+        }
+        return result ?? new ConditionCoupling();
     }
     public static ConditionCoupling AggregateOr(this IEnumerable<ConditionCoupling> conditions)
     {
-        return conditions.Aggregate(new ConditionCoupling(), (current, condition) => current.Or(condition));
+        ConditionCoupling? result = null;
+        foreach (var coupling in conditions)
+        {
+            result = result is null ? coupling : result.Or(coupling);
+        }
+        return result ?? new ConditionCoupling();
     }
 }

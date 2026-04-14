@@ -25,7 +25,7 @@ jobs:
       - name: Run tests and generate report
         id: test
         run: |
-          dotnet test CrossCloudKit.sln --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults
+          dotnet test CrossCloudKit.sln --configuration Release --verbosity normal --logger:"trx" --results-directory TestResults -- RunConfiguration.MaxCpuCount=1
         env:
           # AWS Configuration
           AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}

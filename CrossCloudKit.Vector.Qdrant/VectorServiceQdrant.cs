@@ -189,6 +189,9 @@ public sealed class VectorServiceQdrant : IVectorService
     {
         try
         {
+            if (points.Count == 0)
+                return OperationResult<bool>.Success(true);
+
             var structs = points.Select(p =>
             {
                 var pid        = ToPointId(p.Id);
@@ -337,7 +340,9 @@ public sealed class VectorServiceQdrant : IVectorService
                 return OperationResult<VectorPoint?>.Success(null);
 
             float[] vector = includeVector
-                ? point.Vectors?.Vector?.Data?.ToArray() ?? []
+                ? point.Vectors?.Vector?.Dense?.Data?.ToArray()
+                  ?? point.Vectors?.Vector?.Data?.ToArray()
+                  ?? []
                 : [];
 
             return OperationResult<VectorPoint?>.Success(new VectorPoint
@@ -567,10 +572,11 @@ public sealed class VectorServiceQdrant : IVectorService
                 break;
 
             case ConditionType.AttributeEquals when condition is ValueCondition vc:
-                if (vc.Value.Kind == PrimitiveKind.Double)
+                if (vc.Value.Kind == PrimitiveKind.Double || vc.Value.Kind == PrimitiveKind.Integer)
                 {
-                    // Qdrant Match has no double field; approximate equality via Range.
-                    var d = vc.Value.AsDouble;
+                    // Use Range for both double and integer primitives so that
+                    // integer 42 matches double-stored 42.0 and vice-versa.
+                    var d = ToDouble(vc.Value);
                     target.Must.Add(new QdrantCondition
                         { Field = new FieldCondition { Key = key, Range = new QdrantRange { Gte = d, Lte = d } } });
                 }
@@ -582,9 +588,9 @@ public sealed class VectorServiceQdrant : IVectorService
                 break;
 
             case ConditionType.AttributeNotEquals when condition is ValueCondition vc:
-                if (vc.Value.Kind == PrimitiveKind.Double)
+                if (vc.Value.Kind == PrimitiveKind.Double || vc.Value.Kind == PrimitiveKind.Integer)
                 {
-                    var d = vc.Value.AsDouble;
+                    var d = ToDouble(vc.Value);
                     target.MustNot.Add(new QdrantCondition
                         { Field = new FieldCondition { Key = key, Range = new QdrantRange { Gte = d, Lte = d } } });
                 }

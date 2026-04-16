@@ -12,4 +12,17 @@
              Link="models\SmolLM2-135M-Instruct-Q8_0.gguf"
              TargetPath="models\SmolLM2-135M-Instruct-Q8_0.gguf" />
   </ItemGroup>
+
+  <!--
+    LLamaSharp.Backend.Cpu delivers native libraries (libllama, libggml, etc.) via
+    build/ props that only apply to direct consumers. Import them here so transitive
+    NuGet consumers also get the native libs copied to their output directory.
+    The guard property prevents a duplicate-import warning when both Embeddings and
+    Completion packages are referenced in the same project.
+  -->
+  <Import Project="$(NuGetPackageRoot)llamasharp.backend.cpu/0.26.0/build/netstandard2.0/LLamaSharp.Backend.Cpu.props"
+          Condition="'$(_LLamaSharpBackendCpuImported)' != 'true' AND Exists('$(NuGetPackageRoot)llamasharp.backend.cpu/0.26.0/build/netstandard2.0/LLamaSharp.Backend.Cpu.props')" />
+  <PropertyGroup>
+    <_LLamaSharpBackendCpuImported>true</_LLamaSharpBackendCpuImported>
+  </PropertyGroup>
 </Project>

@@ -15,6 +15,23 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
 
+      - name: Fetch LFS objects
+        run: git lfs pull
+
+      - name: Validate LFS files
+        run: |
+          echo "Checking GGUF model files are real binaries (not LFS pointer stubs)..."
+          for f in CrossCloudKit.LLM.Basic.Completion/models/SmolLM2-135M-Instruct-Q8_0.gguf \
+                   CrossCloudKit.LLM.Basic.Embeddings/models/snowflake-arctic-embed-m-long-Q8_0.gguf; do
+            size=$(stat --printf="%s" "$f" 2>/dev/null || echo 0)
+            if [ "$size" -lt 1000000 ]; then
+              echo "ERROR: $f is only $size bytes — likely an LFS pointer stub."
+              echo "Content: $(head -c 200 "$f")"
+              exit 1
+            fi
+            echo "OK: $f ($size bytes)"
+          done
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

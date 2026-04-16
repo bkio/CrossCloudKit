@@ -3,6 +3,8 @@
 
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.LLM.Basic;
+using CrossCloudKit.LLM.Basic.Completion;
+using CrossCloudKit.LLM.Basic.Embeddings;
 using CrossCloudKit.LLM.Tests.Common;
 
 [assembly: Xunit.CollectionBehavior(DisableTestParallelization = false, MaxParallelThreads = 2)]
@@ -16,6 +18,32 @@ namespace CrossCloudKit.LLM.Basic.Tests;
 /// </summary>
 public class LLMServiceBasicIntegrationTests : LLMServiceTestBase
 {
+    // Probe the native backend once per process — file existence alone is not
+    // enough because the LLamaSharp native library (libllama) may be missing.
+    private static readonly Lazy<bool> CompletionAvailable = new(() =>
+    {
+        try
+        {
+            var svc = new LLMCompletionServiceBasic();
+            var ok = svc.IsInitialized;
+            try { svc.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { /* disposal must not affect the probe result */ }
+            return ok;
+        }
+        catch { return false; }
+    });
+
+    private static readonly Lazy<bool> EmbeddingAvailable = new(() =>
+    {
+        try
+        {
+            var svc = new LLMEmbeddingServiceBasic();
+            var ok = svc.IsInitialized;
+            try { svc.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { /* disposal must not affect the probe result */ }
+            return ok;
+        }
+        catch { return false; }
+    });
+
     /// <summary>
     /// Each test gets a fresh <see cref="LLMServiceBasic"/> instance so that
     /// <c>await using</c> disposal inside the base class test template does not
@@ -24,12 +52,7 @@ public class LLMServiceBasicIntegrationTests : LLMServiceTestBase
     /// </summary>
     protected override ILLMService CreateLLMService() => new LLMServiceBasic();
 
-    protected override bool SupportsCompletion =>
-        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LLM_BASIC_MODEL_PATH")) ||
-        File.Exists(Path.Combine(AppContext.BaseDirectory, "models", LLM.Basic.Completion.LLMCompletionServiceBasic.BundledModelFileName)) ||
-        File.Exists(Path.Combine(AppContext.BaseDirectory, "models", "completion-model.gguf"));
+    protected override bool SupportsCompletion => CompletionAvailable.Value;
 
-    protected override bool SupportsEmbedding =>
-        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LLM_BASIC_EMBEDDING_MODEL_PATH")) ||
-        File.Exists(Path.Combine(AppContext.BaseDirectory, "models", LLM.Basic.Embeddings.LLMEmbeddingServiceBasic.BundledModelFileName));
+    protected override bool SupportsEmbedding => EmbeddingAvailable.Value;
 }

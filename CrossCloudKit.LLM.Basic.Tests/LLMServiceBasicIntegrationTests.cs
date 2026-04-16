@@ -11,9 +11,8 @@ namespace CrossCloudKit.LLM.Basic.Tests;
 
 /// <summary>
 /// Integration tests for <see cref="LLMServiceBasic"/>.
-/// Embedding tests always run (model bundled via SmartComponents.LocalEmbeddings).
 /// Completion tests require a GGUF model file; set <c>LLM_BASIC_MODEL_PATH</c>
-/// or place the file at <c>&lt;OutputDir&gt;/models/completion-model.gguf</c>.
+/// or place the file at <c>&lt;OutputDir&gt;/models/SmolLM2-135M-Instruct-Q8_0.gguf</c>.
 /// </summary>
 public class LLMServiceBasicIntegrationTests : LLMServiceTestBase
 {
@@ -21,11 +20,12 @@ public class LLMServiceBasicIntegrationTests : LLMServiceTestBase
     /// Each test gets a fresh <see cref="LLMServiceBasic"/> instance so that
     /// <c>await using</c> disposal inside the base class test template does not
     /// invalidate a shared object for subsequent tests.
-    /// The LocalEmbedder model is bundled as an embedded resource and loads quickly.
+    /// Both embedding and completion models are bundled GGUF files.
     /// </summary>
     protected override ILLMService CreateLLMService() => new LLMServiceBasic();
 
     protected override bool SupportsCompletion =>
         !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LLM_BASIC_MODEL_PATH")) ||
+        File.Exists(Path.Combine(AppContext.BaseDirectory, "models", LLM.Basic.Completion.LLMCompletionServiceBasic.BundledModelFileName)) ||
         File.Exists(Path.Combine(AppContext.BaseDirectory, "models", "completion-model.gguf"));
 }

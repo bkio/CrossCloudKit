@@ -32,12 +32,18 @@
 
   <!-- Bundle the default GGUF model so completions work out of the box -->
   <ItemGroup>
+    <!-- Local builds: copy to output via CopyToOutputDirectory -->
     <Content Include="models\SmolLM2-135M-Instruct-Q8_0.gguf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <PackageCopyToOutput>true</PackageCopyToOutput>
       <Pack>true</Pack>
-      <PackagePath>contentFiles\any\net8.0\models\;content\models\</PackagePath>
+      <PackagePath>content\models\</PackagePath>
     </Content>
+  </ItemGroup>
+
+  <!-- Pack build targets so the GGUF is copied to output for both direct and transitive consumers -->
+  <ItemGroup>
+    <None Include="build\CrossCloudKit.LLM.Basic.Completion.targets" Pack="true" PackagePath="build\" />
+    <None Include="buildTransitive\CrossCloudKit.LLM.Basic.Completion.targets" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
 </Project>

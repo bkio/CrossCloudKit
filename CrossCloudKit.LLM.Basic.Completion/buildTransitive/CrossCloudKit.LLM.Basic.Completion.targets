@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Copy the bundled GGUF model to the consuming project's output directory.
+    $(MSBuildThisFileDirectory)../ resolves to the NuGet package root at restore time.
+    This buildTransitive target ensures the model is copied even when this package
+    is consumed transitively (e.g. via CrossCloudKit.LLM.Basic).
+  -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\content\models\SmolLM2-135M-Instruct-Q8_0.gguf"
+             Condition="Exists('$(MSBuildThisFileDirectory)..\content\models\SmolLM2-135M-Instruct-Q8_0.gguf')"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="models\SmolLM2-135M-Instruct-Q8_0.gguf"
+             TargetPath="models\SmolLM2-135M-Instruct-Q8_0.gguf" />
+  </ItemGroup>
+</Project>

@@ -223,7 +223,7 @@ jobs:
           # Projects that ship as NuGet packages. Test projects and shared test
           # helpers are intentionally excluded.
           # LLM.Basic is marked as CPU-ONLY PLUG & PLAY: consumers get the
-          # all-MiniLM-L6-v2 embedding model (via SmartComponents.LocalEmbeddings)
+          # snowflake-arctic-embed-m-long embedding model (via LLamaSharp)
           # and the LLamaSharp CPU backend automatically as transitive dependencies.
           projects_to_pack=(
             # Core
@@ -257,7 +257,7 @@ jobs:
             # LLM.OpenAI  — works with any OpenAI-compatible endpoint (Ollama, Groq, Azure, etc.)
             "./CrossCloudKit.LLM.OpenAI/CrossCloudKit.LLM.OpenAI.csproj"
             # LLM.Basic sub-packages — CPU-only, plug & play:
-            #   .Embeddings  bundles all-MiniLM-L6-v2 (SmartComponents.LocalEmbeddings); lightweight install
+            #   .Embeddings  bundles snowflake-arctic-embed-m-long (Q8_0) via LLamaSharp.Backend.Cpu
             #   .Completion  bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB) + LLamaSharp.Backend.Cpu
             #   LLM.Basic    meta-package: depends on both sub-packages, exposes combined LLMServiceBasic
             "./CrossCloudKit.LLM.Basic.Embeddings/CrossCloudKit.LLM.Basic.Embeddings.csproj"

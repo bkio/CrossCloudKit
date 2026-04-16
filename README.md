@@ -22,7 +22,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **File Storage Services**: AWS S3, Google Cloud Storage, S3-Compatible providers, Cross-Process Basic
   - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
   - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
-  - **LLM Services**: OpenAI-compatible endpoints (Ollama, Groq, Azure, Bedrock…) with **separate embedding model support** + fully local CPU-only inference via LLamaSharp (bundled SmolLM2-135M) + bundled all-MiniLM-L6-v2 embeddings
+  - **LLM Services**: OpenAI-compatible endpoints (Ollama, Groq, Azure, Bedrock…) with **separate embedding model support** + fully local CPU-only inference via LLamaSharp (bundled SmolLM2-135M + snowflake-arctic-embed-m-long embeddings)
   - **Vector Database Services**: In-memory brute-force search + Qdrant (gRPC)
   - **LLM ↔ Vector Bridge**: Built-in extension methods (`EmbedAndUpsertAsync`, `EmbedAndUpsertBatchAsync`, `SemanticSearchAsync`) for common embed-then-store and semantic-search workflows — single-line, no boilerplate
 - **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
@@ -64,7 +64,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | **LLM Services** |                                         |
 | `CrossCloudKit.LLM.OpenAI` | OpenAI-compatible LLM provider — works with OpenAI, Azure OpenAI, Ollama, Groq, Bedrock, LM Studio, and any OpenAI-compatible endpoint |
 | `CrossCloudKit.LLM.Basic` | ⚡ **CPU-only plug & play** meta-package — installs both sub-packages below; completions + embeddings work out of the box |
-| `CrossCloudKit.LLM.Basic.Embeddings` | Embeddings only — bundles all-MiniLM-L6-v2 (384-dim) via SmartComponents.LocalEmbeddings; lightweight, no LLamaSharp dependency |
+| `CrossCloudKit.LLM.Basic.Embeddings` | Embeddings only — bundles snowflake-arctic-embed-m-long (Q8_0) via LLamaSharp CPU backend; works with zero configuration |
 | `CrossCloudKit.LLM.Basic.Completion` | Completions only — bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB, Apache-2.0) + LLamaSharp CPU backend; works with zero configuration |
 | **Vector Database Services** |                                         |
 | `CrossCloudKit.Vector.Basic` | In-memory vector store — zero dependencies, ideal for unit tests and prototyping |
@@ -101,7 +101,7 @@ dotnet add package CrossCloudKit.Memory.Basic
 # LLM Services
 dotnet add package CrossCloudKit.LLM.OpenAI              # For any OpenAI-compatible endpoint
 dotnet add package CrossCloudKit.LLM.Basic               # CPU-only meta-package (embeddings + completions bundled)
-dotnet add package CrossCloudKit.LLM.Basic.Embeddings    # Embeddings only (lighter install, no LLamaSharp)
+dotnet add package CrossCloudKit.LLM.Basic.Embeddings    # Embeddings only (bundles snowflake-arctic-embed-m-long GGUF)
 dotnet add package CrossCloudKit.LLM.Basic.Completion    # Completions only (bundles SmolLM2-135M GGUF)
 
 # Vector Database Services
@@ -163,14 +163,14 @@ using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Interfaces.Enums;
 
 // Everything works out of the box — no downloads, no API keys, no configuration.
-//   • Embeddings:  all-MiniLM-L6-v2 (384 dimensions) bundled via SmartComponents.LocalEmbeddings
+//   • Embeddings:  snowflake-arctic-embed-m-long (Q8_0) bundled via LLamaSharp
 //   • Completions: SmolLM2-135M-Instruct (Q8_0, ~139 MB) bundled in the NuGet package
-// To use a different GGUF model, pass its path or set LLM_BASIC_MODEL_PATH.
+// To use a different GGUF model, pass its path or set LLM_BASIC_MODEL_PATH / LLM_BASIC_EMBEDDING_MODEL_PATH.
 await using var llmService = new LLMServiceBasic();
 
 // Embeddings — always available
 var vec = await llmService.CreateEmbeddingAsync("semantic search text");
-// vec.Data is float[384]
+// vec.Data is float[] (768-dim for snowflake-arctic-embed-m-long)
 
 // Batch embeddings
 var vecs = await llmService.CreateEmbeddingsAsync(["text a", "text b"]);
@@ -195,11 +195,11 @@ await foreach (var chunk in llmService.CompleteStreamingAsync(new LLMRequest
 }
 ```
 
-#### Embeddings Only (Lightweight)
+#### Embeddings Only
 ```csharp
 using CrossCloudKit.LLM.Basic.Embeddings;
 
-// No LLamaSharp or GGUF model — just the tiny all-MiniLM-L6-v2 embedder.
+// Bundles snowflake-arctic-embed-m-long (Q8_0); no completion model overhead.
 await using var embedder = new LLMEmbeddingServiceBasic();
 var vec = await embedder.CreateEmbeddingAsync("lightweight embedding");
 ```

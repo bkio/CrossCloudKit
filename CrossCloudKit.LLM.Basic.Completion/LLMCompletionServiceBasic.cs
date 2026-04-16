@@ -112,6 +112,9 @@ public sealed class LLMCompletionServiceBasic : ILLMService
                 "or the LLM_BASIC_MODEL_PATH environment variable.",
                 HttpStatusCode.ServiceUnavailable);
 
+        if (cancellationToken.IsCancellationRequested)
+            return OperationResult<LLMResponse>.Failure("Request was cancelled.", HttpStatusCode.RequestTimeout);
+
         try
         {
             var prompt = FormatChatMlPrompt(request);
@@ -119,14 +122,21 @@ public sealed class LLMCompletionServiceBasic : ILLMService
 
             var executor = new StatelessExecutor(_completionModel, _completionModelParams);
             var inferParams = BuildInferenceParams(request);
+            var maxTokens = request.MaxTokens ?? 512;
+            int tokenCount = 0;
 
             await foreach (var token in executor.InferAsync(prompt, inferParams, cancellationToken))
+            {
                 builder.Append(token);
+                tokenCount++;
+            }
+
+            var finishReason = tokenCount >= maxTokens ? LLMFinishReason.Length : LLMFinishReason.Stop;
 
             return OperationResult<LLMResponse>.Success(new LLMResponse
             {
                 Content      = builder.ToString().Trim(),
-                FinishReason = LLMFinishReason.Stop
+                FinishReason = finishReason
             });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -153,9 +163,17 @@ public sealed class LLMCompletionServiceBasic : ILLMService
             yield break;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            yield return OperationResult<LLMStreamChunk>.Failure(
+                "Request was cancelled.", HttpStatusCode.RequestTimeout);
+            yield break;
+        }
+
         // ── Phase 1: Setup (no yield → try-catch is allowed) ──────────────
         IAsyncEnumerator<string>? enumerator = null;
         OperationResult<LLMStreamChunk>? setupError = null;
+        int maxTokens = request.MaxTokens ?? 512;
         try
         {
             var prompt = FormatChatMlPrompt(request);
@@ -183,6 +201,7 @@ public sealed class LLMCompletionServiceBasic : ILLMService
 
         // ── Phase 2: Stream reading (yield inside try-finally) ────────────
         var activeEnumerator = enumerator!;
+        int tokenCount = 0;
         try
         {
             while (true)
@@ -221,6 +240,7 @@ public sealed class LLMCompletionServiceBasic : ILLMService
 
                 if (!hasNext) break;
 
+                tokenCount++;
                 yield return OperationResult<LLMStreamChunk>.Success(
                     new LLMStreamChunk { ContentDelta = token! });
             }
@@ -230,8 +250,10 @@ public sealed class LLMCompletionServiceBasic : ILLMService
             await activeEnumerator.DisposeAsync();
         }
 
+        var finishReason = tokenCount >= maxTokens ? LLMFinishReason.Length : LLMFinishReason.Stop;
+
         yield return OperationResult<LLMStreamChunk>.Success(
-            new LLMStreamChunk { IsFinal = true, FinishReason = LLMFinishReason.Stop });
+            new LLMStreamChunk { IsFinal = true, FinishReason = finishReason });
     }
 
     // ── Embeddings (not supported) ────────────────────────────────────────────

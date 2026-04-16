@@ -567,8 +567,8 @@ IPubSubService ps    = new PubSubServiceBasic();
 IDatabaseService db  = new DatabaseServiceBasic("myapp", mem);
 IFileService fs      = new FileServiceBasic();
 IVectorService vs    = new VectorServiceBasic();
-ILLMService llm      = new LLMCompletionServiceBasic();  // bundled SmolLM2-135M + MiniLM embeddings
-ILLMService embedder = new LLMEmbeddingServiceBasic();    // embeddings only, lighter
+ILLMService llm      = new LLMCompletionServiceBasic();  // bundled SmolLM2-135M completion
+ILLMService embedder = new LLMEmbeddingServiceBasic();    // bundled snowflake-arctic-embed-m-long embeddings
 ```
 
 ### AWS
@@ -623,8 +623,8 @@ IVectorService vs = new VectorServiceQdrant(host: "localhost", grpcPort: 6334);
 - **`DatabaseServiceAWS`/`GC`/`Mongo`/`Basic` all require an `IMemoryService` parameter** for internal caching and coordination.
 - **`RedisConnectionOptions`** — `Host` and `Port` are required; optional: `Username`, `Password`, `SslEnabled`, `EnableRetryPolicy`, `RetryAttempts`, `RetryDelay`, `SyncTimeout`.
 - **`LLMServiceOpenAI`** — `embeddingModel` is optional; if omitted, embeddings use `defaultModel`. Set it when your completion and embedding models differ (common with Ollama).
-- **`LLMCompletionServiceBasic`** — bundles SmolLM2-135M (Q8_0, ~139 MB) + all-MiniLM-L6-v2 (384-dim). Zero config. Custom GGUF via `completionModelPath` parameter.
-- **`LLMEmbeddingServiceBasic`** — embeddings only (384-dim). No LLamaSharp dependency. Lighter install.
+- **`LLMCompletionServiceBasic`** — bundles SmolLM2-135M (Q8_0, ~139 MB). Zero config. Custom GGUF via `completionModelPath` parameter.
+- **`LLMEmbeddingServiceBasic`** — bundles snowflake-arctic-embed-m-long (Q8_0). CPU-only via LLamaSharp. Custom GGUF via `embeddingModelPath` parameter.
 
 ## Project Structure
 

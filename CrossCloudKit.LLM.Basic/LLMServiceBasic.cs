@@ -12,12 +12,12 @@ namespace CrossCloudKit.LLM.Basic;
 
 /// <summary>
 /// Fully local (CPU-only) <see cref="ILLMService"/> implementation.
-/// Combines <see cref="LLMEmbeddingServiceBasic"/> (all-MiniLM-L6-v2 via SmartComponents)
+/// Combines <see cref="LLMEmbeddingServiceBasic"/> (snowflake-arctic-embed-m-long via LLamaSharp)
 /// and <see cref="LLMCompletionServiceBasic"/> (GGUF models via LLamaSharp).
 /// <list type="bullet">
 ///   <item><description>
-///     <b>Embeddings</b> — uses <c>all-MiniLM-L6-v2</c> via
-///     <c>SmartComponents.LocalEmbeddings</c>; the model is managed automatically by that package.
+///     <b>Embeddings</b> — uses <c>snowflake-arctic-embed-m-long</c> (Q8_0) via
+///     <c>LLamaSharp</c>; the model is bundled inside the NuGet package.
 ///   </description></item>
 ///   <item><description>
 ///     <b>Completions</b> — bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB, Apache-2.0)
@@ -60,16 +60,22 @@ public sealed class LLMServiceBasic : ILLMService
     /// then to <c>&lt;AppBaseDir&gt;/models/completion-model.gguf</c>.
     /// Completions are disabled if the file cannot be found.
     /// </param>
+    /// <param name="embeddingModelPath">
+    /// Optional path to a GGUF embedding model file.
+    /// When <c>null</c>, falls back to the <c>LLM_BASIC_EMBEDDING_MODEL_PATH</c> environment variable,
+    /// then to <c>&lt;AppBaseDir&gt;/models/snowflake-arctic-embed-m-long-Q8_0.gguf</c>.
+    /// </param>
     /// <param name="contextSize">The LLM context window size in tokens (default: 2048).</param>
     /// <param name="gpuLayerCount">
     /// Number of model layers to offload to GPU. Defaults to 0 (CPU-only).
     /// </param>
     public LLMServiceBasic(
         string? completionModelPath = null,
+        string? embeddingModelPath = null,
         int contextSize = 2048,
         int gpuLayerCount = 0)
     {
-        _embeddingService  = new LLMEmbeddingServiceBasic();
+        _embeddingService  = new LLMEmbeddingServiceBasic(embeddingModelPath);
         _completionService = new LLMCompletionServiceBasic(completionModelPath, contextSize, gpuLayerCount);
     }
 

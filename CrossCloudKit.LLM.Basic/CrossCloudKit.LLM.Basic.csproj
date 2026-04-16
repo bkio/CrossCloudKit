@@ -13,7 +13,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Description>Fully local (CPU-only) LLM provider for CrossCloudKit. Meta-package combining CrossCloudKit.LLM.Basic.Embeddings (all-MiniLM-L6-v2 via SmartComponents) and CrossCloudKit.LLM.Basic.Completion (GGUF models via LLamaSharp) — no cloud dependency required.</Description>
+    <Description>Fully local (CPU-only) LLM provider for CrossCloudKit. Meta-package combining CrossCloudKit.LLM.Basic.Embeddings (snowflake-arctic-embed-m-long via LLamaSharp) and CrossCloudKit.LLM.Basic.Completion (GGUF models via LLamaSharp) — no cloud dependency required.</Description>
     <!-- Required for LLamaSharp native interop (transitive) -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

@@ -15,8 +15,8 @@ namespace CrossCloudKit.LLM.Tests.Common;
 /// <summary>
 /// Abstract base class for <see cref="ILLMService"/> integration tests.
 /// Concrete test classes must implement <see cref="CreateLLMService"/> and
-/// optionally override <see cref="SupportsCompletion"/> when the completion
-/// feature is conditionally available (e.g. LLM.Basic without a model file).
+/// optionally override <see cref="SupportsCompletion"/> / <see cref="SupportsEmbedding"/>
+/// when the respective feature is conditionally available (e.g. LLM.Basic without a GGUF model).
 /// </summary>
 public abstract class LLMServiceTestBase
 {
@@ -30,11 +30,20 @@ public abstract class LLMServiceTestBase
     /// </summary>
     protected virtual bool SupportsCompletion => true;
 
-    // ── Embedding tests ───────────────────────────────────────────────────────
+    /// <summary>
+    /// Override to return <c>false</c> when embedding is not available
+    /// (e.g. <see cref="CrossCloudKit.LLM.Basic.LLMServiceBasic"/> without a GGUF embedding model).
+    /// Tests guarded by this flag will be skipped when it returns <c>false</c>.
+    /// </summary>
+    protected virtual bool SupportsEmbedding => true;
+
+    // ── Embedding tests (skipped when SupportsEmbedding is false) ─────────────
 
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_WithValidText_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         // Arrange
         await using var service = CreateLLMService();
         service.IsInitialized.Should().BeTrue();
@@ -53,6 +62,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_WithMultipleTexts_ShouldReturnOneVectorEach()
     {
+        if (!SupportsEmbedding) return;
+
         // Arrange
         await using var service = CreateLLMService();
         var texts = new[]
@@ -78,6 +89,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_SimilarTexts_ShouldHaveHigherCosineSimilarity()
     {
+        if (!SupportsEmbedding) return;
+
         // Arrange
         await using var service = CreateLLMService();
 
@@ -191,6 +204,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_EmptyText_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync(string.Empty);
@@ -203,6 +218,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_LongText_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var longText = string.Join(" ", Enumerable.Repeat(
             "The quick brown fox jumped over the lazy dog near the riverbank", 20));
@@ -217,6 +234,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_SameDimensionality_AcrossMultipleCalls()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[] { "hello", "world", "foo bar baz" };
 
@@ -237,6 +256,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_BatchResultsMatchIndividualResults()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[]
         {
@@ -265,6 +286,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_EmptyBatch_ShouldReturnEmptyList()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingsAsync([]);
@@ -276,6 +299,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_DifferentTexts_ShouldProduceDifferentVectors()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var r1 = await service.CreateEmbeddingAsync("Astrophysics and black holes");
@@ -515,6 +540,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_SingleText_ShouldMatchScalarEmbedding()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         const string text = "Consistency check between scalar and batch embeddings.";
 
@@ -534,6 +561,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_SpecialCharacters_ShouldSucceed()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync(
@@ -548,6 +577,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_WhitespaceOnly_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("   \t\n  ");
@@ -560,6 +591,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_NumericText_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("1234567890");
@@ -574,6 +607,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_ValuesAreFinite_NeverInfinite()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("Test that no embedding value is ±Infinity.");
@@ -590,6 +625,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_LargeBatch_ShouldSucceed()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = Enumerable.Range(0, 15)
             .Select(i => $"Batch item number {i}: a unique sentence for embedding.")
@@ -611,6 +648,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_DuplicateTexts_ShouldProduceSameVectors()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         const string text = "This text appears twice in the batch.";
 
@@ -718,6 +757,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateLLMService_AfterDisposingPrevious_ShouldWorkIndependently()
     {
+        if (!SupportsEmbedding) return;
+
         var service1 = CreateLLMService();
         var r1 = await service1.CreateEmbeddingAsync("first");
         r1.IsSuccessful.Should().BeTrue();
@@ -735,6 +776,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task DisposeAsync_CalledTwice_ShouldNotThrow()
     {
+        if (!SupportsEmbedding) return;
+
         var service = CreateLLMService();
         var warmUp = await service.CreateEmbeddingAsync("warm up");
         warmUp.IsSuccessful.Should().BeTrue(because: "service should work before dispose");
@@ -772,6 +815,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_VectorShouldHaveReasonableMagnitude()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("A test sentence for magnitude check.");
@@ -787,6 +832,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_TextWithNullChar_ShouldSucceed()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("before\0after");
@@ -801,6 +848,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_BatchWithEmptyString_ShouldSucceed()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingsAsync(["hello", "", "world"]);
@@ -819,6 +868,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_VeryLongSingleWord_ShouldSucceed()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         // A long non-dictionary "word"
@@ -836,6 +887,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_CosineSimilarityShouldBeSymmetric()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var rA = await service.CreateEmbeddingAsync("First sentence about dogs");
@@ -856,6 +909,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_SelfSimilarity_ShouldBeNearlyOne()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var text = "The meaning of life is 42.";
@@ -902,6 +957,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_SingleChar_ShouldReturnVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("a");
@@ -917,6 +974,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_ShouldPreserveInputOrder()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[]
         {
@@ -946,6 +1005,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_AllVectorsShouldHaveSameDimensions()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[]
         {
@@ -1023,6 +1084,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_IdenticalTexts_ShouldReturnIdenticalVectors()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[] { "duplicate text", "duplicate text", "duplicate text" };
 
@@ -1067,6 +1130,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_SingleTextBatch_ShouldMatchSingularResult()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         const string text = "test embedding consistency";
 
@@ -1110,6 +1175,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_UnicodeEmoji_ShouldReturnValidVector()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result = await service.CreateEmbeddingAsync("Hello 🌍🚀 World");
@@ -1178,6 +1245,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_VaryingLengths_ShouldAllHaveSameDimension()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[]
         {
@@ -1205,6 +1274,7 @@ public abstract class LLMServiceTestBase
     public async Task CompleteAsync_ThenEmbed_ShouldBothSucceedOnSameInstance()
     {
         if (!SupportsCompletion) return;
+        if (!SupportsEmbedding) return;
 
         await using var service = CreateLLMService();
 
@@ -1251,6 +1321,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_EmptyString_ShouldNotThrow()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         // An empty string should either produce a valid embedding or a graceful failure,
@@ -1272,6 +1344,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingAsync_DifferentTexts_ShouldReturnSameDimensions()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
 
         var result1 = await service.CreateEmbeddingAsync("Hello");
@@ -1383,6 +1457,8 @@ public abstract class LLMServiceTestBase
     [RetryFact(3, 5000)]
     public async Task CreateEmbeddingsAsync_OutputCountAlwaysMatchesInputCount()
     {
+        if (!SupportsEmbedding) return;
+
         await using var service = CreateLLMService();
         var texts = new[]
         {

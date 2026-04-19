@@ -43,7 +43,7 @@ public sealed class VectorServiceQdrant : IVectorService
     // ── IsInitialized ─────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public bool IsInitialized { get; }
+    public bool IsInitialized { get; private set; }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -366,6 +366,7 @@ public sealed class VectorServiceQdrant : IVectorService
         if (!_disposed)
         {
             _disposed = true;
+            IsInitialized = false;
             _client.Dispose();
         }
         return ValueTask.CompletedTask;
@@ -453,8 +454,29 @@ public sealed class VectorServiceQdrant : IVectorService
         JTokenType.Float   => new Value { DoubleValue  = token.Value<double>() },
         JTokenType.Boolean => new Value { BoolValue    = token.Value<bool>() },
         JTokenType.Null    => new Value { NullValue    = NullValue.NullValue },
+        JTokenType.Object  => JObjectToStructValue((JObject)token),
+        JTokenType.Array   => JArrayToListValue((JArray)token),
         _                  => new Value { StringValue  = token.ToString() }
     };
+
+    private static Value JObjectToStructValue(JObject obj)
+    {
+        var s = new Struct();
+        foreach (var kv in obj)
+        {
+            if (kv.Value is not null)
+                s.Fields[kv.Key] = ToValue(kv.Value);
+        }
+        return new Value { StructValue = s };
+    }
+
+    private static Value JArrayToListValue(JArray arr)
+    {
+        var list = new ListValue();
+        foreach (var item in arr)
+            list.Values.Add(ToValue(item));
+        return new Value { ListValue = list };
+    }
 
     private static JObject? PayloadToJObject(
         Google.Protobuf.Collections.MapField<string, Value> payload)
@@ -467,16 +489,36 @@ public sealed class VectorServiceQdrant : IVectorService
             // Skip the internal round-trip key — it is not user metadata.
             if (kv.Key == OriginalIdPayloadKey) continue;
 
-            obj[kv.Key] = kv.Value.KindCase switch
-            {
-                Value.KindOneofCase.StringValue  => new JValue(kv.Value.StringValue),
-                Value.KindOneofCase.IntegerValue => new JValue(kv.Value.IntegerValue),
-                Value.KindOneofCase.DoubleValue  => new JValue(kv.Value.DoubleValue),
-                Value.KindOneofCase.BoolValue    => new JValue(kv.Value.BoolValue),
-                _                                => JValue.CreateNull()
-            };
+            obj[kv.Key] = ValueToJToken(kv.Value);
         }
         return obj.Count > 0 ? obj : null;
+    }
+
+    private static JToken ValueToJToken(Value v) => v.KindCase switch
+    {
+        Value.KindOneofCase.StringValue  => new JValue(v.StringValue),
+        Value.KindOneofCase.IntegerValue => new JValue(v.IntegerValue),
+        Value.KindOneofCase.DoubleValue  => new JValue(v.DoubleValue),
+        Value.KindOneofCase.BoolValue    => new JValue(v.BoolValue),
+        Value.KindOneofCase.StructValue  => StructToJObject(v.StructValue),
+        Value.KindOneofCase.ListValue    => ListToJArray(v.ListValue),
+        _                                => JValue.CreateNull()
+    };
+
+    private static JObject StructToJObject(Struct s)
+    {
+        var obj = new JObject();
+        foreach (var kv in s.Fields)
+            obj[kv.Key] = ValueToJToken(kv.Value);
+        return obj;
+    }
+
+    private static JArray ListToJArray(ListValue list)
+    {
+        var arr = new JArray();
+        foreach (var item in list.Values)
+            arr.Add(ValueToJToken(item));
+        return arr;
     }
 
     // ── Filter translation ────────────────────────────────────────────────────

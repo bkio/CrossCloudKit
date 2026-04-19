@@ -16,8 +16,12 @@
         <NoWarn>$(NoWarn);1591</NoWarn>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
     </PropertyGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="CrossCloudKit.Basic.DebugPanel.Tests" />
+    </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\CrossCloudKit.Basic.DebugPanel\CrossCloudKit.Basic.DebugPanel.csproj" />
         <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
         <None Include="..\README.md" Pack="true" PackagePath="\" />
         <None Include="$(OutputPath)\$(AssemblyName).xml" Pack="true" PackagePath="\" />

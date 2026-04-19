@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Security.Cryptography;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.File.Common.MonitorBasedPubSub;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
@@ -52,6 +53,8 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
 
             // Start a timer to clean up expired tokens every minute
             _tokenCleanupTimer = new Timer(CleanupExpiredTokens, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+            _debugTracker = DebugPanelCoordinator.RegisterAsync("File", _basePath, new FileDebugDataProvider(_basePath)).GetAwaiter().GetResult();
         }
         catch
         {
@@ -60,6 +63,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     }
 
     private readonly MonitorBasedPubSub? _monitorBasedPubSub;
+    private DebugTracker? _debugTracker;
     private bool _disposed;
 
     private readonly string _basePath;
@@ -78,6 +82,8 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     {
         if (!IsInitialized)
             return OperationResult<FileMetadata>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("UploadFile", $"bucket={bucketName}, key={keyInBucket}");
 
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyInBucket);
@@ -152,6 +158,8 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     {
         if (!IsInitialized)
             return OperationResult<long>.Failure("Service not initialized", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("DownloadFile", $"bucket={bucketName}, key={keyInBucket}");
 
         try
         {
@@ -278,6 +286,7 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     /// <inheritdoc />
     public async Task<OperationResult<bool>> DeleteFileAsync(string bucketName, string keyInBucket, CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("DeleteFile", $"bucket={bucketName}, key={keyInBucket}");
         await using var mutex = await CreateFileMutexScopeAsync(bucketName, cancellationToken);
         return await InternalDeleteFileUnsafeAsync(bucketName, keyInBucket);
     }
@@ -1139,6 +1148,13 @@ public class FileServiceBasic : IFileService, IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        if (_debugTracker != null)
+        {
+            _debugTracker.MarkDisposed();
+            await DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId);
+            _debugTracker = null;
+        }
 
         try
         {

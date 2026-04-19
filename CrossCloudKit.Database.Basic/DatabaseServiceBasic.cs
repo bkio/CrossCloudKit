@@ -10,6 +10,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Text;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
@@ -43,6 +44,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
     public override bool IsInitialized => _initializationSucceed;
 
     private readonly string _databasePath;
+    private DebugTracker? _debugTracker;
 
     private const string RootFolderName = "CrossCloudKit.Database.Basic";
 
@@ -73,6 +75,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 Directory.CreateDirectory(_databasePath);
 
             _initializationSucceed = true;
+
+            _debugTracker = DebugPanelCoordinator.RegisterAsync("Database", _databasePath, new DatabaseDebugDataProvider(_databasePath)).GetAwaiter().GetResult();
         }
         catch (Exception e)
         {
@@ -470,6 +474,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string[]? attributesToRetrieve = null,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("GetItem", $"table={tableName}");
         try
         {
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
@@ -537,6 +542,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         bool overwriteIfExists = false,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("PutItem", $"table={tableName}");
         return await PutOrUpdateItemAsync(
             PutOrUpdateItemType.PutItem,
             tableName,
@@ -557,6 +563,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("UpdateItem", $"table={tableName}");
         return await PutOrUpdateItemAsync(
             PutOrUpdateItemType.UpdateItem,
             tableName,
@@ -576,6 +583,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         ConditionCoupling? conditions = null,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("DeleteItem", $"table={tableName}");
         try
         {
             var filePath = GetItemFilePath(tableName, key.Name, key.Value);
@@ -914,6 +922,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
         string tableName,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("ScanTable", $"table={tableName}");
         return await InternalScanTableUnsafeAsync(tableName, cancellationToken);
     }
     private async Task<OperationResult<(IReadOnlyList<string> Keys, IReadOnlyList<JObject> Items)>> InternalScanTableUnsafeAsync(
@@ -1430,7 +1439,12 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
     public void Dispose()
     {
-        // No explicit cleanup needed for file operations
+        if (_debugTracker != null)
+        {
+            _debugTracker.MarkDisposed();
+            DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId).GetAwaiter().GetResult();
+            _debugTracker = null;
+        }
         // ReSharper disable once GCSuppressFinalizeForTypeWithoutDestructor
         GC.SuppressFinalize(this);
     }

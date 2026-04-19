@@ -25,7 +25,9 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **LLM Services**: OpenAI-compatible endpoints (Ollama, Groq, Azure, Bedrock…) with **separate embedding model support** + fully local CPU-only inference via LLamaSharp (bundled SmolLM2-135M + snowflake-arctic-embed-m-long embeddings)
   - **Vector Database Services**: Cross-process file-based brute-force search + Qdrant (gRPC)
   - **LLM ↔ Vector Bridge**: Built-in extension methods (`EmbedAndUpsertAsync`, `EmbedAndUpsertBatchAsync`, `SemanticSearchAsync`) for common embed-then-store and semantic-search workflows — single-line, no boilerplate
-- **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
+- **Built-in Debug Panel**: All Basic service providers automatically register with an embedded HTTP debug dashboard (localhost:57765) that shows live service status, operation logs via SSE, and interactive data browsing — zero configuration, auto-starts on first service instantiation, auto-shuts down when all services are disposed
+- **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system
+- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
   - Database querying with rich condition system and atomic operations
   - Nested conditioning support for complex queries (Like: user.config.status)
@@ -69,6 +71,8 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | **Vector Database Services** |                                         |
 | `CrossCloudKit.Vector.Basic` | Cross-process file-based vector store — zero external dependencies, ideal for development, testing, and lightweight workloads |
 | `CrossCloudKit.Vector.Qdrant` | Qdrant vector database via official gRPC client |
+| **Debug Panel** |                                         |
+| `CrossCloudKit.Basic.DebugPanel` | Embedded HTTP debug dashboard for all Basic service providers — live service cards, operation log with SSE, interactive data browsing, automatic dead-process cleanup |
 | **Utilities** |                                         |
 | `CrossCloudKit.Utilities.Common` | Common utilities and primitive types    |
 | `CrossCloudKit.Utilities.Windows` | Windows-specific utilities              |
@@ -929,7 +933,54 @@ await pubSubService.SubscribeAsync("file-events", async (topic, message) =>
     // Process file upload/deletion events
 });
 ```
-## 📊 Supported Data Types
+## � Debug Panel
+
+All Basic service providers (Database, File, Memory, Vector, PubSub) automatically register with an **embedded HTTP debug dashboard** — zero configuration required.
+
+### Features
+- **Live service cards** showing registered instances, PIDs, machine names, and operation counts
+- **Real-time operation log** via Server-Sent Events (SSE) — see every CRUD operation as it happens
+- **Interactive data browsing** — click "Browse Data" to explore tables, buckets, collections, and scopes
+- **Cross-process support** — multiple processes on the same machine share a single dashboard
+- **Automatic dead-process cleanup** — stale entries from crashed processes are purged every 10 seconds and on each new registration
+- **Auto-lifecycle** — the server starts on the first Basic service instantiation and shuts down when all services are disposed
+
+### Usage
+
+```csharp
+// Just create any Basic service — the debug panel starts automatically
+await using var memoryService = new MemoryServiceBasic();
+await using var vectorService = new VectorServiceBasic();
+var dbService = new DatabaseServiceBasic("myapp", memoryService);
+
+// Open http://localhost:57765 in your browser
+```
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `CROSSCLOUDKIT_DEBUG_PANEL_PORT` | `57765` | Port for the dashboard |
+| `CROSSCLOUDKIT_DEBUG_PANEL_DISABLED` | `false` | Set to `true` to disable entirely |
+
+### Disabling in Tests
+
+Add a `[ModuleInitializer]` in your test project to prevent test runs from spawning debug panels:
+
+```csharp
+using System.Runtime.CompilerServices;
+
+internal static class ModuleInit
+{
+    [ModuleInitializer]
+    internal static void DisableDebugPanel()
+    {
+        Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_DISABLED", "true");
+    }
+}
+```
+
+## �📊 Supported Data Types
 
 CrossCloudKit uses a unified `Primitive` system that seamlessly maps across all cloud providers:
 ```csharp
@@ -1067,6 +1118,9 @@ QDRANT_API_KEY=your-api-key
 │ Basic    │ (local)  │ Basic    │ Process) │ (LLamaSharp +│                          │
 │          │          │          │          │ SmolLM2-135M)│                          │
 ├──────────┴──────────┴──────────┴──────────┴──────────────┴──────────────────────────┤
+│                       CrossCloudKit.Basic.DebugPanel                                │
+│        (Embedded HTTP dashboard, SSE, data browsing, dead-process cleanup)          │
+├─────────────────────────────────────────────────────────────────────────────────────┤
 │                            CrossCloudKit.Utilities.Common                           │
 │                   (Primitive, OperationResult, etc.)                                │
 └─────────────────────────────────────────────────────────────────────────────────────┘

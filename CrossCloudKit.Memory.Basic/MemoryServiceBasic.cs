@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Utilities.Common;
@@ -29,6 +30,7 @@ public sealed class MemoryServiceBasic : IMemoryService
     private readonly string _storageDirectory;
     private readonly ConcurrentDictionary<string, Timer> _expirationTimers = new();
     private readonly Timer _cleanupTimer;
+    private DebugTracker? _debugTracker;
     private bool _disposed;
 
     private const string RootFolderName = "CrossCloudKit.Memory.Basic";
@@ -46,6 +48,9 @@ public sealed class MemoryServiceBasic : IMemoryService
 
         // Start background cleanup every 1 minute
         _cleanupTimer = new Timer(CleanupExpiredFiles, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+        try { _debugTracker = DebugPanelCoordinator.RegisterAsync("Memory", _storageDirectory, new MemoryDebugDataProvider(_storageDirectory)).GetAwaiter().GetResult(); }
+        catch { /* Debug panel is non-critical */ }
     }
 
     public bool IsInitialized => !_disposed;
@@ -405,6 +410,8 @@ public sealed class MemoryServiceBasic : IMemoryService
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable);
 
+        using var _op = _debugTracker?.BeginOperation("SetKeyValues", $"scope={memoryScope.Compile()}");
+
         var keyValueArray = keyValues.ToArray();
         if (keyValueArray.Length == 0)
             return OperationResult<bool>.Failure("Key values are empty.", HttpStatusCode.BadRequest);
@@ -516,6 +523,8 @@ public sealed class MemoryServiceBasic : IMemoryService
         if (!IsInitialized)
             return Task.FromResult(OperationResult<Primitive?>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable));
 
+        using var _op = _debugTracker?.BeginOperation("GetKeyValue", $"scope={memoryScope.Compile()}, key={key}");
+
         try
         {
             var scope = memoryScope.Compile();
@@ -542,6 +551,8 @@ public sealed class MemoryServiceBasic : IMemoryService
     {
         if (!IsInitialized)
             return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
+
+        using var _op = _debugTracker?.BeginOperation("GetKeyValues", $"scope={memoryScope.Compile()}");
 
         var keyArray = keys.ToArray();
         if (keyArray.Length == 0)
@@ -584,6 +595,8 @@ public sealed class MemoryServiceBasic : IMemoryService
         if (!IsInitialized)
             return Task.FromResult(OperationResult<Dictionary<string, Primitive>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable));
 
+        using var _op = _debugTracker?.BeginOperation("GetAllKeyValues", $"scope={memoryScope.Compile()}");
+
         try
         {
             var scope = memoryScope.Compile();
@@ -611,6 +624,8 @@ public sealed class MemoryServiceBasic : IMemoryService
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("DeleteKey", $"scope={memoryScope.Compile()}, key={key}");
 
         try
         {
@@ -648,6 +663,8 @@ public sealed class MemoryServiceBasic : IMemoryService
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("DeleteAllKeys", $"scope={memoryScope.Compile()}");
 
         var scope = memoryScope.Compile();
 
@@ -745,6 +762,8 @@ public sealed class MemoryServiceBasic : IMemoryService
         if (!IsInitialized)
             return OperationResult<Dictionary<string, long>>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
+        using var _op = _debugTracker?.BeginOperation("IncrementKeyValues", $"scope={memoryScope.Compile()}");
+
         var incrementArray = keyIncrements.ToArray();
         if (incrementArray.Length == 0)
             return OperationResult<Dictionary<string, long>>.Failure("Key increments array is empty.", HttpStatusCode.BadRequest);
@@ -797,6 +816,8 @@ public sealed class MemoryServiceBasic : IMemoryService
         if (!IsInitialized)
             return OperationResult<long>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
 
+        using var _op = _debugTracker?.BeginOperation("IncrementKeyByValueAndGet", $"scope={memoryScope.Compile()}, key={key}");
+
         try
         {
             var scope = memoryScope.Compile();
@@ -839,6 +860,8 @@ public sealed class MemoryServiceBasic : IMemoryService
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("PushToListTail", $"scope={memoryScope.Compile()}, list={listName}");
 
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
@@ -889,6 +912,8 @@ public sealed class MemoryServiceBasic : IMemoryService
     {
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized.", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("PushToListHead", $"scope={memoryScope.Compile()}, list={listName}");
 
         var valueArray = values.ToArray();
         if (valueArray.Length == 0)
@@ -1329,6 +1354,13 @@ public sealed class MemoryServiceBasic : IMemoryService
             return;
 
         _disposed = true;
+
+        if (_debugTracker != null)
+        {
+            _debugTracker.MarkDisposed();
+            await DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId);
+            _debugTracker = null;
+        }
 
         try
         {

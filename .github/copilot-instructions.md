@@ -631,6 +631,7 @@ IVectorService vs = new VectorServiceQdrant(host: "localhost", grpcPort: 6334);
 ```
 CrossCloudKit.Interfaces/          ← All interfaces, records, enums, conditions
 CrossCloudKit.Utilities.Common/    ← Primitive, StringOrStream, shared utilities
+CrossCloudKit.Basic.DebugPanel/    ← Embedded HTTP debug dashboard for Basic providers
 CrossCloudKit.Database.{AWS,Basic,GC,Mongo}/     ← IDatabaseService implementations
 CrossCloudKit.File.{AWS,Basic,GC,S3Compatible}/  ← IFileService implementations
 CrossCloudKit.Memory.{Basic,Redis}/              ← IMemoryService implementations
@@ -638,3 +639,27 @@ CrossCloudKit.PubSub.{AWS,Basic,GC,Redis}/       ← IPubSubService implementati
 CrossCloudKit.LLM.{OpenAI,Basic.Completion,Basic.Embeddings}/ ← ILLMService implementations
 CrossCloudKit.Vector.{Qdrant,Basic}/             ← IVectorService implementations
 ```
+
+## Debug Panel
+
+All Basic service providers automatically register with an embedded HTTP debug dashboard at `http://localhost:57765`. Zero configuration — starts on first Basic service instantiation, stops when all are disposed.
+
+- **Service cards**: PID, machine name, operation count, data browsing
+- **Live operation log**: SSE-pushed, shows every CRUD op in real time
+- **Cross-process**: Multiple processes on the same machine share one dashboard (first process starts the Kestrel server, others register via HTTP)
+- **Browse Data**: In-process only — click to explore tables/buckets/collections/scopes interactively
+- **Dead-process cleanup**: Periodic 10s liveness timer + eager purge on each new registration — entries from crashed processes are removed automatically
+
+### Configuration
+
+```csharp
+// Disable entirely (e.g. in tests)
+Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_DISABLED", "true");
+
+// Custom port
+Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_PORT", "9999");
+```
+
+### Disabling in Tests
+
+All `*.Tests.Common` projects include a `[ModuleInitializer]` that sets `CROSSCLOUDKIT_DEBUG_PANEL_DISABLED=true`, so test runs never spawn a debug panel.

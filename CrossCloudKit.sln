@@ -113,6 +113,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.LLM.Basic.Emb
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.LLM.Basic.Completion", "CrossCloudKit.LLM.Basic.Completion\CrossCloudKit.LLM.Basic.Completion.csproj", "{CFEEAB2A-D4E0-4A4A-857B-B87A156FB528}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Basic.DebugPanel", "CrossCloudKit.Basic.DebugPanel\CrossCloudKit.Basic.DebugPanel.csproj", "{BF439B58-E0FA-49C3-9786-5BB7005B4093}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossCloudKit.Basic.DebugPanel.Tests", "CrossCloudKit.Basic.DebugPanel.Tests\CrossCloudKit.Basic.DebugPanel.Tests.csproj", "{CA5406EC-C3FB-4A0C-B230-9663EB29395C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -323,6 +327,14 @@ Global
 		{CFEEAB2A-D4E0-4A4A-857B-B87A156FB528}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CFEEAB2A-D4E0-4A4A-857B-B87A156FB528}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CFEEAB2A-D4E0-4A4A-857B-B87A156FB528}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BF439B58-E0FA-49C3-9786-5BB7005B4093}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BF439B58-E0FA-49C3-9786-5BB7005B4093}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BF439B58-E0FA-49C3-9786-5BB7005B4093}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BF439B58-E0FA-49C3-9786-5BB7005B4093}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA5406EC-C3FB-4A0C-B230-9663EB29395C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA5406EC-C3FB-4A0C-B230-9663EB29395C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA5406EC-C3FB-4A0C-B230-9663EB29395C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA5406EC-C3FB-4A0C-B230-9663EB29395C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

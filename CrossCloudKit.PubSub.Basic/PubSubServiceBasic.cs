@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Utilities.Common;
@@ -29,6 +30,7 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
     private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _deliveredMessageIds = new();
     private readonly Timer _cleanupTimer;
     private readonly string _processId;
+    private DebugTracker? _debugTracker;
     private bool _disposed;
 
     private const string RootFolderName = "CrossCloudKit.PubSub.Basic";
@@ -45,6 +47,9 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         // Start background cleanup every 1 minute
         _cleanupTimer = new Timer(CleanupExpiredData, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+        try { _debugTracker = DebugPanelCoordinator.RegisterAsync("PubSub", _storageDirectory).GetAwaiter().GetResult(); }
+        catch { /* Debug panel is non-critical */ }
     }
 
     public bool IsInitialized => !_disposed;
@@ -120,6 +125,8 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
 
         if (!IsInitialized)
             return OperationResult<bool>.Failure("Service is not initialized", HttpStatusCode.ServiceUnavailable);
+
+        using var _op = _debugTracker?.BeginOperation("Publish", $"topic={topic}");
 
         if (string.IsNullOrEmpty(topic) || string.IsNullOrEmpty(message))
             return OperationResult<bool>.Failure("Topic and message cannot be empty.", HttpStatusCode.BadRequest);
@@ -295,6 +302,13 @@ public sealed class PubSubServiceBasic : IPubSubService, IAsyncDisposable
             return;
 
         _disposed = true;
+
+        if (_debugTracker != null)
+        {
+            _debugTracker.MarkDisposed();
+            await DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId);
+            _debugTracker = null;
+        }
 
         try
         {

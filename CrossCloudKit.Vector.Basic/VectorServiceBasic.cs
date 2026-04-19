@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Text;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
@@ -30,6 +31,7 @@ public sealed class VectorServiceBasic : IVectorService
     // ── Internal state ────────────────────────────────────────────────────────
 
     private readonly string _storageDirectory;
+    private DebugTracker? _debugTracker;
     private bool _disposed;
 
     private const string RootFolderName = "CrossCloudKit.Vector.Basic";
@@ -47,6 +49,9 @@ public sealed class VectorServiceBasic : IVectorService
         _storageDirectory = Path.Combine(basePath, RootFolderName);
         if (!Directory.Exists(_storageDirectory))
             Directory.CreateDirectory(_storageDirectory);
+
+        try { _debugTracker = DebugPanelCoordinator.RegisterAsync("Vector", _storageDirectory, new VectorDebugDataProvider(_storageDirectory)).GetAwaiter().GetResult(); }
+        catch { /* Debug panel is non-critical */ }
     }
 
     // ── IsInitialized ─────────────────────────────────────────────────────────
@@ -181,6 +186,7 @@ public sealed class VectorServiceBasic : IVectorService
         VectorPoint point,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("Upsert", $"collection={collectionName}, id={point.Id}");
         try
         {
             using var mutex = AcquireCollectionMutex(collectionName);
@@ -246,6 +252,7 @@ public sealed class VectorServiceBasic : IVectorService
         string id,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("Delete", $"collection={collectionName}, id={id}");
         try
         {
             using var mutex = AcquireCollectionMutex(collectionName);
@@ -280,6 +287,7 @@ public sealed class VectorServiceBasic : IVectorService
         bool includeMetadata = true,
         CancellationToken cancellationToken = default)
     {
+        using var _op = _debugTracker?.BeginOperation("Query", $"collection={collectionName}, topK={topK}");
         try
         {
             using var mutex = AcquireCollectionMutex(collectionName);
@@ -360,6 +368,14 @@ public sealed class VectorServiceBasic : IVectorService
     public ValueTask DisposeAsync()
     {
         _disposed = true;
+
+        if (_debugTracker != null)
+        {
+            _debugTracker.MarkDisposed();
+            DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId).GetAwaiter().GetResult();
+            _debugTracker = null;
+        }
+
         return ValueTask.CompletedTask;
     }
 

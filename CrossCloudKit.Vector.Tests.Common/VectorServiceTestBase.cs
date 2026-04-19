@@ -3930,8 +3930,8 @@ public abstract class VectorServiceTestBase
 
             var query = new float[] { 0f, 0f, 0f };
             var result = await service.QueryAsync(col, query, topK: 1);
-            result.Data[0].Score.Should().BeApproximately(-5.0f, 0.001f,
-                because: "negated euclidean distance of 5 is -5");
+            MathF.Abs(result.Data[0].Score).Should().BeApproximately(5.0f, 0.001f,
+                because: "euclidean distance between [0,0,0] and [3,4,0] is 5 (sign convention varies by provider)");
         }
         finally
         {

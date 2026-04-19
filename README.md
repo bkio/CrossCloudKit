@@ -220,7 +220,7 @@ Console.WriteLine(reply.Data.Content);
 
 ### Vector Database Services
 
-#### In-Memory (Zero Dependencies)
+#### Cross-process file-based (Zero Dependencies)
 ```csharp
 using CrossCloudKit.Vector.Basic;
 using CrossCloudKit.Interfaces.Enums;

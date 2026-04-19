@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj" />
   </ItemGroup>
 
 </Project>

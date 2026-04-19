@@ -23,7 +23,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
   - **PubSub Messaging**: AWS SNS/SQS Hybrid, Google Cloud Pub/Sub, Redis Pub/Sub, Cross-Process Basic
   - **Memory/Caching**: Redis with distributed locking and advanced data structures, Cross-Process Basic
   - **LLM Services**: OpenAI-compatible endpoints (Ollama, Groq, Azure, Bedrock…) with **separate embedding model support** + fully local CPU-only inference via LLamaSharp (bundled SmolLM2-135M + snowflake-arctic-embed-m-long embeddings)
-  - **Vector Database Services**: In-memory brute-force search + Qdrant (gRPC)
+  - **Vector Database Services**: Cross-process file-based brute-force search + Qdrant (gRPC)
   - **LLM ↔ Vector Bridge**: Built-in extension methods (`EmbedAndUpsertAsync`, `EmbedAndUpsertBatchAsync`, `SemanticSearchAsync`) for common embed-then-store and semantic-search workflows — single-line, no boilerplate
 - **Type-Safe Operations**: Strongly-typed primitive operations with `Primitive` system- **Modern Async/Await**: Full asynchronous API with cancellation token support
 - **Advanced Features**:
@@ -67,7 +67,7 @@ CrossCloudKit is a comprehensive .NET library that provides unified interfaces a
 | `CrossCloudKit.LLM.Basic.Embeddings` | Embeddings only — bundles snowflake-arctic-embed-m-long (Q8_0) via LLamaSharp CPU backend; works with zero configuration |
 | `CrossCloudKit.LLM.Basic.Completion` | Completions only — bundles SmolLM2-135M-Instruct (Q8_0, ~139 MB, Apache-2.0) + LLamaSharp CPU backend; works with zero configuration |
 | **Vector Database Services** |                                         |
-| `CrossCloudKit.Vector.Basic` | In-memory vector store — zero dependencies, ideal for unit tests and prototyping |
+| `CrossCloudKit.Vector.Basic` | Cross-process file-based vector store — zero external dependencies, ideal for development, testing, and lightweight workloads |
 | `CrossCloudKit.Vector.Qdrant` | Qdrant vector database via official gRPC client |
 | **Utilities** |                                         |
 | `CrossCloudKit.Utilities.Common` | Common utilities and primitive types    |
@@ -105,7 +105,7 @@ dotnet add package CrossCloudKit.LLM.Basic.Embeddings    # Embeddings only (bund
 dotnet add package CrossCloudKit.LLM.Basic.Completion    # Completions only (bundles SmolLM2-135M GGUF)
 
 # Vector Database Services
-dotnet add package CrossCloudKit.Vector.Basic  # In-memory, no infra needed
+dotnet add package CrossCloudKit.Vector.Basic  # File-based, no infra needed
 dotnet add package CrossCloudKit.Vector.Qdrant # Qdrant gRPC client
 
 # Core interfaces (automatically included as dependency)

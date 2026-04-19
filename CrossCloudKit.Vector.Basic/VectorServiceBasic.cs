@@ -1,25 +1,27 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
-using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.Utilities.Common;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace CrossCloudKit.Vector.Basic;
 
 /// <summary>
-/// In-memory <see cref="IVectorService"/> implementation.
-/// All data lives in RAM and is lost when the process exits.
-/// Intended for unit tests, offline development, and prototyping.
+/// Cross-process file-based <see cref="IVectorService"/> implementation.
+/// Data is persisted to local JSON files and protected by OS-level named mutexes,
+/// enabling safe concurrent access from multiple threads and processes on the same machine.
+/// Intended for development, testing, and lightweight workloads.
 /// </summary>
 /// <example>
 /// <code>
-/// IVectorService vs = new VectorServiceBasic();
+/// await using IVectorService vs = new VectorServiceBasic();
 /// await vs.EnsureCollectionExistsAsync("test", 384, VectorDistanceMetric.Cosine);
 /// </code>
 /// </example>
@@ -27,17 +29,30 @@ public sealed class VectorServiceBasic : IVectorService
 {
     // ── Internal state ────────────────────────────────────────────────────────
 
-    private sealed record CollectionEntry(
-        int VectorDimensions,
-        VectorDistanceMetric DistanceMetric,
-        ConcurrentDictionary<string, VectorPoint> Points);
+    private readonly string _storageDirectory;
+    private bool _disposed;
 
-    private readonly ConcurrentDictionary<string, CollectionEntry> _collections = new();
+    private const string RootFolderName = "CrossCloudKit.Vector.Basic";
+    private const string MetaFileName = "_meta.json";
+
+    private sealed record CollectionMeta(int VectorDimensions, VectorDistanceMetric DistanceMetric);
+
+    /// <summary>
+    /// Creates a new file-based vector service.
+    /// </summary>
+    /// <param name="basePath">Root directory for storage. Defaults to <see cref="Path.GetTempPath"/>.</param>
+    public VectorServiceBasic(string? basePath = null)
+    {
+        basePath ??= Path.GetTempPath();
+        _storageDirectory = Path.Combine(basePath, RootFolderName);
+        if (!Directory.Exists(_storageDirectory))
+            Directory.CreateDirectory(_storageDirectory);
+    }
 
     // ── IsInitialized ─────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public bool IsInitialized => true;
+    public bool IsInitialized => !_disposed;
 
     // ── Condition builders ────────────────────────────────────────────────────
 
@@ -82,13 +97,28 @@ public sealed class VectorServiceBasic : IVectorService
         VectorDistanceMetric distanceMetric,
         CancellationToken cancellationToken = default)
     {
-        var created = false;
-        _collections.GetOrAdd(collectionName, _ =>
+        try
         {
-            created = true;
-            return new CollectionEntry(vectorDimensions, distanceMetric, new ConcurrentDictionary<string, VectorPoint>());
-        });
-        return Task.FromResult(OperationResult<bool>.Success(created));
+            using var mutex = AcquireCollectionMutex(collectionName);
+
+            var collectionDir = GetCollectionPath(collectionName);
+            var metaPath = Path.Combine(collectionDir, MetaFileName);
+
+            if (Directory.Exists(collectionDir) && File.Exists(metaPath))
+                return Task.FromResult(OperationResult<bool>.Success(false));
+
+            Directory.CreateDirectory(collectionDir);
+            var meta = new CollectionMeta(vectorDimensions, distanceMetric);
+            var json = JsonConvert.SerializeObject(meta, Formatting.None);
+            FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, metaPath);
+
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure(
+                $"Failed to create collection: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
@@ -96,19 +126,51 @@ public sealed class VectorServiceBasic : IVectorService
         string collectionName,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryRemove(collectionName, out _))
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+        try
+        {
+            using var mutex = AcquireCollectionMutex(collectionName);
 
-        return Task.FromResult(OperationResult<bool>.Success(true));
+            var collectionDir = GetCollectionPath(collectionName);
+            if (!Directory.Exists(collectionDir))
+                return Task.FromResult(OperationResult<bool>.Failure(
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+
+            Directory.Delete(collectionDir, true);
+
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure(
+                $"Failed to delete collection: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
     public Task<OperationResult<IReadOnlyList<string>>> GetCollectionNamesAsync(
         CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<string> names = _collections.Keys.ToList();
-        return Task.FromResult(OperationResult<IReadOnlyList<string>>.Success(names));
+        try
+        {
+            if (!Directory.Exists(_storageDirectory))
+                return Task.FromResult(
+                    OperationResult<IReadOnlyList<string>>.Success(Array.Empty<string>() as IReadOnlyList<string>));
+
+            var names = Directory.GetDirectories(_storageDirectory)
+                .Where(d => File.Exists(Path.Combine(d, MetaFileName)))
+                .Select(Path.GetFileName)
+                .Where(n => n is not null)
+                .Cast<string>()
+                .ToList();
+
+            return Task.FromResult(
+                OperationResult<IReadOnlyList<string>>.Success(names as IReadOnlyList<string>));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<IReadOnlyList<string>>.Failure(
+                $"Failed to list collections: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     // ── Point operations ──────────────────────────────────────────────────────
@@ -119,17 +181,28 @@ public sealed class VectorServiceBasic : IVectorService
         VectorPoint point,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryGetValue(collectionName, out var collection))
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+        try
+        {
+            using var mutex = AcquireCollectionMutex(collectionName);
 
-        if (point.Vector.Length != collection.VectorDimensions)
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Vector dimension mismatch: expected {collection.VectorDimensions}, got {point.Vector.Length}.",
-                HttpStatusCode.BadRequest));
+            var meta = ReadCollectionMeta(collectionName);
+            if (meta is null)
+                return Task.FromResult(OperationResult<bool>.Failure(
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
 
-        collection.Points[point.Id] = point;
-        return Task.FromResult(OperationResult<bool>.Success(true));
+            if (point.Vector.Length != meta.VectorDimensions)
+                return Task.FromResult(OperationResult<bool>.Failure(
+                    $"Vector dimension mismatch: expected {meta.VectorDimensions}, got {point.Vector.Length}.",
+                    HttpStatusCode.BadRequest));
+
+            SavePoint(collectionName, point);
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure(
+                $"Failed to upsert point: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
@@ -138,22 +211,33 @@ public sealed class VectorServiceBasic : IVectorService
         IReadOnlyList<VectorPoint> points,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryGetValue(collectionName, out var collection))
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
-
-        foreach (var point in points)
+        try
         {
-            if (point.Vector.Length != collection.VectorDimensions)
+            using var mutex = AcquireCollectionMutex(collectionName);
+
+            var meta = ReadCollectionMeta(collectionName);
+            if (meta is null)
                 return Task.FromResult(OperationResult<bool>.Failure(
-                    $"Vector dimension mismatch for point '{point.Id}': expected {collection.VectorDimensions}, got {point.Vector.Length}.",
-                    HttpStatusCode.BadRequest));
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+
+            foreach (var point in points)
+            {
+                if (point.Vector.Length != meta.VectorDimensions)
+                    return Task.FromResult(OperationResult<bool>.Failure(
+                        $"Vector dimension mismatch for point '{point.Id}': expected {meta.VectorDimensions}, got {point.Vector.Length}.",
+                        HttpStatusCode.BadRequest));
+            }
+
+            foreach (var point in points)
+                SavePoint(collectionName, point);
+
+            return Task.FromResult(OperationResult<bool>.Success(true));
         }
-
-        foreach (var point in points)
-            collection.Points[point.Id] = point;
-
-        return Task.FromResult(OperationResult<bool>.Success(true));
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure(
+                $"Failed to upsert batch: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
@@ -162,15 +246,29 @@ public sealed class VectorServiceBasic : IVectorService
         string id,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryGetValue(collectionName, out var collection))
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+        try
+        {
+            using var mutex = AcquireCollectionMutex(collectionName);
 
-        if (!collection.Points.TryRemove(id, out _))
-            return Task.FromResult(OperationResult<bool>.Failure(
-                $"Point '{id}' not found.", HttpStatusCode.NotFound));
+            var meta = ReadCollectionMeta(collectionName);
+            if (meta is null)
+                return Task.FromResult(OperationResult<bool>.Failure(
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
 
-        return Task.FromResult(OperationResult<bool>.Success(true));
+            var filePath = GetPointFilePath(collectionName, id);
+            if (!File.Exists(filePath))
+                return Task.FromResult(OperationResult<bool>.Failure(
+                    $"Point '{id}' not found.", HttpStatusCode.NotFound));
+
+            File.Delete(filePath);
+
+            return Task.FromResult(OperationResult<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<bool>.Failure(
+                $"Failed to delete point: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
@@ -182,29 +280,42 @@ public sealed class VectorServiceBasic : IVectorService
         bool includeMetadata = true,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryGetValue(collectionName, out var collection))
+        try
+        {
+            using var mutex = AcquireCollectionMutex(collectionName);
+
+            var meta = ReadCollectionMeta(collectionName);
+            if (meta is null)
+                return Task.FromResult(OperationResult<IReadOnlyList<VectorSearchResult>>.Failure(
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+
+            if (queryVector.Length != meta.VectorDimensions)
+                return Task.FromResult(OperationResult<IReadOnlyList<VectorSearchResult>>.Failure(
+                    $"Query vector dimension mismatch: expected {meta.VectorDimensions}, got {queryVector.Length}.",
+                    HttpStatusCode.BadRequest));
+
+            var allPoints = ReadAllPoints(collectionName);
+
+            var results = allPoints
+                .Where(p => filter is null || MatchesCoupling(p.Metadata, filter))
+                .Select(p => new VectorSearchResult
+                {
+                    Id       = p.Id,
+                    Score    = ComputeScore(queryVector, p.Vector, meta.DistanceMetric),
+                    Metadata = includeMetadata ? p.Metadata : null
+                })
+                .OrderByDescending(r => r.Score)
+                .Take(topK)
+                .ToList();
+
+            return Task.FromResult(
+                OperationResult<IReadOnlyList<VectorSearchResult>>.Success(results as IReadOnlyList<VectorSearchResult>));
+        }
+        catch (Exception ex)
+        {
             return Task.FromResult(OperationResult<IReadOnlyList<VectorSearchResult>>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
-
-        if (queryVector.Length != collection.VectorDimensions)
-            return Task.FromResult(OperationResult<IReadOnlyList<VectorSearchResult>>.Failure(
-                $"Query vector dimension mismatch: expected {collection.VectorDimensions}, got {queryVector.Length}.",
-                HttpStatusCode.BadRequest));
-
-        var results = collection.Points.Values
-            .Where(p => filter is null || MatchesCoupling(p.Metadata, filter))
-            .Select(p => new VectorSearchResult
-            {
-                Id       = p.Id,
-                Score    = ComputeScore(queryVector, p.Vector, collection.DistanceMetric),
-                Metadata = includeMetadata ? p.Metadata : null
-            })
-            .OrderByDescending(r => r.Score)
-            .Take(topK)
-            .ToList();
-
-        return Task.FromResult(
-            OperationResult<IReadOnlyList<VectorSearchResult>>.Success(results));
+                $"Failed to query: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     /// <inheritdoc/>
@@ -215,20 +326,32 @@ public sealed class VectorServiceBasic : IVectorService
         bool includeMetadata = true,
         CancellationToken cancellationToken = default)
     {
-        if (!_collections.TryGetValue(collectionName, out var collection))
-            return Task.FromResult(OperationResult<VectorPoint?>.Failure(
-                $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
-
-        if (!collection.Points.TryGetValue(id, out var point))
-            return Task.FromResult(OperationResult<VectorPoint?>.Success(null));
-
-        var result = point with
+        try
         {
-            Vector   = includeVector   ? point.Vector   : [],
-            Metadata = includeMetadata ? point.Metadata : null
-        };
+            using var mutex = AcquireCollectionMutex(collectionName);
 
-        return Task.FromResult(OperationResult<VectorPoint?>.Success(result));
+            var meta = ReadCollectionMeta(collectionName);
+            if (meta is null)
+                return Task.FromResult(OperationResult<VectorPoint?>.Failure(
+                    $"Collection '{collectionName}' not found.", HttpStatusCode.NotFound));
+
+            var point = ReadPoint(collectionName, id);
+            if (point is null)
+                return Task.FromResult(OperationResult<VectorPoint?>.Success(null));
+
+            var result = point with
+            {
+                Vector   = includeVector   ? point.Vector   : [],
+                Metadata = includeMetadata ? point.Metadata : null
+            };
+
+            return Task.FromResult(OperationResult<VectorPoint?>.Success(result));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(OperationResult<VectorPoint?>.Failure(
+                $"Failed to get point: {ex.Message}", HttpStatusCode.InternalServerError));
+        }
     }
 
     // ── IAsyncDisposable ──────────────────────────────────────────────────────
@@ -236,8 +359,98 @@ public sealed class VectorServiceBasic : IVectorService
     /// <inheritdoc/>
     public ValueTask DisposeAsync()
     {
-        _collections.Clear();
+        _disposed = true;
         return ValueTask.CompletedTask;
+    }
+
+    // ── File I/O helpers ──────────────────────────────────────────────────────
+
+    private string GetCollectionPath(string collectionName)
+        => Path.Combine(_storageDirectory, collectionName.MakeValidFileName());
+
+    private string GetPointFilePath(string collectionName, string pointId)
+    {
+        var encoded = EncodingUtilities.Base64EncodeNoPadding(pointId);
+        return Path.Combine(GetCollectionPath(collectionName), $"{encoded}.json");
+    }
+
+    private CollectionMeta? ReadCollectionMeta(string collectionName)
+    {
+        var metaPath = Path.Combine(GetCollectionPath(collectionName), MetaFileName);
+        if (!File.Exists(metaPath))
+            return null;
+
+        try
+        {
+            var json = File.ReadAllText(metaPath, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<CollectionMeta>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void SavePoint(string collectionName, VectorPoint point)
+    {
+        var filePath = GetPointFilePath(collectionName, point.Id);
+        var json = JsonConvert.SerializeObject(point, Formatting.None);
+        FileSystemUtilities.WriteToFileEnsureWrittenToDisk(json, filePath);
+    }
+
+    private VectorPoint? ReadPoint(string collectionName, string pointId)
+    {
+        var filePath = GetPointFilePath(collectionName, pointId);
+        if (!File.Exists(filePath))
+            return null;
+
+        try
+        {
+            var json = File.ReadAllText(filePath, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<VectorPoint>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private List<VectorPoint> ReadAllPoints(string collectionName)
+    {
+        var collectionDir = GetCollectionPath(collectionName);
+        if (!Directory.Exists(collectionDir))
+            return [];
+
+        var points = new List<VectorPoint>();
+        foreach (var file in Directory.GetFiles(collectionDir, "*.json"))
+        {
+            if (Path.GetFileName(file) == MetaFileName)
+                continue;
+
+            try
+            {
+                var json = File.ReadAllText(file, Encoding.UTF8);
+                var point = JsonConvert.DeserializeObject<VectorPoint>(json);
+                if (point is not null)
+                    points.Add(point);
+            }
+            catch
+            {
+                // Skip corrupted files
+            }
+        }
+        return points;
+    }
+
+    // ── Cross-process mutex ───────────────────────────────────────────────────
+
+    private static AutoMutex AcquireCollectionMutex(string collectionName)
+    {
+        var mutexName = "CrossCloudKit.Vector.Basic." + Convert.ToBase64String(
+                Encoding.UTF8.GetBytes(collectionName))
+            .Replace('/', '_').Replace('+', '-').Replace("=", "");
+
+        return new AutoMutex(mutexName);
     }
 
     // ── Similarity computation ────────────────────────────────────────────────

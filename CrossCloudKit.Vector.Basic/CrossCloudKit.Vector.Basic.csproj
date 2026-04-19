@@ -13,11 +13,12 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Description>In-memory vector store for CrossCloudKit. Zero dependencies — ideal for unit tests, offline development, and prototyping.</Description>
+    <Description>Cross-process file-based vector store for CrossCloudKit. Zero external dependencies — ideal for development, testing, and lightweight workloads.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CrossCloudKit.Interfaces\CrossCloudKit.Interfaces.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.Utilities.Common\CrossCloudKit.Utilities.Common.csproj" />
     <None Include="..\README.md" Pack="true" PackagePath="\" />
     <None Include="$(OutputPath)\$(AssemblyName).xml" Pack="true" PackagePath="\" />
   </ItemGroup>

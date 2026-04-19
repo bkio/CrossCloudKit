@@ -18,7 +18,7 @@ CrossCloudKit is a **.NET 8+** cloud-agnostic abstraction library. Code against 
 | `IMemoryService` | Key-value cache, lists, distributed mutex, TTL, atomic increments | Redis, Basic (memory-mapped files) |
 | `IPubSubService` | Publish/subscribe messaging | AWS SNS+SQS, Google Pub/Sub, Redis, Basic (file-based) |
 | `ILLMService` | Chat completion (streaming & non-streaming), embeddings, tool calling | OpenAI-compatible (OpenAI, Azure, Ollama, LM Studio), Basic (LLamaSharp) |
-| `IVectorService` | Vector upsert, similarity search, metadata filtering | Qdrant, Basic (in-memory) |
+| `IVectorService` | Vector upsert, similarity search, metadata filtering | Qdrant, Basic (file-based) |
 
 ## Critical Types
 

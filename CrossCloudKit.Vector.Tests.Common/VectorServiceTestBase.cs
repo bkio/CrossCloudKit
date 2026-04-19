@@ -3315,4 +3315,805 @@ public abstract class VectorServiceTestBase
         }
         finally { await service.DeleteCollectionAsync(col); }
     }
+
+    // ── Concurrency ───────────────────────────────────────────────────────────
+
+    [RetryFact(3, 10000)]
+    public async Task Concurrency_ParallelUpserts_SameCollection_ShouldAllSucceed()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var tasks = Enumerable.Range(0, 50).Select(i => Task.Run(async () =>
+            {
+                var result = await service.UpsertAsync(col, new VectorPoint
+                {
+                    Id = $"concurrent-{i}",
+                    Vector = RandomVector(),
+                    Metadata = new JObject { ["idx"] = i }
+                });
+                result.IsSuccessful.Should().BeTrue($"upsert {i} should succeed");
+            }));
+
+            await Task.WhenAll(tasks);
+
+            var query = await service.QueryAsync(col, RandomVector(), topK: 100);
+            query.IsSuccessful.Should().BeTrue();
+            query.Data.Should().HaveCount(50);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 10000)]
+    public async Task Concurrency_ParallelReads_SameCollection_ShouldAllSucceed()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            var vec = new float[] { 1f, 0f, 0f, 0f };
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "shared-point",
+                Vector = vec,
+                Metadata = new JObject { ["key"] = "value" }
+            });
+
+            var tasks = Enumerable.Range(0, 50).Select(_ => Task.Run(async () =>
+            {
+                var result = await service.GetAsync(col, "shared-point");
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.Should().NotBeNull();
+                result.Data!.Id.Should().Be("shared-point");
+                result.Data.Metadata?["key"]?.Value<string>().Should().Be("value");
+            }));
+
+            await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 10000)]
+    public async Task Concurrency_ParallelQueries_SameCollection_ShouldAllSucceed()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            var points = Enumerable.Range(0, 10).Select(i => new VectorPoint
+            {
+                Id = $"q-{i}",
+                Vector = RandomVector(),
+                Metadata = new JObject { ["val"] = i }
+            }).ToList();
+            await service.UpsertBatchAsync(col, points);
+
+            var tasks = Enumerable.Range(0, 30).Select(_ => Task.Run(async () =>
+            {
+                var result = await service.QueryAsync(col, RandomVector(), topK: 5);
+                result.IsSuccessful.Should().BeTrue();
+                result.Data.Should().HaveCount(5);
+            }));
+
+            await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 15000)]
+    public async Task Concurrency_MixedReadWriteDelete_ShouldNotCorruptData()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            for (int i = 0; i < 20; i++)
+            {
+                await service.UpsertAsync(col, new VectorPoint
+                {
+                    Id = $"seed-{i}",
+                    Vector = RandomVector(),
+                    Metadata = new JObject { ["seeded"] = true }
+                });
+            }
+
+            var tasks = new List<Task>();
+
+            for (int i = 0; i < 20; i++)
+            {
+                int idx = i;
+                tasks.Add(Task.Run(async () =>
+                {
+                    await service.UpsertAsync(col, new VectorPoint
+                    {
+                        Id = $"writer-{idx}",
+                        Vector = RandomVector(),
+                        Metadata = new JObject { ["written"] = true }
+                    });
+                }));
+            }
+
+            for (int i = 0; i < 20; i++)
+            {
+                int idx = i;
+                tasks.Add(Task.Run(async () =>
+                {
+                    var result = await service.GetAsync(col, $"seed-{idx}");
+                    result.IsSuccessful.Should().BeTrue();
+                }));
+            }
+
+            for (int i = 0; i < 10; i++)
+            {
+                tasks.Add(Task.Run(async () =>
+                {
+                    var result = await service.QueryAsync(col, RandomVector(), topK: 10);
+                    result.IsSuccessful.Should().BeTrue();
+                }));
+            }
+
+            for (int i = 10; i < 15; i++)
+            {
+                int idx = i;
+                tasks.Add(Task.Run(async () =>
+                {
+                    await service.DeleteAsync(col, $"seed-{idx}");
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+
+            for (int i = 0; i < 10; i++)
+            {
+                var get = await service.GetAsync(col, $"seed-{i}");
+                get.IsSuccessful.Should().BeTrue();
+                get.Data.Should().NotBeNull($"seed-{i} should still exist");
+            }
+
+            for (int i = 10; i < 15; i++)
+            {
+                var get = await service.GetAsync(col, $"seed-{i}");
+                get.IsSuccessful.Should().BeTrue();
+                get.Data.Should().BeNull($"seed-{i} should have been deleted");
+            }
+
+            for (int i = 0; i < 20; i++)
+            {
+                var get = await service.GetAsync(col, $"writer-{i}");
+                get.IsSuccessful.Should().BeTrue();
+                get.Data.Should().NotBeNull($"writer-{i} should exist");
+            }
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 10000)]
+    public async Task Concurrency_ParallelUpsertsToSamePoint_LastWriteWins()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var tasks = Enumerable.Range(0, 20).Select(i => Task.Run(async () =>
+            {
+                await service.UpsertAsync(col, new VectorPoint
+                {
+                    Id = "contested-point",
+                    Vector = new float[] { i, 0f, 0f, 0f },
+                    Metadata = new JObject { ["version"] = i }
+                });
+            }));
+
+            await Task.WhenAll(tasks);
+
+            var result = await service.GetAsync(col, "contested-point");
+            result.IsSuccessful.Should().BeTrue();
+            result.Data.Should().NotBeNull();
+            result.Data!.Metadata?["version"]?.Type.Should().Be(JTokenType.Integer);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 10000)]
+    public async Task Concurrency_ParallelCollectionCreation_ShouldNotConflict()
+    {
+        await using var service = CreateVectorService();
+        var collections = Enumerable.Range(0, 10)
+            .Select(i => $"par-col-{i}-{Guid.NewGuid():N}")
+            .ToList();
+
+        try
+        {
+            var tasks = collections.Select(c => Task.Run(async () =>
+            {
+                var result = await service.EnsureCollectionExistsAsync(c, 4, VectorDistanceMetric.Cosine);
+                result.IsSuccessful.Should().BeTrue();
+            }));
+
+            await Task.WhenAll(tasks);
+
+            var names = await service.GetCollectionNamesAsync();
+            names.IsSuccessful.Should().BeTrue();
+            foreach (var c in collections)
+                names.Data.Should().Contain(c);
+        }
+        finally
+        {
+            foreach (var c in collections)
+                await service.DeleteCollectionAsync(c);
+        }
+    }
+
+    // ── Collection isolation ──────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task Isolation_DeleteFromOneCollectionDoesNotAffectAnother()
+    {
+        await using var service = CreateVectorService();
+        string col1 = UniqueCollection() + "a";
+        string col2 = UniqueCollection() + "b";
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col1, 4, VectorDistanceMetric.Cosine);
+            await service.EnsureCollectionExistsAsync(col2, 4, VectorDistanceMetric.Cosine);
+
+            var vec = RandomVector();
+            await service.UpsertAsync(col1, new VectorPoint { Id = "shared-id", Vector = vec });
+            await service.UpsertAsync(col2, new VectorPoint { Id = "shared-id", Vector = vec });
+
+            await service.DeleteAsync(col1, "shared-id");
+
+            var get = await service.GetAsync(col2, "shared-id");
+            get.Data.Should().NotBeNull();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col1);
+            await service.DeleteCollectionAsync(col2);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task Isolation_DeleteCollectionDoesNotAffectOther()
+    {
+        await using var service = CreateVectorService();
+        string col1 = UniqueCollection() + "a";
+        string col2 = UniqueCollection() + "b";
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col1, 4, VectorDistanceMetric.Cosine);
+            await service.EnsureCollectionExistsAsync(col2, 4, VectorDistanceMetric.Cosine);
+            await service.UpsertAsync(col2, new VectorPoint { Id = "survivor", Vector = RandomVector() });
+
+            await service.DeleteCollectionAsync(col1);
+
+            var get = await service.GetAsync(col2, "survivor");
+            get.Data.Should().NotBeNull();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col2);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task Isolation_DifferentDimensionCollections_ShouldCoexist()
+    {
+        await using var service = CreateVectorService();
+        string col4 = UniqueCollection() + "a";
+        string col8 = UniqueCollection() + "b";
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col4, 4, VectorDistanceMetric.Cosine);
+            await service.EnsureCollectionExistsAsync(col8, 8, VectorDistanceMetric.Euclidean);
+
+            await service.UpsertAsync(col4, new VectorPoint { Id = "p4", Vector = RandomVector(4) });
+            await service.UpsertAsync(col8, new VectorPoint { Id = "p8", Vector = RandomVector(8) });
+
+            var get4 = await service.GetAsync(col4, "p4");
+            get4.Data!.Vector.Should().HaveCount(4);
+
+            var get8 = await service.GetAsync(col8, "p8");
+            get8.Data!.Vector.Should().HaveCount(8);
+
+            var bad = await service.UpsertAsync(col4, new VectorPoint { Id = "wrong", Vector = RandomVector(8) });
+            bad.IsSuccessful.Should().BeFalse();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col4);
+            await service.DeleteCollectionAsync(col8);
+        }
+    }
+
+    // ── Recreate after delete ─────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task RecreateCollection_AfterDelete_ShouldBeEmpty()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "old-data", Vector = RandomVector(), Metadata = new JObject { ["old"] = true }
+            });
+
+            await service.DeleteCollectionAsync(col);
+            var created = await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            created.Data.Should().BeTrue("should be freshly created");
+
+            var get = await service.GetAsync(col, "old-data");
+            get.IsSuccessful.Should().BeTrue();
+            get.Data.Should().BeNull("old data should not survive collection delete+recreate");
+
+            var query = await service.QueryAsync(col, RandomVector(), topK: 10);
+            query.Data.Should().BeEmpty();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task RecreateCollection_WithDifferentDimensions_ShouldWork()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            await service.UpsertAsync(col, new VectorPoint { Id = "4d", Vector = RandomVector(4) });
+
+            await service.DeleteCollectionAsync(col);
+            await service.EnsureCollectionExistsAsync(col, 8, VectorDistanceMetric.Euclidean);
+
+            var bad = await service.UpsertAsync(col, new VectorPoint { Id = "4d", Vector = RandomVector(4) });
+            bad.IsSuccessful.Should().BeFalse();
+
+            var good = await service.UpsertAsync(col, new VectorPoint { Id = "8d", Vector = RandomVector(8) });
+            good.IsSuccessful.Should().BeTrue();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    // ── Metadata edge cases ───────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task Metadata_DeeplyNestedJObject_ShouldRoundTrip()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var metadata = new JObject
+            {
+                ["level1"] = new JObject
+                {
+                    ["level2"] = new JObject
+                    {
+                        ["level3"] = new JObject
+                        {
+                            ["value"] = "deep"
+                        }
+                    }
+                },
+                ["tags"] = new JArray("a", "b", "c"),
+                ["count"] = 42
+            };
+
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "nested", Vector = RandomVector(), Metadata = metadata
+            });
+
+            var get = await service.GetAsync(col, "nested");
+            get.Data.Should().NotBeNull();
+            get.Data!.Metadata?["level1"]?["level2"]?["level3"]?["value"]?.Value<string>()
+                .Should().Be("deep");
+            get.Data.Metadata?["tags"]?.ToObject<string[]>().Should().BeEquivalentTo(["a", "b", "c"]);
+            get.Data.Metadata?["count"]?.Value<int>().Should().Be(42);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task Metadata_LargeMetadata_ShouldRoundTrip()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var metadata = new JObject();
+            for (int i = 0; i < 100; i++)
+                metadata[$"field_{i}"] = $"value_{i}_{new string('x', 100)}";
+
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "large-meta", Vector = RandomVector(), Metadata = metadata
+            });
+
+            var get = await service.GetAsync(col, "large-meta");
+            get.Data.Should().NotBeNull();
+            get.Data!.Metadata!.Count.Should().Be(100);
+            get.Data.Metadata["field_50"]?.Value<string>().Should().StartWith("value_50_");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task Metadata_NullMetadata_ShouldPersistCorrectly()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "no-meta", Vector = RandomVector(), Metadata = null
+            });
+
+            var get = await service.GetAsync(col, "no-meta");
+            get.Data.Should().NotBeNull();
+            get.Data!.Metadata.Should().BeNull();
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    // ── Distance metrics ──────────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task DistanceMetric_Cosine_IdenticalVectors_ShouldScoreOne()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 3, VectorDistanceMetric.Cosine);
+            var vec = new float[] { 1f, 0f, 0f };
+            await service.UpsertAsync(col, new VectorPoint { Id = "same", Vector = vec });
+
+            var result = await service.QueryAsync(col, vec, topK: 1);
+            result.Data[0].Score.Should().BeApproximately(1.0f, 0.001f,
+                because: "cosine similarity of identical vectors is 1.0");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DistanceMetric_Cosine_OrthogonalVectors_ShouldScoreZero()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 3, VectorDistanceMetric.Cosine);
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "orthogonal", Vector = new float[] { 0f, 1f, 0f }
+            });
+
+            var query = new float[] { 1f, 0f, 0f };
+            var result = await service.QueryAsync(col, query, topK: 1);
+            result.Data[0].Score.Should().BeApproximately(0.0f, 0.001f,
+                because: "cosine similarity of orthogonal vectors is 0.0");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DistanceMetric_DotProduct_KnownValues_ShouldBeCorrect()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 3, VectorDistanceMetric.DotProduct);
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "dp", Vector = new float[] { 2f, 3f, 0f }
+            });
+
+            var query = new float[] { 1f, 1f, 0f };
+            var result = await service.QueryAsync(col, query, topK: 1);
+            result.Data[0].Score.Should().BeApproximately(5.0f, 0.001f,
+                because: "dot product of [1,1,0]·[2,3,0] = 5");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DistanceMetric_Euclidean_IdenticalVectors_ShouldScoreZero()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 3, VectorDistanceMetric.Euclidean);
+            var vec = new float[] { 1f, 2f, 3f };
+            await service.UpsertAsync(col, new VectorPoint { Id = "same", Vector = vec });
+
+            var result = await service.QueryAsync(col, vec, topK: 1);
+            result.Data[0].Score.Should().BeApproximately(0.0f, 0.001f,
+                because: "euclidean distance of identical vectors is 0 (negated = -0 = 0)");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DistanceMetric_Euclidean_KnownDistance_ShouldBeCorrect()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 3, VectorDistanceMetric.Euclidean);
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "far", Vector = new float[] { 3f, 4f, 0f }
+            });
+
+            var query = new float[] { 0f, 0f, 0f };
+            var result = await service.QueryAsync(col, query, topK: 1);
+            result.Data[0].Score.Should().BeApproximately(-5.0f, 0.001f,
+                because: "negated euclidean distance of 5 is -5");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    // ── Batch edge cases ──────────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task UpsertBatch_ThenDeleteSome_ThenQueryShouldReflectChanges()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var points = Enumerable.Range(0, 10).Select(i => new VectorPoint
+            {
+                Id = $"batch-{i}",
+                Vector = RandomVector(),
+                Metadata = new JObject { ["val"] = i }
+            }).ToList();
+            await service.UpsertBatchAsync(col, points);
+
+            for (int i = 0; i < 5; i++)
+                await service.DeleteAsync(col, $"batch-{i}");
+
+            var result = await service.QueryAsync(col, RandomVector(), topK: 20);
+            result.Data.Should().HaveCount(5);
+            foreach (var r in result.Data)
+            {
+                var idx = int.Parse(r.Id.Split('-')[1]);
+                idx.Should().BeGreaterOrEqualTo(5);
+            }
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task UpsertBatch_WithMixedDimensions_ShouldFailAtomically()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            var points = new List<VectorPoint>
+            {
+                new() { Id = "good-1", Vector = RandomVector(4) },
+                new() { Id = "bad", Vector = RandomVector(8) },
+                new() { Id = "good-2", Vector = RandomVector(4) }
+            };
+
+            var result = await service.UpsertBatchAsync(col, points);
+            result.IsSuccessful.Should().BeFalse("batch should fail when any point has wrong dimensions");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    // ── Dispose ───────────────────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task IsInitialized_AfterDispose_ShouldReturnFalse()
+    {
+        var service = CreateVectorService();
+        service.IsInitialized.Should().BeTrue();
+
+        await service.DisposeAsync();
+        service.IsInitialized.Should().BeFalse();
+    }
+
+    // ── Query edge cases ──────────────────────────────────────────────────────
+
+    [RetryFact(3, 5000)]
+    public async Task Query_WithFilterExcludingAll_ThenWithoutFilter_ShouldReturnResults()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            var v = new float[] { 1f, 0f, 0f, 0f };
+
+            await service.UpsertBatchAsync(col, [
+                new VectorPoint { Id = "a", Vector = v, Metadata = new JObject { ["status"] = "active" } },
+                new VectorPoint { Id = "b", Vector = v, Metadata = new JObject { ["status"] = "active" } }
+            ]);
+
+            var noMatch = service.FieldEquals("status", new Primitive("deleted"));
+            var empty = await service.QueryAsync(col, v, topK: 10, filter: noMatch);
+            empty.Data.Should().BeEmpty();
+
+            var all = await service.QueryAsync(col, v, topK: 10);
+            all.Data.Should().HaveCount(2);
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task Query_FilterOnMixedMetadataTypes_ShouldHandleCorrectly()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+            var v = new float[] { 1f, 0f, 0f, 0f };
+
+            await service.UpsertBatchAsync(col, [
+                new VectorPoint { Id = "str", Vector = v, Metadata = new JObject { ["field"] = "text" } },
+                new VectorPoint { Id = "int", Vector = v, Metadata = new JObject { ["field"] = 42 } },
+                new VectorPoint { Id = "bool", Vector = v, Metadata = new JObject { ["field"] = true } },
+                new VectorPoint { Id = "dbl", Vector = v, Metadata = new JObject { ["field"] = 3.14 } }
+            ]);
+
+            var strFilter = service.FieldEquals("field", new Primitive("text"));
+            var strResult = await service.QueryAsync(col, v, topK: 10, filter: strFilter);
+            strResult.Data.Should().HaveCount(1);
+            strResult.Data[0].Id.Should().Be("str");
+
+            var boolFilter = service.FieldEquals("field", new Primitive(true));
+            var boolResult = await service.QueryAsync(col, v, topK: 10, filter: boolFilter);
+            boolResult.Data.Should().HaveCount(1);
+            boolResult.Data[0].Id.Should().Be("bool");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task UpsertAsync_UpdateVector_QueryShouldReflectNewVector()
+    {
+        await using var service = CreateVectorService();
+        string col = UniqueCollection();
+
+        try
+        {
+            await service.EnsureCollectionExistsAsync(col, 4, VectorDistanceMetric.Cosine);
+
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "movable",
+                Vector = new float[] { 1f, 0f, 0f, 0f },
+                Metadata = new JObject { ["label"] = "original" }
+            });
+
+            await service.UpsertAsync(col, new VectorPoint
+            {
+                Id = "movable",
+                Vector = new float[] { 0f, 0f, 0f, 1f },
+                Metadata = new JObject { ["label"] = "updated" }
+            });
+
+            var oldDir = await service.QueryAsync(col, new float[] { 1f, 0f, 0f, 0f }, topK: 1);
+            oldDir.Data[0].Metadata?["label"]?.Value<string>().Should().Be("updated");
+
+            var newDirScore = (await service.QueryAsync(col, new float[] { 0f, 0f, 0f, 1f }, topK: 1)).Data[0].Score;
+            var oldDirScore = (await service.QueryAsync(col, new float[] { 1f, 0f, 0f, 0f }, topK: 1)).Data[0].Score;
+            newDirScore.Should().BeGreaterThan(oldDirScore,
+                because: "updated vector should be closer to the new direction");
+        }
+        finally
+        {
+            await service.DeleteCollectionAsync(col);
+        }
+    }
 }

@@ -14,7 +14,7 @@ namespace CrossCloudKit.Interfaces;
 /// and <see cref="ConditionCoupling"/> model used by <see cref="IDatabaseService"/>.
 /// </summary>
 /// <remarks>
-/// <para>Providers: Qdrant and Basic (in-memory). Use <see cref="EnsureCollectionExistsAsync"/> before upserting.</para>
+/// <para>Providers: Qdrant and Basic (file-based). Use <see cref="EnsureCollectionExistsAsync"/> before upserting.</para>
 /// <para>Pair with <see cref="ILLMService"/> for text-to-vector workflows via <see cref="LLMVectorExtensions"/>.</para>
 /// <para>Condition builders (<c>FieldEquals</c>, etc.) and <c>.And()</c>/<c>.Or()</c> composition work identically to <see cref="IDatabaseService"/>.</para>
 /// </remarks>

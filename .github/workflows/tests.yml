@@ -286,6 +286,9 @@ jobs:
             "./CrossCloudKit.Vector.Basic/CrossCloudKit.Vector.Basic.csproj"
             "./CrossCloudKit.Vector.Qdrant/CrossCloudKit.Vector.Qdrant.csproj"
 
+            # Debug panel
+            "./CrossCloudKit.Basic.DebugPanel/CrossCloudKit.Basic.DebugPanel.csproj"
+
             # Utilities
             "./CrossCloudKit.Utilities.Common/CrossCloudKit.Utilities.Common.csproj"
             "./CrossCloudKit.Utilities.Windows/CrossCloudKit.Utilities.Windows.csproj"

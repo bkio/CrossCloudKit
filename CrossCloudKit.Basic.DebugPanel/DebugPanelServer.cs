@@ -88,6 +88,10 @@ public sealed class DebugPanelServer : IAsyncDisposable
 
         try
         {
+            // Cancel the CTS first so SSE handlers (which await _cts.Token) unblock
+            // before Kestrel waits for active requests to drain.
+            try { _cts?.Cancel(); } catch { /* already cancelled */ }
+
             await _app.StopAsync();
             if (_runTask is not null)
             {

@@ -26,11 +26,12 @@ public class CoordinatorDataProviderIntegrationTests : IAsyncLifetime
     private HttpClient _http = null!;
     private readonly List<string> _tempDirs = new();
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
         _port = TestHelpers.GetAvailablePort();
         Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_DISABLED", null);
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        return Task.CompletedTask;
     }
 
     public async Task DisposeAsync()

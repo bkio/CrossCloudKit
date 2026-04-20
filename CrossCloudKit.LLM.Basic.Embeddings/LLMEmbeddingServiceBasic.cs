@@ -53,7 +53,6 @@ public sealed class LLMEmbeddingServiceBasic : ILLMService
     /// </param>
     public LLMEmbeddingServiceBasic(string? embeddingModelPath = null)
     {
-        SuppressNativeLogging();
         var resolvedPath = ResolveEmbeddingModelPath(embeddingModelPath);
 
         if (resolvedPath is not null && File.Exists(resolvedPath))
@@ -174,14 +173,6 @@ public sealed class LLMEmbeddingServiceBasic : ILLMService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
-
-    private static int _logConfigured;
-    private static void SuppressNativeLogging()
-    {
-        if (Interlocked.CompareExchange(ref _logConfigured, 1, 0) == 0
-            && !string.Equals(Environment.GetEnvironmentVariable("CROSSCLOUDKIT_LLM_VERBOSE_LOGGING"), "true", StringComparison.OrdinalIgnoreCase))
-            NativeLibraryConfig.All.WithLogCallback((level, msg) => { });
-    }
 
     private static string? ResolveEmbeddingModelPath(string? explicitPath)
     {

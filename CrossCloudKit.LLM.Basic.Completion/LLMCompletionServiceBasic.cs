@@ -10,7 +10,6 @@ using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Interfaces.Records;
 using LLama;
 using LLama.Common;
-using LLama.Native;
 using LLama.Sampling;
 
 namespace CrossCloudKit.LLM.Basic.Completion;
@@ -78,7 +77,6 @@ public sealed class LLMCompletionServiceBasic : ILLMService
         int gpuLayerCount = 0)
     {
         _contextSize = contextSize;
-        SuppressNativeLogging();
 
         var resolvedPath = ResolveCompletionModelPath(completionModelPath);
 
@@ -294,14 +292,6 @@ public sealed class LLMCompletionServiceBasic : ILLMService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
-
-    private static int _logConfigured;
-    private static void SuppressNativeLogging()
-    {
-        if (Interlocked.CompareExchange(ref _logConfigured, 1, 0) == 0
-            && !string.Equals(Environment.GetEnvironmentVariable("CROSSCLOUDKIT_LLM_VERBOSE_LOGGING"), "true", StringComparison.OrdinalIgnoreCase))
-            NativeLibraryConfig.All.WithLogCallback((level, msg) => { });
-    }
 
     private static string? ResolveCompletionModelPath(string? explicitPath)
     {

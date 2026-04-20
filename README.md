@@ -962,6 +962,7 @@ var dbService = new DatabaseServiceBasic("myapp", memoryService);
 |---------------------|---------|-------------|
 | `CROSSCLOUDKIT_DEBUG_PANEL_PORT` | `57765` | Port for the dashboard |
 | `CROSSCLOUDKIT_DEBUG_PANEL_DISABLED` | `false` | Set to `true` to disable entirely |
+| `CROSSCLOUDKIT_LLM_VERBOSE_LOGGING` | `false` | Set to `true` to enable native llama.cpp log output from LLM Basic providers |
 
 ### Disabling in Tests
 
@@ -1085,6 +1086,8 @@ OPENAI_EMBEDDING_MODEL=nomic-embed-text:v1.5  # embedding model (optional, falls
 # LLM.Basic — completions work out of the box with the bundled SmolLM2-135M model.
 # Set this only to override with a different GGUF model:
 LLM_BASIC_MODEL_PATH=/path/to/custom-model.gguf
+# Enable verbose native llama.cpp logging (disabled by default):
+CROSSCLOUDKIT_LLM_VERBOSE_LOGGING=true
 ```
 
 

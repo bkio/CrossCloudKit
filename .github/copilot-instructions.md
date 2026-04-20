@@ -658,6 +658,9 @@ Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_DISABLED", "true")
 
 // Custom port
 Environment.SetEnvironmentVariable("CROSSCLOUDKIT_DEBUG_PANEL_PORT", "9999");
+
+// Enable verbose native llama.cpp logging from LLM Basic providers (disabled by default)
+Environment.SetEnvironmentVariable("CROSSCLOUDKIT_LLM_VERBOSE_LOGGING", "true");
 ```
 
 ### Disabling in Tests

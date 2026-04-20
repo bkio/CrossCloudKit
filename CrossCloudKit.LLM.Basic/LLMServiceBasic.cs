@@ -1,9 +1,12 @@
 // Copyright (c) 2022- Burak Kara, MIT License
 // See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using CrossCloudKit.Basic.DebugPanel;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
+using CrossCloudKit.Interfaces.Enums;
 using CrossCloudKit.Interfaces.Records;
 using CrossCloudKit.LLM.Basic.Completion;
 using CrossCloudKit.LLM.Basic.Embeddings;
@@ -37,6 +40,8 @@ public sealed class LLMServiceBasic : ILLMService
 {
     private readonly LLMEmbeddingServiceBasic _embeddingService;
     private readonly LLMCompletionServiceBasic _completionService;
+    private readonly LLMRequestLog _requestLog = new();
+    private DebugTracker? _debugTracker;
     private bool _disposed;
 
     /// <inheritdoc/>
@@ -77,37 +82,160 @@ public sealed class LLMServiceBasic : ILLMService
     {
         _embeddingService  = new LLMEmbeddingServiceBasic(embeddingModelPath);
         _completionService = new LLMCompletionServiceBasic(completionModelPath, contextSize, gpuLayerCount);
+
+        var resolvedCompletionPath = ResolveCompletionModelPath(completionModelPath);
+        var resolvedEmbeddingPath = ResolveEmbeddingModelPath(embeddingModelPath);
+
+        var completionModel = new LLMModelInfo
+        {
+            Available = _completionService.IsCompletionAvailable,
+            Path = resolvedCompletionPath,
+            FileSizeBytes = GetFileSize(resolvedCompletionPath),
+            ContextSize = contextSize
+        };
+        var embeddingModel = new LLMModelInfo
+        {
+            Available = _embeddingService.IsInitialized,
+            Path = resolvedEmbeddingPath,
+            FileSizeBytes = GetFileSize(resolvedEmbeddingPath)
+        };
+
+        var provider = new LLMDebugDataProvider(_requestLog, completionModel, embeddingModel);
+        var displayPath = resolvedCompletionPath ?? resolvedEmbeddingPath ?? "LLM.Basic";
+        try { _debugTracker = DebugPanelCoordinator.RegisterAsync("LLM", displayPath, provider).GetAwaiter().GetResult(); }
+        catch { /* Debug panel is non-critical */ }
     }
 
     // ── Embeddings ────────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public Task<OperationResult<float[]>> CreateEmbeddingAsync(
+    public async Task<OperationResult<float[]>> CreateEmbeddingAsync(
         string text,
         CancellationToken cancellationToken = default)
-        => _embeddingService.CreateEmbeddingAsync(text, cancellationToken);
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await _embeddingService.CreateEmbeddingAsync(text, cancellationToken);
+        sw.Stop();
+
+        _requestLog.Add(new LLMRequestLogEntry
+        {
+            RequestType = LLMRequestType.Embedding,
+            TimestampUtc = DateTime.UtcNow,
+            Duration = sw.Elapsed,
+            Success = result.IsSuccessful,
+            ErrorMessage = result.IsSuccessful ? null : result.ErrorMessage,
+            TextCount = 1,
+            Dimensions = result.IsSuccessful ? result.Data?.Length : null,
+            FirstTextPreview = Truncate(text, 500)
+        });
+        _debugTracker?.BeginOperation("CreateEmbedding", $"len={text.Length}, ok={result.IsSuccessful}")?.Dispose();
+
+        return result;
+    }
 
     /// <inheritdoc/>
-    public Task<OperationResult<IReadOnlyList<float[]>>> CreateEmbeddingsAsync(
+    public async Task<OperationResult<IReadOnlyList<float[]>>> CreateEmbeddingsAsync(
         IReadOnlyList<string> texts,
         CancellationToken cancellationToken = default)
-        => _embeddingService.CreateEmbeddingsAsync(texts, cancellationToken);
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await _embeddingService.CreateEmbeddingsAsync(texts, cancellationToken);
+        sw.Stop();
+
+        _requestLog.Add(new LLMRequestLogEntry
+        {
+            RequestType = LLMRequestType.EmbeddingBatch,
+            TimestampUtc = DateTime.UtcNow,
+            Duration = sw.Elapsed,
+            Success = result.IsSuccessful,
+            ErrorMessage = result.IsSuccessful ? null : result.ErrorMessage,
+            TextCount = texts.Count,
+            Dimensions = result.IsSuccessful && result.Data?.Count > 0 ? result.Data[0].Length : null,
+            FirstTextPreview = texts.Count > 0 ? Truncate(texts[0], 500) : null
+        });
+        _debugTracker?.BeginOperation("CreateEmbeddings", $"count={texts.Count}, ok={result.IsSuccessful}")?.Dispose();
+
+        return result;
+    }
 
     // ── Completions ───────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public Task<OperationResult<LLMResponse>> CompleteAsync(
+    public async Task<OperationResult<LLMResponse>> CompleteAsync(
         LLMRequest request,
         CancellationToken cancellationToken = default)
-        => _completionService.CompleteAsync(request, cancellationToken);
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await _completionService.CompleteAsync(request, cancellationToken);
+        sw.Stop();
+
+        var lastUserMsg = request.Messages.LastOrDefault(m => m.Role == LLMRole.User)?.Content;
+
+        _requestLog.Add(new LLMRequestLogEntry
+        {
+            RequestType = LLMRequestType.Completion,
+            TimestampUtc = DateTime.UtcNow,
+            Duration = sw.Elapsed,
+            Success = result.IsSuccessful,
+            ErrorMessage = result.IsSuccessful ? null : result.ErrorMessage,
+            PromptPreview = Truncate(lastUserMsg, 500),
+            ResponsePreview = result.IsSuccessful ? Truncate(result.Data?.Content, 500) : null,
+            FinishReason = result.IsSuccessful ? result.Data?.FinishReason.ToString() : null,
+            PromptTokenEstimate = EstimateTokens(request.Messages),
+            CompletionTokenEstimate = result.IsSuccessful ? EstimateTokens(result.Data?.Content) : null
+        });
+        _debugTracker?.BeginOperation("Complete", $"ok={result.IsSuccessful}")?.Dispose();
+
+        return result;
+    }
 
     /// <inheritdoc/>
     public async IAsyncEnumerable<OperationResult<LLMStreamChunk>> CompleteStreamingAsync(
         LLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var sw = Stopwatch.StartNew();
+        var lastUserMsg = request.Messages.LastOrDefault(m => m.Role == LLMRole.User)?.Content;
+        var responseBuilder = new System.Text.StringBuilder();
+        var success = true;
+        string? errorMessage = null;
+        string? finishReason = null;
+
         await foreach (var chunk in _completionService.CompleteStreamingAsync(request, cancellationToken))
+        {
+            if (chunk.IsSuccessful && chunk.Data is not null)
+            {
+                if (!string.IsNullOrEmpty(chunk.Data.ContentDelta))
+                    responseBuilder.Append(chunk.Data.ContentDelta);
+                if (chunk.Data.IsFinal)
+                    finishReason = chunk.Data.FinishReason.ToString();
+            }
+            else if (!chunk.IsSuccessful)
+            {
+                success = false;
+                errorMessage = chunk.ErrorMessage;
+            }
+
             yield return chunk;
+        }
+
+        sw.Stop();
+
+        var response = responseBuilder.ToString();
+        _requestLog.Add(new LLMRequestLogEntry
+        {
+            RequestType = LLMRequestType.CompletionStreaming,
+            TimestampUtc = DateTime.UtcNow,
+            Duration = sw.Elapsed,
+            Success = success,
+            ErrorMessage = errorMessage,
+            PromptPreview = Truncate(lastUserMsg, 500),
+            ResponsePreview = Truncate(response, 500),
+            FinishReason = finishReason,
+            PromptTokenEstimate = EstimateTokens(request.Messages),
+            CompletionTokenEstimate = EstimateTokens(response)
+        });
+        _debugTracker?.BeginOperation("CompleteStreaming", $"ok={success}")?.Dispose();
     }
 
     // ── IAsyncDisposable ──────────────────────────────────────────────────────
@@ -118,8 +246,60 @@ public sealed class LLMServiceBasic : ILLMService
         if (!_disposed)
         {
             _disposed = true;
+
+            if (_debugTracker is not null)
+            {
+                try { await DebugPanelCoordinator.DeregisterAsync(_debugTracker.InstanceId); }
+                catch { /* non-critical */ }
+            }
+
             await _embeddingService.DisposeAsync();
             await _completionService.DisposeAsync();
         }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private static string? Truncate(string? value, int maxLen)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        return value.Length <= maxLen ? value : value[..maxLen] + "…";
+    }
+
+    /// <summary>Rough token estimate: ~4 chars per token for English text.</summary>
+    private static int EstimateTokens(IEnumerable<LLMMessage>? messages)
+    {
+        if (messages is null) return 0;
+        return messages.Sum(m => (m.Content?.Length ?? 0)) / 4;
+    }
+
+    private static int EstimateTokens(string? text)
+    {
+        return (text?.Length ?? 0) / 4;
+    }
+
+    private static long GetFileSize(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return -1;
+        try { return File.Exists(path) ? new FileInfo(path).Length : -1; }
+        catch { return -1; }
+    }
+
+    private static string? ResolveCompletionModelPath(string? explicitPath)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPath)) return explicitPath;
+        var env = Environment.GetEnvironmentVariable("LLM_BASIC_MODEL_PATH");
+        if (!string.IsNullOrWhiteSpace(env)) return env;
+        var bundled = Path.Combine(AppContext.BaseDirectory, "models", LLMCompletionServiceBasic.BundledModelFileName);
+        return File.Exists(bundled) ? bundled : Path.Combine(AppContext.BaseDirectory, "models", "completion-model.gguf");
+    }
+
+    private static string? ResolveEmbeddingModelPath(string? explicitPath)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPath)) return explicitPath;
+        var env = Environment.GetEnvironmentVariable("LLM_BASIC_EMBEDDING_MODEL_PATH");
+        if (!string.IsNullOrWhiteSpace(env)) return env;
+        var bundled = Path.Combine(AppContext.BaseDirectory, "models", LLMEmbeddingServiceBasic.BundledModelFileName);
+        return File.Exists(bundled) ? bundled : Path.Combine(AppContext.BaseDirectory, "models", "embedding-model.gguf");
     }
 }

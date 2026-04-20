@@ -21,6 +21,12 @@
   <ItemGroup>
     <ProjectReference Include="..\CrossCloudKit.LLM.Basic.Embeddings\CrossCloudKit.LLM.Basic.Embeddings.csproj" />
     <ProjectReference Include="..\CrossCloudKit.LLM.Basic.Completion\CrossCloudKit.LLM.Basic.Completion.csproj" />
+    <ProjectReference Include="..\CrossCloudKit.Basic.DebugPanel\CrossCloudKit.Basic.DebugPanel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrossCloudKit.LLM.Basic.Tests" />
+    <InternalsVisibleTo Include="CrossCloudKit.Basic.DebugPanel.Tests" />
   </ItemGroup>
 
   <ItemGroup>

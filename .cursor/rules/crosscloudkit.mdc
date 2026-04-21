@@ -269,7 +269,7 @@ if (result.IsSuccessful && result.Data.FinishReason == LLMFinishReason.ToolCall)
 {
     var messages = new List<LLMMessage>(request.Messages);
     // Add the assistant's response (with tool calls) to history
-    messages.Add(new LLMMessage { Role = LLMRole.Assistant, Content = result.Data.Content });
+    messages.Add(new LLMMessage { Role = LLMRole.Assistant, Content = result.Data.Content, ToolCalls = result.Data.ToolCalls });
 
     // Execute each tool call and send results back
     foreach (var tc in result.Data.ToolCalls!)

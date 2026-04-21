@@ -436,6 +436,20 @@ public sealed class LLMServiceOpenAI : ILLMService
         if (msg.ToolCallId is not null)
             obj["tool_call_id"] = msg.ToolCallId;
 
+        if (msg.ToolCalls is { Count: > 0 })
+        {
+            obj["tool_calls"] = new JArray(msg.ToolCalls.Select(tc => new JObject
+            {
+                ["id"] = tc.Id,
+                ["type"] = "function",
+                ["function"] = new JObject
+                {
+                    ["name"] = tc.Name,
+                    ["arguments"] = tc.Arguments
+                }
+            }));
+        }
+
         return obj;
     }
 

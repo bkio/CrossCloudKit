@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 using CrossCloudKit.Interfaces.Enums;
+using System.Collections.Generic;
 
 namespace CrossCloudKit.Interfaces.Records;
 
@@ -33,4 +34,11 @@ public sealed record LLMMessage
     /// Associates the tool result with the originating tool call.
     /// </summary>
     public string? ToolCallId { get; init; }
+
+    /// <summary>
+    /// Optional tool calls when <see cref="Role"/> is <see cref="LLMRole.Assistant"/>.
+    /// Must be included in the message history so subsequent <see cref="LLMRole.Tool"/> messages
+    /// can be correctly associated with their originating calls by the model.
+    /// </summary>
+    public List<LLMToolCall>? ToolCalls { get; init; }
 }

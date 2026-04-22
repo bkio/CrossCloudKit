@@ -131,7 +131,7 @@ using CrossCloudKit.Interfaces.Enums;
 await using var llmService = new LLMServiceOpenAI(
     baseUrl:        "http://localhost:11434/v1",  // Ollama
     apiKey:         "",
-    defaultModel:   "gemma3:12b",                 // used for completions
+    defaultModel:   "qwen2.5:14b",                 // used for completions
     embeddingModel: "nomic-embed-text:v1.5"       // used for CreateEmbeddingAsync / CreateEmbeddingsAsync
 );
 // If embeddingModel is omitted it falls back to defaultModel.
@@ -1080,7 +1080,7 @@ REDIS_ENABLE_SSL=true
 # OpenAI / any OpenAI-compatible endpoint (e.g. Ollama)
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=                          # leave empty for Ollama
-OPENAI_MODEL=gemma3:12b                  # completion model
+OPENAI_MODEL=qwen2.5:14b                  # completion model
 OPENAI_EMBEDDING_MODEL=nomic-embed-text:v1.5  # embedding model (optional, falls back to MODEL)
 # LLM.Basic — completions work out of the box with the bundled SmolLM2-135M model.
 # Set this only to override with a different GGUF model:

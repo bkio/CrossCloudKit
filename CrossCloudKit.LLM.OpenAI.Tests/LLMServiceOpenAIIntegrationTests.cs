@@ -25,7 +25,7 @@ public class LLMServiceOpenAIIntegrationTests : LLMServiceTestBase
         Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
 
     private static string Model =>
-        Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gemma3:12b";
+        Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "qwen2.5:14b";
 
     private static string EmbeddingModel =>
         Environment.GetEnvironmentVariable("OPENAI_EMBEDDING_MODEL") ?? "nomic-embed-text:v1.5";

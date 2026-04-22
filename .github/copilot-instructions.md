@@ -608,7 +608,7 @@ IFileService fs = new FileServiceS3Compatible(serverAddress, accessKey, secretKe
 ILLMService llm = new LLMServiceOpenAI(
     baseUrl: "http://localhost:11434/v1",
     apiKey: "",
-    defaultModel: "gemma3:12b",
+    defaultModel: "qwen2.5:14b",
     embeddingModel: "nomic-embed-text:v1.5"  // optional; falls back to defaultModel
 );
 ```

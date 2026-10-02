@@ -2767,6 +2767,36 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
+    public async Task UpdateItemAsync_WhenItCreatesTheItem_ShouldRegisterTheKeyName()
+    {
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+
+        try
+        {
+            // UpdateItem upserts; the key name must be registered as PutItem does, or
+            // ScanTable (and so DatabaseServiceBackup) cannot tell which attribute is the key
+            var key = new DbKey("UpsertId", new Primitive("upsert-1"));
+            var updateResult = await service.UpdateItemAsync(tableName, key, new JObject { ["Name"] = "Created by update" });
+            updateResult.IsSuccessful.Should().BeTrue("UpdateItemAsync should create the item");
+
+            var getKeysResult = await service.GetTableKeysAsync(tableName);
+            getKeysResult.IsSuccessful.Should().BeTrue("GetTableKeysAsync should succeed");
+            getKeysResult.Data.Should().Contain("UpsertId", "UpdateItemAsync created the item, so its key name should be registered");
+
+            var scanResult = await service.ScanTableAsync(tableName);
+            scanResult.IsSuccessful.Should().BeTrue("ScanTableAsync should succeed");
+            scanResult.Data.Keys.Should().Contain("UpsertId");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
     public async Task MultipleKeyFields_WithFiltering_ShouldWorkCorrectly()
     {
         var service = CreateDatabaseService();

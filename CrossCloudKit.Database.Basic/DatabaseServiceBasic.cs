@@ -939,6 +939,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
             var files = Directory.GetFiles(tablePath, "*.json");
             var results = new ConcurrentBag<JObject>();
+            var keyNamesFromFiles = new HashSet<string>();
 
             foreach (var filePath in files)
             {
@@ -959,6 +960,7 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                         if (TryParseKeyValue(keyValueString, out var keyValue))
                         {
                             AddKeyToJson(item, keyName, keyValue);
+                            keyNamesFromFiles.Add(keyName);
                         }
                     }
 
@@ -972,9 +974,13 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             }
 
             var getKeysResult = await GetTableKeysCoreAsync(tableName, cancellationToken);
-            return !getKeysResult.IsSuccessful
-                ? OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode)
-                : OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((getKeysResult.Data, results.ToList().AsReadOnly()));
+            if (!getKeysResult.IsSuccessful)
+                return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Failure(getKeysResult.ErrorMessage, getKeysResult.StatusCode);
+
+            // Items written by UpdateItem before it registered key names have no entry in the system table;
+            // their key names are still in the file names
+            var keys = getKeysResult.Data.Union(keyNamesFromFiles).ToList().AsReadOnly();
+            return OperationResult<(IReadOnlyList<string>, IReadOnlyList<JObject>)>.Success((keys, results.ToList().AsReadOnly()));
         }
         catch (Exception e)
         {
@@ -1257,7 +1263,8 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
 
             var writeItemTask = WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
 
-            if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
+            // UpdateItem upserts, so it must register the key name when it creates the item, as PutItem does
+            if (putOrUpdateItemType == PutOrUpdateItemType.PutItem || existingItem == null)
             {
                 var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 

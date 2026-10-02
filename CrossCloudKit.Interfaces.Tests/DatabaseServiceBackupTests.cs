@@ -856,6 +856,57 @@ public class DatabaseServiceBackupTests : IAsyncDisposable
         backupResult.Data.Should().BeNull();
     }
 
+    [RetryFact(3, 5000)]
+    public async Task TakeBackupAndRestore_WithTableOnlyWrittenByUpdateItem_ShouldRoundTrip()
+    {
+        // Arrange - UpdateItem upserts; a table it created must still be backed up with its key name
+        await using var backupService = CreateBackupService();
+        const string tableName = "UpsertOnlyTable";
+        var key = new DbKey("Id", new Primitive("upsert-1"));
+        var updateResult = await _databaseService.UpdateItemAsync(tableName, key, new JObject { ["Name"] = "Created by update" });
+        updateResult.IsSuccessful.Should().BeTrue();
+
+        // Act
+        var backupResult = await backupService.TakeBackup();
+        backupResult.IsSuccessful.Should().BeTrue(backupResult.IsSuccessful ? "" : backupResult.ErrorMessage);
+        backupResult.Data.Should().NotBeNull();
+
+        (await _databaseService.DropTableAsync(tableName)).IsSuccessful.Should().BeTrue();
+        var restoreResult = await backupService.RestoreBackupAsync(backupResult.Data!);
+
+        // Assert
+        restoreResult.IsSuccessful.Should().BeTrue(restoreResult.IsSuccessful ? "" : restoreResult.ErrorMessage);
+        var restored = await _databaseService.GetItemAsync(tableName, key);
+        restored.IsSuccessful.Should().BeTrue();
+        restored.Data.Should().NotBeNull();
+        restored.Data!["Name"]!.Value<string>().Should().Be("Created by update");
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task TakeBackup_WithTableWhoseKeyNameWasNeverRegistered_ShouldSucceed()
+    {
+        // Arrange - items written by UpdateItem before it registered key names have no system table entry;
+        // simulate one by writing the item file directly in the Basic database layout
+        await using var backupService = CreateBackupService();
+        var tablePath = Path.Combine(_basePath, "CrossCloudKit.Database.Basic", "test-db", "LegacyTable");
+        Directory.CreateDirectory(tablePath);
+        await System.IO.File.WriteAllTextAsync(Path.Combine(tablePath, "Id_legacy-1.json"), "{ \"Name\": \"Legacy\" }");
+
+        var keysResult = await _databaseService.GetTableKeysAsync("LegacyTable");
+        keysResult.IsSuccessful.Should().BeTrue();
+        keysResult.Data.Should().BeEmpty("the key name was never registered");
+
+        // Act
+        var scanResult = await _databaseService.ScanTableAsync("LegacyTable");
+        var backupResult = await backupService.TakeBackup();
+
+        // Assert
+        scanResult.IsSuccessful.Should().BeTrue();
+        scanResult.Data.Keys.Should().Contain("Id", "the key name is recoverable from the item file names");
+        backupResult.IsSuccessful.Should().BeTrue(backupResult.IsSuccessful ? "" : backupResult.ErrorMessage);
+        backupResult.Data.Should().NotBeNull();
+    }
+
     private DatabaseServiceBackup CreateBackupService(string cronExpression = "0 0 1 1 *") // Once a year to avoid automatic execution during tests
     {
         return new DatabaseServiceBackup(

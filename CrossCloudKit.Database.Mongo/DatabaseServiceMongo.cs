@@ -1267,8 +1267,9 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             }
             else // UpdateItem
             {
+                // UpdateItem upserts (as in the other providers): a missing item is created, not an error
                 var existenceAndConditionCheckResult = await ExistenceAndConditionMatchCheckAsync(table, filter, conditions, cancellationToken);
-                if (!existenceAndConditionCheckResult.IsSuccessful)
+                if (!existenceAndConditionCheckResult.IsSuccessful && existenceAndConditionCheckResult.StatusCode != HttpStatusCode.NotFound)
                     return OperationResult<JObject?>.Failure(existenceAndConditionCheckResult.ErrorMessage, existenceAndConditionCheckResult.StatusCode);
             }
 
@@ -1294,21 +1295,15 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             var updateDocument = new BsonDocument { { "$set", JObjectToBson(newObject) } };
             var updateTask = table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
-            if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
-            {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+            // UpdateItem upserts too, so both register the key name (a no-op if already registered)
+            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-                await Task.WhenAll(updateTask, postInsertTask);
+            await Task.WhenAll(updateTask, postInsertTask);
 
-                var postInsertResult = await postInsertTask;
-                if (!postInsertResult.IsSuccessful)
-                {
-                    return OperationResult<JObject?>.Failure($"PutItemAsync succeeded, however PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
-                }
-            }
-            else
+            var postInsertResult = await postInsertTask;
+            if (!postInsertResult.IsSuccessful)
             {
-                await updateTask;
+                return OperationResult<JObject?>.Failure($"{putOrUpdateItemType} succeeded, however PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
             }
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)

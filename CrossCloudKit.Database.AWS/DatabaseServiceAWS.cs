@@ -1312,6 +1312,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
                 var document = await table.UpdateItemAsync(itemAsDocument, config, cancellationToken);
 
+                // UpdateItem upserts, so it registers the key name as PutItem does (a no-op if already registered)
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
+                if (!postInsertResult.IsSuccessful)
+                {
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                }
+
                 if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
                 {
                     return OperationResult<JObject?>.Success(null);

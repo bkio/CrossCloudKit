@@ -1578,21 +1578,15 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                 transaction.Upsert(itemAsEntity);
                 var commitTask = transaction.CommitAsync();
 
-                if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
-                {
-                    var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+                // UpdateItem upserts too, so both register the key name (a no-op if already registered)
+                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
 
-                    await Task.WhenAll(commitTask, postInsertTask);
+                await Task.WhenAll(commitTask, postInsertTask);
 
-                    var postInsertResult = await postInsertTask;
-                    if (!postInsertResult.IsSuccessful)
-                    {
-                        return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
-                    }
-                }
-                else
+                var postInsertResult = await postInsertTask;
+                if (!postInsertResult.IsSuccessful)
                 {
-                    await commitTask;
+                    return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
 
                 if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)

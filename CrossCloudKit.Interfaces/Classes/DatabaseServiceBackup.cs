@@ -366,9 +366,7 @@ public class DatabaseServiceBackup: IAsyncDisposable
                 {
                     var putResult = await _databaseService.PutItemCoreAsync(
                         tableData.TableName,
-                        new DbKey(tableData.KeyName,
-                            new Primitive(
-                            item[tableData.KeyName].NotNull().Value<string>().NotNull())),
+                        new DbKey(tableData.KeyName, KeyFromBackup(item[tableData.KeyName].NotNull())),
                         (JObject)item,
                         DbReturnItemBehavior.DoNotReturn,
                         true,
@@ -395,6 +393,18 @@ public class DatabaseServiceBackup: IAsyncDisposable
         return opEndResult;
     }
     private record RestoreTableRecord(string TableName, string KeyName, JArray Items);
+
+    /// <summary>
+    /// The key as it was backed up: integer and double keys stay numbers. Reading every key as a string turned
+    /// integer keys into strings on restore, and lookups with the original integer key then found nothing.
+    /// </summary>
+    private static Primitive KeyFromBackup(JToken key) => key.Type switch
+    {
+        JTokenType.Integer => new Primitive(key.Value<long>()),
+        JTokenType.Float => new Primitive(key.Value<double>()),
+        JTokenType.Boolean => new Primitive(key.Value<bool>()),
+        _ => new Primitive(key.Value<string>().NotNull())
+    };
 
     /// <summary>
     /// Creates a distributed mutex scope for coordinating backup and restore operations across multiple processes.

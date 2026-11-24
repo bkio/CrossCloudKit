@@ -712,20 +712,16 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
                 return OperationResult<JObject?>.Failure($"Attribute '{arrayAttributeName}' exists but is not an array", HttpStatusCode.BadRequest);
             }
 
-            var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            // Register the key name BEFORE writing: a registration failure must not follow a successful write.
             if (noExistingItem && !isCalledFromPostInsert)
             {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(writeItemTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
-            var writeItemResult = await writeItemTask;
+            var writeItemResult = await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
             if (!writeItemResult.IsSuccessful)
             {
                 return OperationResult<JObject?>.Failure($"Failed to write item: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode);
@@ -892,21 +888,18 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             var newValue = currentValue + incrementValue;
             finalObj[finalSegment] = newValue;
 
-            var writeItemTask = WriteItemToFileAsync(filePath, existingItem, cancellationToken);
+            // Register the key name BEFORE writing: an increment is not idempotent, so a registration failure
+            // after a successful write would make a retrying caller skip values.
             if (noExistingItem)
             {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(writeItemTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<double>.Failure($"PostInsertItemAsync failed with {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
 
-            var writeItemResult = await writeItemTask;
+            var writeItemResult = await WriteItemToFileAsync(filePath, existingItem, cancellationToken);
             return !writeItemResult.IsSuccessful
                 ? OperationResult<double>.Failure($"WriteItemToFileAsync failed: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode)
                 : OperationResult<double>.Success(newValue);
@@ -1261,23 +1254,18 @@ public sealed class DatabaseServiceBasic : DatabaseServiceBase, IDisposable
             // Don't store the key in the file itself
             itemToSave.Remove(key.Name);
 
-            var writeItemTask = WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
-
-            // UpdateItem upserts, so it must register the key name when it creates the item, as PutItem does
+            // UpdateItem upserts, so it must register the key name when it creates the item, as PutItem does.
+            // Registered BEFORE the write so a registration failure never follows a successful write.
             if (putOrUpdateItemType == PutOrUpdateItemType.PutItem || existingItem == null)
             {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(writeItemTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
 
-            var writeItemResult = await writeItemTask;
+            var writeItemResult = await WriteItemToFileAsync(filePath, itemToSave, cancellationToken);
             if (!writeItemResult.IsSuccessful)
             {
                 return OperationResult<JObject?>.Failure($"WriteItemToFileAsync failed: {writeItemResult.ErrorMessage}", writeItemResult.StatusCode);

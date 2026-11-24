@@ -39,6 +39,13 @@ public class DatabaseServiceAWSIntegrationTests : DatabaseServiceTestBase
         var region = GetAWSRegion();
         var memoryService = new MemoryServiceBasic();
 
+        // Optional: run the suite against DynamoDB Local (java -jar DynamoDBLocal.jar -inMemory -port 8000)
+        var localUrl = Environment.GetEnvironmentVariable("AWS_DYNAMODB_LOCAL_URL");
+        if (!string.IsNullOrEmpty(localUrl))
+        {
+            return new DatabaseServiceAWS(localUrl, memoryService);
+        }
+
         // If credentials are not provided, return a service that will fail initialization
         if (string.IsNullOrEmpty(accessKey) || string.IsNullOrEmpty(secretKey))
         {

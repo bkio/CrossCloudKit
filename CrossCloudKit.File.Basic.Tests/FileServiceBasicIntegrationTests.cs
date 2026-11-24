@@ -63,9 +63,14 @@ public class FileServiceBasicIntegrationTests(ITestOutputHelper testOutputHelper
         return new PubSubServiceBasic();
     }
 
+    // xUnit creates a new instance per test, so every test gets its own bucket. A shared bucket is unsafe here:
+    // tests run in parallel and each one's CleanupBucketAsync deletes the bucket directory, which could remove
+    // another test's files before the notification monitor ever observed them (no Uploaded/Deleted events at all).
+    private readonly string _testBucketName = $"cross-cloud-kit-tests-bucket-{Guid.NewGuid():N}";
+
     protected override string GetTestBucketName()
     {
-        return "cross-cloud-kit-tests-bucket";
+        return _testBucketName;
     }
 
     private static WebApplication CreateWebServer()

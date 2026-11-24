@@ -575,14 +575,10 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             var update = Builders<BsonDocument>.Update.PushEach(arrayAttributeName, elementsToAddList);
 
-            var updateTask = table.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
             if (!isCalledFromPostInsert)
             {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(updateTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                // Register first: a failure here must not follow a successful (non-idempotent) push.
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure(
@@ -590,7 +586,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                         postInsertResult.StatusCode);
                 }
             }
-            else await updateTask;
+            await table.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
@@ -897,18 +893,15 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
                 IsUpsert = true
             };
 
-            var findUpdateTask = table.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
-            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-            await Task.WhenAll(findUpdateTask, postInsertTask);
-
-            var postInsertResult = await postInsertTask;
+            // Register first: an increment is not idempotent, so a registration failure after a
+            // successful increment would make a retrying caller (e.g. an id counter) skip values.
+            var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
             if (!postInsertResult.IsSuccessful)
             {
                 return OperationResult<double>.Failure($"PostInsertItemAsync failed with {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
             }
 
-            var document = await findUpdateTask;
+            var document = await table.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
             if (document != null)
             {
                 // For nested paths, we need to navigate to get the value
@@ -1293,18 +1286,16 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
 
             // Use $set for preventing element name validation exceptions
             var updateDocument = new BsonDocument { { "$set", JObjectToBson(newObject) } };
-            var updateTask = table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
-            // UpdateItem upserts too, so both register the key name (a no-op if already registered)
-            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-            await Task.WhenAll(updateTask, postInsertTask);
-
-            var postInsertResult = await postInsertTask;
+            // UpdateItem upserts too, so both register the key name (a no-op if already registered).
+            // Registered BEFORE the write so a registration failure never follows a successful write.
+            var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
             if (!postInsertResult.IsSuccessful)
             {
-                return OperationResult<JObject?>.Failure($"{putOrUpdateItemType} succeeded, however PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
+                return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
             }
+
+            await table.UpdateOneAsync(filter, updateDocument, new UpdateOptions { IsUpsert = true }, cancellationToken);
 
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {

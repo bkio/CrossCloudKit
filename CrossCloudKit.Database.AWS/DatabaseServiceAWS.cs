@@ -560,15 +560,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             var table = tableResult.Data;
 
+            // DynamoDB DeleteItem supports only NONE or ALL_OLD. ReturnNewValues has no meaning for a
+            // delete (interface: "not applicable"), so it returns null, as the other providers do.
             var config = new DeleteItemOperationConfig
             {
-                ReturnValues = returnBehavior switch
-                {
-                    DbReturnItemBehavior.DoNotReturn => ReturnValues.None,
-                    DbReturnItemBehavior.ReturnNewValues => ReturnValues.AllNewAttributes,
-                    DbReturnItemBehavior.ReturnOldValues => ReturnValues.AllOldAttributes,
-                    _ => ReturnValues.None
-                }
+                ReturnValues = returnBehavior == DbReturnItemBehavior.ReturnOldValues
+                    ? ReturnValues.AllOldAttributes
+                    : ReturnValues.None
             };
 
             if (conditions != null)
@@ -721,19 +719,17 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             var conditionIndex = index;
             BuildConditionExpression(conditions, request, ref conditionIndex);
 
-            var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
             if (!isCalledFromPostInsert)
             {
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-                await Task.WhenAll(responseTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                // Register first: a failure here must not follow a successful (non-idempotent) list_append.
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
             }
-            else await responseTask;
+            var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
+            await responseTask;
 
             if (returnBehavior != DbReturnItemBehavior.DoNotReturn)
             {
@@ -938,22 +934,17 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
             // Build condition expression - use existing index to avoid placeholder conflicts
             BuildConditionExpression(conditions, request, ref attrIndex);
 
-            var responseTask = _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
-
-            // Only call PostInsertItemAsync if this is not already called from PostInsert context
-            var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
             try
             {
-                await Task.WhenAll(responseTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                // Register first: an increment is not idempotent, so a registration failure after a
+                // successful increment would make a retrying caller (e.g. an id counter) skip values.
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
 
-                var response = await responseTask;
+                var response = await _dynamoDbClient.UpdateItemAsync(request, cancellationToken);
 
                 // For nested attributes, we need to extract the value from the response differently
                 if (response.Attributes?.Count > 0)
@@ -1266,23 +1257,20 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     };
                 }
 
-                var putItemTask = table.PutItemAsync(itemAsDocument, config, cancellationToken);
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(putItemTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                // Register the key name BEFORE writing: if registration fails nothing has been written,
+                // so a caller that retries on failure cannot create a duplicate.
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
 
+                var document = await table.PutItemAsync(itemAsDocument, config, cancellationToken);
+
                 if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
                 {
                     return OperationResult<JObject?>.Success(null);
                 }
-
-                var document = await putItemTask;
 
                 if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
                 {
@@ -1317,14 +1305,15 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                     config.ConditionalExpression = BuildConditionalExpression(conditions);
                 }
 
-                var document = await table.UpdateItemAsync(itemAsDocument, config, cancellationToken);
-
-                // UpdateItem upserts, so it registers the key name as PutItem does (a no-op if already registered)
+                // UpdateItem upserts, so it registers the key name as PutItem does (a no-op if already registered).
+                // Registered BEFORE the write so a registration failure never follows a successful update.
                 var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
+
+                var document = await table.UpdateItemAsync(itemAsDocument, config, cancellationToken);
 
                 if (returnBehavior == DbReturnItemBehavior.DoNotReturn)
                 {

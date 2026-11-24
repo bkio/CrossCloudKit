@@ -1487,6 +1487,70 @@ public abstract class DatabaseServiceTestBase
     }
 
     [RetryFact(3, 5000)]
+    public async Task DropTableAsync_ShouldKeepOtherTablesRegistered()
+    {
+        // Regression: dropping one table must not wipe the key registry of the others.
+        // If it does, a later DropTableAsync on the other table finds no keys and silently drops nothing.
+        var service = CreateDatabaseService();
+        var tableA = GetTestTableName();
+        var tableB = GetTestTableName();
+        var key = new DbKey("Id", CreateStringKey("keep-registered"));
+
+        try
+        {
+            (await service.PutItemAsync(tableA, key, CreateTestItem("A", 1))).IsSuccessful.Should().BeTrue();
+            (await service.PutItemAsync(tableB, key, CreateTestItem("B", 2))).IsSuccessful.Should().BeTrue();
+
+            var dropA = await service.DropTableAsync(tableA);
+            dropA.IsSuccessful.Should().BeTrue(dropA.ErrorMessage);
+
+            var dropB = await service.DropTableAsync(tableB);
+            dropB.IsSuccessful.Should().BeTrue(dropB.ErrorMessage);
+
+            var namesAfter = await service.GetTableNamesAsync();
+            namesAfter.IsSuccessful.Should().BeTrue(namesAfter.ErrorMessage);
+            namesAfter.Data.Should().NotContain(tableB, "table B must really be dropped after table A was dropped");
+
+            var existsB = await service.ItemExistsAsync(tableB, key);
+            existsB.IsSuccessful.Should().BeFalse("table B's item must be gone");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableA);
+            await CleanupDatabaseAsync(tableB);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task DeleteItemAsync_WithReturnNewValues_ShouldSucceedAndReturnNull()
+    {
+        // ReturnNewValues is "not applicable" for a delete: every provider deletes and returns null.
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var key = new DbKey("Id", CreateStringKey("delete-new-values"));
+
+        try
+        {
+            (await service.PutItemAsync(tableName, key, CreateTestItem())).IsSuccessful.Should().BeTrue();
+
+            var del = await service.DeleteItemAsync(tableName, key, DbReturnItemBehavior.ReturnNewValues);
+            del.IsSuccessful.Should().BeTrue(del.ErrorMessage);
+            del.Data.Should().BeNull();
+
+            var exists = await service.ItemExistsAsync(tableName, key);
+            (exists.IsSuccessful && exists.Data).Should().BeFalse("the item must be deleted");
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
     public async Task DropTableAsync_WhenTableDoesNotExist_ShouldSucceed()
     {
         var service = CreateDatabaseService();

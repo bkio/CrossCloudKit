@@ -433,21 +433,19 @@ public abstract class DatabaseServiceBase(IMemoryService memoryService, string? 
 
         await using var mutex = await CreateEntityMutexAsync(SystemTableName, systemKey, cancellationToken); //System table lock
 
+        // Remove only the dropped table's entry from the system table.
+        // Previously this deleted with ReturnNewValues, which a delete cannot return: Data was always null,
+        // so the whole system table was dropped and every OTHER table lost its key registry (a later
+        // DropTableAsync on them found no keys and silently dropped nothing). The system table is tiny;
+        // it is not dropped here.
         var deleteResult = await DeleteItemCoreAsync(
             SystemTableName,
             systemKey,
-            DbReturnItemBehavior.ReturnNewValues,
+            DbReturnItemBehavior.DoNotReturn,
             null,
             cancellationToken);
         if (!deleteResult.IsSuccessful)
             return OperationResult<bool>.Failure(deleteResult.ErrorMessage, deleteResult.StatusCode);
-
-        if (deleteResult.Data == null ||
-            !deleteResult.Data.TryGetTypedValue(SystemTableKeysAttributeName, out List<string> keys)
-            || keys.Count == 0)
-        {
-            return await DropTableCoreAsync(SystemTableName, cancellationToken);
-        }
         return OperationResult<bool>.Success(true);
     }
     protected async Task<OperationResult<bool>> AttributeNamesSanityCheck(

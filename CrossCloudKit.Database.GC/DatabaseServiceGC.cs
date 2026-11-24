@@ -973,14 +973,10 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                     transaction.Upsert(newEntity);
 
-                    var commitTask = transaction.CommitAsync();
                     if (!isCalledFromPostInsert)
                     {
-                        var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                        await Task.WhenAll(commitTask, postInsertTask);
-
-                        var postInsertResult = await postInsertTask;
+                        // Register first: a failure here must not follow a successful (non-idempotent) append.
+                        var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                         if (!postInsertResult.IsSuccessful)
                         {
                             return OperationResult<JObject?>.Failure(
@@ -988,7 +984,7 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                                 postInsertResult.StatusCode);
                         }
                     }
-                    else await commitTask;
+                    await transaction.CommitAsync();
 
                     if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
                         return OperationResult<JObject?>.Success(returnItem);
@@ -1255,15 +1251,14 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
 
                     transaction.Upsert(newEntity);
 
-                    var commitTask = transaction.CommitAsync();
-                    var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
+                    // Register first: an increment is not idempotent, so a registration failure after a
+                    // successful commit would make a retrying caller (e.g. an id counter) skip values.
+                    var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
+                    if (!postInsertResult.IsSuccessful)
+                        return OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
 
-                    await Task.WhenAll(commitTask, postInsertTask);
-
-                    var postInsertResult = await postInsertTask;
-                    return !postInsertResult.IsSuccessful
-                        ? OperationResult<double>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode)
-                        : OperationResult<double>.Success(newValue);
+                    await transaction.CommitAsync();
+                    return OperationResult<double>.Success(newValue);
                 }
             }
             catch (Exception e) when (CheckForRetriability(e))
@@ -1576,18 +1571,16 @@ public sealed class DatabaseServiceGC : DatabaseServiceBase, IAsyncDisposable
                         HttpStatusCode.InternalServerError);
 
                 transaction.Upsert(itemAsEntity);
-                var commitTask = transaction.CommitAsync();
 
-                // UpdateItem upserts too, so both register the key name (a no-op if already registered)
-                var postInsertTask = PostInsertItemAsync(tableName, key, cancellationToken);
-
-                await Task.WhenAll(commitTask, postInsertTask);
-
-                var postInsertResult = await postInsertTask;
+                // UpdateItem upserts too, so both register the key name (a no-op if already registered).
+                // Registered BEFORE the commit so a registration failure never follows a successful write.
+                var postInsertResult = await PostInsertItemAsync(tableName, key, cancellationToken);
                 if (!postInsertResult.IsSuccessful)
                 {
                     return OperationResult<JObject?>.Failure($"PostInsertItemAsync failed with: {postInsertResult.ErrorMessage}", postInsertResult.StatusCode);
                 }
+
+                await transaction.CommitAsync();
 
                 if (returnBehavior != DbReturnItemBehavior.ReturnNewValues)
                     return OperationResult<JObject?>.Success(returnItem);

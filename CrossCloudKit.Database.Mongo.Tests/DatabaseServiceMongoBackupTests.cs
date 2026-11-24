@@ -19,6 +19,7 @@ namespace CrossCloudKit.Database.Mongo.Tests;
 /// Backup and restore against a real MongoDB. Each test uses its own database: a restore drops and recreates every
 /// table in the backup, which must not touch the shared test database other tests use in parallel.
 /// </summary>
+[Collection(MongoTestCollection.Name)]
 public class DatabaseServiceMongoBackupTests : IAsyncDisposable
 {
     private readonly string _connectionString = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING") ?? "mongodb://test:test@127.0.0.1/";

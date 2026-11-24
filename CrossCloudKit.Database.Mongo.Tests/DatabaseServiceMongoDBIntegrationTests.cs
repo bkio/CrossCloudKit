@@ -15,6 +15,7 @@ namespace CrossCloudKit.Database.Mongo.Tests;
 /// <summary>
 /// Integration tests for DatabaseServiceMongoDB using Testcontainers
 /// </summary>
+[Collection(MongoTestCollection.Name)]
 public class DatabaseServiceMongoDBIntegrationTests : DatabaseServiceTestBase
 {
     private static string GetConnectionString()

@@ -5,6 +5,7 @@ using System.Net;
 using CrossCloudKit.Interfaces;
 using CrossCloudKit.Interfaces.Classes;
 using CrossCloudKit.Interfaces.Enums;
+using CrossCloudKit.Interfaces.Records;
 using FluentAssertions;
 using Newtonsoft.Json.Linq;
 using CrossCloudKit.Utilities.Common;
@@ -133,6 +134,69 @@ public abstract class DatabaseServiceTestBase
         }
         finally
         {
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task PutItemAsync_WithReturnNewValues_ShouldReturnWrittenItem()
+    {
+        // Regression: DynamoDB PutItem cannot return ALL_NEW; every provider must still return the new item.
+        var service = CreateDatabaseService();
+        var tableName = GetTestTableName();
+        var keyName = "Id";
+        var keyValue = CreateStringKey();
+        var item = CreateTestItem();
+
+        try
+        {
+            var result = await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item, DbReturnItemBehavior.ReturnNewValues);
+
+            result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
+            result.Data.Should().NotBeNull();
+            foreach (var p in item.Properties())
+                result.Data![p.Name].Should().NotBeNull($"{p.Name} was written");
+
+            // Creating the same key again must fail rather than succeed silently.
+            var again = await service.PutItemAsync(tableName, new DbKey(keyName, keyValue), item, DbReturnItemBehavior.ReturnNewValues);
+            again.IsSuccessful.Should().BeFalse();
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
+            if (service is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
+    [RetryFact(3, 5000)]
+    public async Task PutItemAsync_WithReturnNewValues_ShouldApplyOptionsToReturnedItem()
+    {
+        // Regression: the item returned by a put must be normalized by DbOptions like every other read/return path.
+        var service = CreateDatabaseService();
+        service.SetOptions(new DbOptions(DbAutoSortArrays.Yes, DbAutoConvertRoundableFloatToInt.Yes));
+        var tableName = GetTestTableName();
+        var item = new JObject
+        {
+            ["Name"] = "OptionsItem",
+            ["Score"] = 5.0,
+            ["Tags"] = new JArray { "c", "a", "b" }
+        };
+
+        try
+        {
+            var result = await service.PutItemAsync(tableName, new DbKey("Id", CreateStringKey()), item, DbReturnItemBehavior.ReturnNewValues);
+
+            result.IsSuccessful.Should().BeTrue(result.ErrorMessage);
+            result.Data.Should().NotBeNull();
+            result.Data!["Tags"]!.Values<string>().Should().Equal("a", "b", "c");
+            result.Data["Score"]!.Type.Should().Be(JTokenType.Integer);
+            result.Data["Score"]!.Value<long>().Should().Be(5);
+        }
+        finally
+        {
+            await CleanupDatabaseAsync(tableName);
             if (service is IDisposable disposable)
                 disposable.Dispose();
         }

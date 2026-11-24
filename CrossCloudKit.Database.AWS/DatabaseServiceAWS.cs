@@ -1249,15 +1249,13 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
 
             if (putOrUpdateItemType == PutOrUpdateItemType.PutItem)
             {
+                // DynamoDB PutItem only supports ReturnValues NONE or ALL_OLD. Asking for ALL_NEW
+                // yields no attributes, so the new item is returned from what was written (below).
                 var config = new PutItemOperationConfig
                 {
-                    ReturnValues = returnBehavior switch
-                    {
-                        DbReturnItemBehavior.DoNotReturn => ReturnValues.None,
-                        DbReturnItemBehavior.ReturnNewValues => ReturnValues.AllNewAttributes,
-                        DbReturnItemBehavior.ReturnOldValues => ReturnValues.AllOldAttributes,
-                        _ => ReturnValues.None
-                    }
+                    ReturnValues = returnBehavior == DbReturnItemBehavior.ReturnOldValues
+                        ? ReturnValues.AllOldAttributes
+                        : ReturnValues.None
                 };
 
                 if (!shouldOverrideIfExists)
@@ -1285,6 +1283,15 @@ public sealed class DatabaseServiceAWS : DatabaseServiceBase, IDisposable
                 }
 
                 var document = await putItemTask;
+
+                if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
+                {
+                    // The put succeeded (a failed condition throws), so the stored item is exactly what was written.
+                    var written = JObject.Parse(itemAsDocument.ToJson());
+                    ApplyOptions(written);
+                    return OperationResult<JObject?>.Success(written);
+                }
+
                 if (document != null)
                 {
                     var result = JObject.Parse(document.ToJson());

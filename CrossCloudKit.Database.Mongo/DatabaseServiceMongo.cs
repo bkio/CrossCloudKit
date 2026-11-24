@@ -1309,6 +1309,7 @@ public sealed class DatabaseServiceMongo : DatabaseServiceBase, IDisposable
             if (returnBehavior == DbReturnItemBehavior.ReturnNewValues)
             {
                 returnItem = newObject;
+                ApplyOptions(returnItem);
             }
 
             return OperationResult<JObject?>.Success(returnItem);

@@ -1,17 +1,17 @@
 # CrossCloudKit
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![.NET 8](https://img.shields.io/badge/.NET-8-blue.svg)](https://dotnet.microsoft.com/download)
-![Tests](https://img.shields.io/badge/Tests-2299%2F2299%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-1%2F2299%20failing-red)
 
 CrossCloudKit is a comprehensive .NET library that provides unified interfaces and implementations for working with multiple cloud services. It enables developers to write cloud-agnostic code that can seamlessly work across AWS, Google Cloud, MongoDB, Redis, and S3-compatible storage providers with consistent APIs and behavior.
 ## Test Results
 
-**Last Updated:** 2026-11-24 14:14:52 UTC
+**Last Updated:** 2026-11-24 20:59:15 UTC
 
 | Metric | Count |
 |--------|-------|
-| ✅ **Tests Passed** | **2299** |
-| ❌ **Tests Failed** | **0** |
+| ✅ **Tests Passed** | **2298** |
+| ❌ **Tests Failed** | **1** |
 | 📊 **Total Tests** | **2299** |
 
 ## Features
